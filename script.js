@@ -8,6 +8,7 @@ bgMusic.loop = true;
 bgMusic.volume = 0.4;
 let gameActive = false;
 let showFullMap = false;
+
 // ===== DAY / NIGHT SYSTEM =====
 let lastTimeSave = 0;
 let nightMusicPlaying = false;
@@ -24,148 +25,91 @@ let ambientBrightness = 1;
 let skyColor = "rgba(0,0,0,0)";
 
 function updateDayNight(dt){
-
-    // dt = 1 at 60fps
     gameSeconds += dt / 60;
-  localStorage.setItem("gameTime", gameSeconds);
+    localStorage.setItem("gameTime", gameSeconds);
 
- if (gameSeconds >= DAY_LENGTH) {
-    gameSeconds = 0;
-}
-
-localStorage.setItem("gameTime", gameSeconds);
+    if (gameSeconds >= DAY_LENGTH) {
+        gameSeconds = 0;
+    }
+    localStorage.setItem("gameTime", gameSeconds);
 
     const t = gameSeconds / DAY_LENGTH;
   
-  if (gameSeconds - lastTimeSave >= 5 || gameSeconds < lastTimeSave) {
-    lastTimeSave = gameSeconds;
-    localStorage.setItem("gameTime", gameSeconds);
-}
+    if (gameSeconds - lastTimeSave >= 5 || gameSeconds < lastTimeSave) {
+        lastTimeSave = gameSeconds;
+        localStorage.setItem("gameTime", gameSeconds);
+    }
 
-    // 0-24 hour clock
     const hour = t * 24;
-
     let darkness = 0;
 
-    // NIGHT
     if(hour < 5){
         darkness = 0.40;
         skyColor = "rgba(10,20,60,0.25)";
-    }
-
-    // SUNRISE
-    else if(hour < 7){
-
+    } else if(hour < 7){
         let k=(hour-5)/2;
-
         darkness=0.40*(1-k);
-
-        skyColor=`rgba(
-            ${30+170*k},
-            ${40+90*k},
-            ${80*(1-k)},
-            ${0.45*(1-k)}
-        )`;
-
-    }
-
-    // DAY
-    else if(hour < 18){
-
+        skyColor=`rgba(${30+170*k}, ${40+90*k}, ${80*(1-k)}, ${0.45*(1-k)})`;
+    } else if(hour < 18){
         darkness=0;
         skyColor="rgba(0,0,0,0)";
-
-    }
-
-    // SUNSET
-    else if(hour < 20){
-
+    } else if(hour < 20){
         let k=(hour-18)/2;
-
         darkness=0.40*k;
-
-        skyColor=`rgba(
-            ${200},
-            ${120*(1-k)},
-            ${80*(1-k)},
-            ${0.45*k}
-        )`;
-
-    }
-
-    // NIGHT
-    else{
-
+        skyColor=`rgba(${200}, ${120*(1-k)}, ${80*(1-k)}, ${0.45*k})`;
+    } else{
         darkness=0.40;
         skyColor="rgba(10,20,60,0.45)";
     }
 
     ambientBrightness=1-darkness;
-if (ambientBrightness < 0.75) {
-
-    if (!nightMusicPlaying) {
-        bgMusic.loop = true;
-        bgMusic.play();
-        nightMusicPlaying = true;
+    if (ambientBrightness < 0.75) {
+        if (!nightMusicPlaying) {
+            bgMusic.loop = true;
+            bgMusic.play();
+            nightMusicPlaying = true;
+        }
+    } else {
+        if (nightMusicPlaying) {
+            bgMusic.pause();
+            bgMusic.currentTime = 0;
+            nightMusicPlaying = false;
+        }
     }
-
-} else {
-
-    if (nightMusicPlaying) {
-        bgMusic.pause();
-        bgMusic.currentTime = 0;
-        nightMusicPlaying = false;
-    }
-
-}}
+}
 
 function drawNightOverlay(){
-
     ctx.save();
-
     ctx.fillStyle=skyColor;
     ctx.fillRect(0,0,canvas.width,canvas.height);
-
     ctx.fillStyle=`rgba(0,0,20,${1-ambientBrightness})`;
     ctx.fillRect(0,0,canvas.width,canvas.height);
-
     ctx.restore();
-
 }
 
 function drawClock(){
-
     const totalMinutes=Math.floor(gameSeconds/DAY_LENGTH*24*60);
-
     const h=Math.floor(totalMinutes/60);
     const m=totalMinutes%60;
 
     ctx.save();
-
     ctx.fillStyle="rgba(0,0,0,.65)";
-    // Position below the cash display
-const clockX = canvas.width - 730;
-const clockY = 180;
+    const clockX = canvas.width - 730;
+    const clockY = 150;
 
-ctx.fillRect(clockX, clockY, 145, 40);
-
-ctx.fillStyle = "white";
-ctx.fillText(
-    String(h).padStart(2,"0")+":"+
-    String(m).padStart(2,"0"),
-    clockX + 73,
-    clockY + 27
-);
+    ctx.fillRect(clockX, clockY, 145, 40);
+    ctx.fillStyle = "white";
     ctx.font="bold 20px Arial";
     ctx.textAlign="center";
-
-    
-
+    ctx.fillText(
+        String(h).padStart(2,"0")+":"+
+        String(m).padStart(2,"0"),
+        clockX + 73,
+        clockY + 27
+    );
     ctx.restore();
-
 }
 
-// Game Spawning Balancing Constants
 const NUM_NPCS = 20; 
 const NUM_CARS = 17; 
 
@@ -176,17 +120,12 @@ startBtn.addEventListener('click', () => {
   startScreen.style.display = 'none';
   
   const taxiBtn = document.getElementById('taxiBtn');
-  
-const restaurantBtn = document.getElementById('restaurantBtn');
+  const restaurantBtn = document.getElementById('restaurantBtn');
 
-  //bgMusic.play().catch(e => console.log("Audio play blocked."));
-  
-  
   const docEl = document.documentElement;
   if (docEl.requestFullscreen) docEl.requestFullscreen().catch(err => {});
   else if (docEl.webkitRequestFullscreen) docEl.webkitRequestFullscreen();
 
-  // 2. Request Landscape Lock
   if (screen.orientation && screen.orientation.lock) {
     screen.orientation.lock('landscape').catch(err => {
       console.warn("Landscape lock request denied or not supported on this device.");
@@ -235,6 +174,7 @@ function isWalkableColor(nextX, nextY, entitySize = 24) {
   return (isGreyWhiteOrShadow || isGreen || isPeach || isBeige);
 }
 
+// --- ROAD DETECTION CONTROLLERS ---
 function isRoadColor(x, y) {
   if (!collisionData || mapWidth === 0) return false;
   let checkX = Math.floor(x);
@@ -364,28 +304,36 @@ class Player extends Pedestrian {
     super(x, y, 20, "#e67e22", "#2d3436", "#ffdbac");
     this.maxSpeed = 3;
     
-    // --- LOAD SAVED MONEY ---
+    // --- LOAD SAVED DATA ---
     let savedMoney = localStorage.getItem("gma_player_money");
     this.money = savedMoney !== null ? parseInt(savedMoney) : 200; 
 
-    // --- LOAD SAVED HUNGER ---
     let savedHunger = localStorage.getItem("gma_player_hunger");
     this.hunger = savedHunger !== null ? parseFloat(savedHunger) : 100.0;
+
+    let savedHealth = localStorage.getItem("gma_player_health");
+    this.health = savedHealth !== null ? parseFloat(savedHealth) : 100.0;
+    this.maxHealth = 100.0;
+
+    // --- HEALTH STATUS FLAGS ---
+    this.isInvulnerable = false;
+    this.invulnerabilityTimer = 0;
   }
 
   update(dt, isMoving, targetAngle) {
     this.speed = 0;
     if (isMoving) {
       this.angle = targetAngle;
-       // --- DYNAMIC HUNGER SPEED MODIFIER ---
+      
       let hungerModifier = 1.0;
       if (this.hunger <= 0) {
-        hungerModifier = 0.4; // 60% speed reduction when at 0 hunger
+        hungerModifier = 0.4;
       } else if (this.hunger < 20) {
-        hungerModifier = 0.4 + (this.hunger / 20) * 0.6; // Smoothly scale down between 20% and 0% hunger
+        hungerModifier = 0.4 + (this.hunger / 20) * 0.6;
       }
       
-      this.speed = this.maxSpeed * hungerModifier;   this.walkTimer += this.speed * dt * 0.12; 
+      this.speed = this.maxSpeed * hungerModifier;   
+      this.walkTimer += this.speed * dt * 0.12; 
     }
 
     let nextX = this.x + Math.cos(this.angle - Math.PI / 2) * (this.speed * dt);
@@ -399,6 +347,11 @@ class Player extends Pedestrian {
     ctx.save();
     ctx.translate(canvas.width / 2, canvas.height / 2);
     ctx.rotate(this.angle - cameraAngle); 
+
+    // Blink effect when invulnerable
+    if (this.isInvulnerable && Math.floor(Date.now() / 100) % 2 === 0) {
+        ctx.globalAlpha = 0.4;
+    }
 
     let swingOffset = Math.sin(this.walkTimer) * (this.size * 0.18);
     this.drawBaseBody(ctx, swingOffset);
@@ -678,15 +631,11 @@ class Car {
     ctx.fillRect(-this.width / 2 + 1, this.length / 2 - 2, 3, 2);
     ctx.fillRect(this.width / 2 - 4, this.length / 2 - 2, 3, 2);
     
-if (ambientBrightness < 0.75) {
-
- ctx.fillStyle = "#FFF8C0";
-
-    ctx.fillRect(-5, -19, 2, 3);
-    ctx.fillRect(3, -19, 2, 3);
-
-}
-
+    if (ambientBrightness < 0.75) {
+        ctx.fillStyle = "#FFF8C0";
+        ctx.fillRect(-5, -19, 2, 3);
+        ctx.fillRect(3, -19, 2, 3);
+    }
 
     ctx.restore();
   }
@@ -722,11 +671,10 @@ class TaxiJobManager {
   }
 
   update(dt, player, cars, npcs) {
-  if (this.messageTimer > 0) this.messageTimer -= 1 * dt;  
-        if (!this.isJobActive) {
+    if (this.messageTimer > 0) this.messageTimer -= 1 * dt;  
+    if (!this.isJobActive) {
       let distToDepot = Math.sqrt(Math.pow(player.x - this.depotX, 2) + Math.pow(player.y - this.depotY, 2));
       
-      // If within 60px of depot and not already in a car, show the button
       if (distToDepot < 60 && !playerCar) {
         taxiBtn.style.display = 'flex';
       } else {
@@ -734,7 +682,6 @@ class TaxiJobManager {
       }
       return; 
     }
-
 
     this.rentTimer -= 1 * dt;
     if (this.rentTimer <= 0) {
@@ -752,21 +699,17 @@ class TaxiJobManager {
     }
 
     if (!this.hasPassenger) {
-      // Automatically request a dispatch route if none is active
       if (this.pickupX === 0 && this.pickupY === 0 && this.pickupCooldown <= 0) {
         this.generateNewPickupPoint();
       }
 
       if (this.pickupX !== 0 && this.pickupY !== 0) {
         let distToPickup = Math.sqrt(Math.pow(playerCar.x - this.pickupX, 2) + Math.pow(playerCar.y - this.pickupY, 2));
-        
-        // Pick up the customer when the player car drives inside the designated coordinate zone
         if (distToPickup < 50) {
           this.pickUpPassengerAtPoint();
         }
       }
     } else {
-      // Handle the destination delivery logic
       let distToDest = Math.sqrt(Math.pow(playerCar.x - this.destinationX, 2) + Math.pow(playerCar.y - this.destinationY, 2));
       if (distToDest < 60) {
         this.dropOffPassenger(player, npcs);
@@ -776,7 +719,7 @@ class TaxiJobManager {
 
   startJob(player, cars) {
     player.money -= this.rentCost;
-    localStorage.setItem("gma_player_money", player.money); // Saves the wallet deduction safely
+    localStorage.setItem("gma_player_money", player.money); 
 
     this.isJobActive = true;
     this.rentTimer = this.maxRentTime;
@@ -806,12 +749,10 @@ class TaxiJobManager {
 
   pickUpPassengerAtPoint() {
     this.hasPassenger = true;
-    
     const shirtColors = ["#3498db", "#e74c3c", "#2ecc71", "#f1c40f", "#9b59b6"];
     const hairColors = ["#2d3436", "#4a3728", "#d35400"];
     const skinColors = ["#ffdbac", "#f1c27d", "#e0ac69"];
     
-    // Dynamically spawns the customer at the exact point coordinate
     this.currentPassenger = new NPC(
       Date.now(), this.pickupX, this.pickupY,
       shirtColors[Math.floor(Math.random() * shirtColors.length)],
@@ -820,11 +761,9 @@ class TaxiJobManager {
     );
     this.currentPassenger.isPassenger = true;
 
-    // Reset pickup location parameters
     this.pickupX = 0;
     this.pickupY = 0;
 
-    // Set the target dropoff address coordinate node
     let dest = getRandomStrictRoadPosition();
     this.destinationX = dest.x;
     this.destinationY = dest.y;
@@ -835,7 +774,7 @@ class TaxiJobManager {
   dropOffPassenger(player, npcs) {
     let fare = 80 + Math.floor(Math.random() * 60);
     player.money += fare;
-    localStorage.setItem("gma_player_money", player.money); // Saves the earnings safely
+    localStorage.setItem("gma_player_money", player.money);
 
     if (this.currentPassenger) {
       this.currentPassenger.isPassenger = false;
@@ -846,7 +785,7 @@ class TaxiJobManager {
 
     this.hasPassenger = false;
     this.currentPassenger = null;
-    this.pickupCooldown = 180; // Brief rest buffer before triggering the next fare location
+    this.pickupCooldown = 180; 
     
     this.setMessage("Passenger arrived safely! Earned $" + fare, 180);
   }
@@ -908,7 +847,6 @@ class TaxiJobManager {
       ctx.restore();
     }
 
-    // Yellow glowing pickup aura circle ring
     if (this.isJobActive && !this.hasPassenger && this.pickupX !== 0) {
       ctx.save();
       ctx.lineWidth = 5;
@@ -921,7 +859,6 @@ class TaxiJobManager {
       ctx.restore();
     }
 
-    // Green glowing destination dropoff aura circle ring
     if (this.isJobActive && this.hasPassenger) {
       ctx.save();
       ctx.lineWidth = 5;
@@ -936,7 +873,6 @@ class TaxiJobManager {
   }
 }
 
-
 // --- 7. INITIALIZATION CONTROLLERS ---
 let player = new Player(300, 300);
 let taxiManager = new TaxiJobManager(2908, 950);
@@ -946,10 +882,9 @@ let angryDriverInstance = null;
 let playerCar = null;           
 let targetCar = null;           
 
-// Initialize new Restaurant Zone mapping
 const restaurantZone = {
-  x: 1454,       // Exact X mapping per your instruction
-  y: 765,        // Exact Y mapping per your instruction
+  x: 1454,       
+  y: 765,        
   radius: 60,
   mealCost: 40,
   messageTimer: 0
@@ -965,7 +900,6 @@ mapImage.onload = () => {
   collisionCtx.drawImage(mapImage, 0, 0);
   collisionData = collisionCtx.getImageData(0, 0, mapWidth, mapHeight).data;
 
-  // Spawn NPCs
   const shirtColors = ["#3498db", "#e74c3c", "#2ecc71", "#f1c40f", "#9b59b6", "#e67e22", "#1abc9c", "#e84393"];
   const hairColors = ["#2d3436", "#4a3728", "#d35400", "#f39c12"];
   const skinColors = ["#ffdbac", "#f1c27d", "#e0ac69", "#c68642", "#8d5524"];
@@ -979,7 +913,6 @@ mapImage.onload = () => {
     ));
   }
 
-  // Spawn Traffic Cars
   const carColors = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6", "#e67e22"];
   for (let i = 0; i < NUM_CARS; i++) {
     let pos = getRandomRoadPosition();
@@ -1100,6 +1033,35 @@ exitBtn.addEventListener('pointerdown', (e) => {
 });
 
 // --- 10. PHYSICS ENGINE & CORE UPDATE LOOP ---
+
+// GLOBAL CHECK DEATH FUNCTION
+function checkPlayerDeath() {
+  if (player.health <= 0) {
+      taxiManager.setMessage("WASTED: Rushed to the hospital! Medical fee: $150", 240);
+      player.money = Math.max(0, player.money - 150);
+      player.health = player.maxHealth;
+      player.hunger = 100;
+      
+      localStorage.setItem("gma_player_money", player.money);
+      localStorage.setItem("gma_player_health", player.health);
+      localStorage.setItem("gma_player_hunger", player.hunger);
+
+      // Hospital Coordinates
+      player.x = 3888;
+      player.y = 1215;
+      player.speed = 0;
+
+      // Ensure Ejection if died in car
+      if (playerCar) {
+          playerCar.isParked = true;
+          playerCar.hasDriver = false;
+          playerCar = null;
+          exitBtn.style.display = 'none';
+          jackBtn.style.display = 'none';
+      }
+  }
+}
+
 function handlePhysicsAndCollisions() {
   for (let i = 0; i < cars.length; i++) {
     for (let j = i + 1; j < cars.length; j++) {
@@ -1119,12 +1081,21 @@ function handlePhysicsAndCollisions() {
   cars.forEach(car => {
     if (playerCar && car.id === playerCar.id) return; 
     let dx = player.x - car.x, dy = player.y - car.y, dist = Math.sqrt(dx * dx + dy * dy);
+    
     if (dist < 24) {
       if (dist === 0) { dx = 1; dy = 0; dist = 1; }
       let overlap = 24 - dist, nx = dx / dist, ny = dy / dist;
       let targetX = player.x + nx * overlap, targetY = player.y + ny * overlap;
       if (isWalkableColor(targetX, player.y, player.size)) player.x = targetX;
       if (isWalkableColor(player.x, targetY, player.size)) player.y = targetY;
+
+      // --- PLAYER VELOCITY-BASED DAMAGE LOGIC ---
+      if (!playerCar && !player.isInvulnerable && Math.abs(car.speed) > 1.5) {
+        player.health -= 35; // Take damage on high velocity hit
+        player.isInvulnerable = true;
+        player.invulnerabilityTimer = 60; // Setup i-frames
+        checkPlayerDeath();
+      }
     }
   });
 
@@ -1155,13 +1126,27 @@ function updateGame(dt) {
   if (!gameActive) return;
   updateDayNight(dt);
 
+  // Health Invulnerability Timer Update
+  if (player.isInvulnerable) {
+    player.invulnerabilityTimer -= 1 * dt;
+    if (player.invulnerabilityTimer <= 0) player.isInvulnerable = false;
+  }
+
+  // --- AUTOMATIC SLOW HEALTH REGENERATION ---
+  if (!player.isInvulnerable && player.health < player.maxHealth && player.health > 0) {
+    player.health += 0.015 * dt; // Slow step regeneration
+    if (player.health > player.maxHealth) player.health = player.maxHealth;
+    
+    // Periodically sync up local storage for persistence
+    if (Math.random() < 0.01) {
+      localStorage.setItem("gma_player_health", player.health.toFixed(1));
+    }
+  }
+
   npcs.forEach(npc => npc.update(dt));
   cars.forEach(car => car.updateAI(dt, player, npcs, cars));
   taxiManager.update(dt, player, cars, npcs);
-   
-  taxiManager.update(dt, player, cars, npcs);
 
-  
   let distToRest = Math.sqrt(Math.pow(player.x - restaurantZone.x, 2) + Math.pow(player.y - restaurantZone.y, 2));
   if (distToRest < restaurantZone.radius) {
     restaurantBtn.style.display = 'flex';
@@ -1183,20 +1168,17 @@ function updateGame(dt) {
   }
 
   // --- HUNGER SYSTEM LOGIC ---
-  let drainRate = 0.005; // Base passive drain per frame
+  let drainRate = 0.005; 
   if (isMoving) {
-    
     drainRate = playerCar ? 0.008 : 0.013; 
   }
   
   player.hunger -= drainRate * dt;
   if (player.hunger < 0) player.hunger = 0;
   
-  // Periodically save hunger
   if (Math.random() < 0.01) {
-    localStorage.setItem("gma_player_hunger", player.hunger.toFixed(1)); }
-
-  
+    localStorage.setItem("gma_player_hunger", player.hunger.toFixed(1)); 
+  }
 
   if (!playerCar) {
     let closestCar = null, minCarDist = 55; 
@@ -1258,6 +1240,7 @@ function updateGame(dt) {
     player.update(dt, isMoving, targetAngle);
   }
 
+  // --- ANGRY DRIVER DAMAGE ---
   if (angryDriverInstance && playerCar) {
     const keepAlive = angryDriverInstance.update(dt, playerCar, () => {
       player.x = playerCar.x + Math.cos(playerCar.angle - Math.PI / 2 - Math.PI / 2) * 35; 
@@ -1265,6 +1248,12 @@ function updateGame(dt) {
       playerCar.speed = playerCar.baseSpeed * 1.5; playerCar.recentlyJackedTimer = 240; 
       playerCar.isParked = false; playerCar.hasDriver = true; 
       playerCar = null; jackBtn.style.display = 'none'; exitBtn.style.display = 'none';
+
+      // Apply penalty and check death
+      taxiManager.setMessage("The driver pulled you out and beat you up! (-40 HP)", 180);
+      player.health -= 40;
+      checkPlayerDeath();
+
     });
     if (!keepAlive) angryDriverInstance = null;
   }
@@ -1293,16 +1282,15 @@ function drawGame() {
       ctx.drawImage(mapImage, fullX, fullY, fullW, fullH);
       ctx.strokeStyle = "rgba(255, 255, 255, 0.4)"; ctx.lineWidth = 3; ctx.strokeRect(fullX, fullY, fullW, fullH);
 
-      // Renders target destinations, explicit pickup points, or depot hubs directly scaled on the full opened map layout
       if (taxiManager.isJobActive && taxiManager.hasPassenger) {
-        ctx.fillStyle = "#2ecc71"; // Green dropoff location node
+        ctx.fillStyle = "#2ecc71"; 
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 2.5;
         ctx.beginPath();
         ctx.arc(fullX + taxiManager.destinationX * scale, fullY + taxiManager.destinationY * scale, 12, 0, Math.PI * 2);
         ctx.fill(); ctx.stroke();
       } else if (taxiManager.isJobActive && !taxiManager.hasPassenger && taxiManager.pickupX !== 0) {
-        ctx.fillStyle = "#f1c40f"; // Yellow dispatch pickup zone dot
+        ctx.fillStyle = "#f1c40f"; 
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 2.5;
         ctx.beginPath();
@@ -1316,22 +1304,14 @@ function drawGame() {
         ctx.arc(fullX + taxiManager.depotX * scale, fullY + taxiManager.depotY * scale, 12, 0, Math.PI * 2);
         ctx.fill(); ctx.stroke();
       }
-      // Restaurant marker
-ctx.fillStyle = "#d35400";
-ctx.strokeStyle = "#ffffff";
-ctx.lineWidth = 2.5;
-ctx.beginPath();
-ctx.arc(
-  fullX + restaurantZone.x * scale,
-  fullY + restaurantZone.y * scale,
-  12,
-  0,
-  Math.PI * 2
-);
-ctx.fill();
-ctx.stroke();
+      
+      ctx.fillStyle = "#d35400";
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(fullX + restaurantZone.x * scale, fullY + restaurantZone.y * scale, 12, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
 
-      // Draw player map reference node arrow indicator
       ctx.save();
       ctx.translate(fullX + (player.x + player.size / 2) * scale, fullY + (player.y + player.size / 2) * scale);
       ctx.rotate(player.angle);
@@ -1357,10 +1337,9 @@ ctx.stroke();
 
   taxiManager.drawWorldMarkers(ctx);
   
-  // --- DRAW RESTAURANT MARKER ZONE (WORLD SPACE) ---
   ctx.save();
   ctx.lineWidth = 4;
-  ctx.strokeStyle = "#d35400"; // Deep Burger Orange
+  ctx.strokeStyle = "#d35400"; 
   ctx.fillStyle = "rgba(211, 84, 0, 0.2)";
   ctx.beginPath();
   ctx.arc(restaurantZone.x, restaurantZone.y, restaurantZone.radius, 0, Math.PI * 2);
@@ -1384,12 +1363,12 @@ ctx.stroke();
   ctx.textAlign = "left";
   ctx.fillText(`$${player.money}`, 35, 50);
 
-  // --- DRAW HUD: HUNGER BAR (Placed safely below taxi UI space!) ---
+  // --- DRAW HUD: HUNGER BAR ---
   ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
-  ctx.fillRect(20, 230, 180, 25); 
+  ctx.fillRect(20, 200, 180, 25); 
 
   let hungerWidth = (player.hunger / 100) * 172;
-  ctx.fillStyle = player.hunger < 25 ? "#e74c3c" : "#e67e22"; // Turns red on low condition
+  ctx.fillStyle = player.hunger < 25 ? "#e74c3c" : "#e67e22"; 
   ctx.fillRect(24, 234, Math.max(0, hungerWidth), 17);
 
   ctx.fillStyle = "#ffffff";
@@ -1397,9 +1376,22 @@ ctx.stroke();
   ctx.textAlign = "center";
   ctx.fillText(` HUNGER: ${Math.ceil(player.hunger)}%`, 110, 247);
 
+  // --- DRAW HUD: HEALTH BAR --- (Positioned cleanly below Hunger)
+  ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+  ctx.fillRect(20, 230, 180, 25); 
+
+  let healthWidth = (player.health / player.maxHealth) * 172;
+  ctx.fillStyle = player.health < 30 ? "#c0392b" : "#e74c3c"; 
+  ctx.fillRect(24, 204, Math.max(0, healthWidth), 17);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 11px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText(` HEALTH: ${Math.ceil(player.health)}%`, 110, 217);
+
+ drawNightOverlay();
   taxiManager.drawUI(ctx);
-  drawNightOverlay();
-drawClock();
+  drawClock();
 
   if (mapImage.complete && mapWidth > 0) {
     const radarRadius = 80, padding = 20, mmX = canvas.width - radarRadius - padding, mmY = radarRadius + padding, radarZoom = 0.12; 
@@ -1424,17 +1416,10 @@ drawClock();
       ctx.beginPath(); ctx.arc(taxiManager.depotX, taxiManager.depotY, 30, 0, Math.PI * 2); ctx.fill();
     } 
     
-    // Restaurant marker
-ctx.fillStyle = "#d35400";
-ctx.beginPath();
-ctx.arc(
-  restaurantZone.x,
-  restaurantZone.y,
-  30,
-  0,
-  Math.PI * 2
-);
-ctx.fill();
+    ctx.fillStyle = "#d35400";
+    ctx.beginPath();
+    ctx.arc(restaurantZone.x, restaurantZone.y, 30, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore(); 
     ctx.restore(); 
 
@@ -1464,31 +1449,36 @@ function gameLoop(timestamp) {
   drawGame();
   requestAnimationFrame(gameLoop);
 }
-// --- ZONE INTERACTION BUTTON TRIGGERS ---
 
-// Trigger Taxi Job manually on tap
+// --- ZONE INTERACTION BUTTON TRIGGERS ---
+const taxiBtn = document.getElementById('taxiBtn');
+const restaurantBtn = document.getElementById('restaurantBtn');
+
 taxiBtn.addEventListener('click', () => {
   if (player.money >= taxiManager.rentCost) {
     taxiManager.startJob(player, cars);
-    taxiBtn.style.display = 'none'; // Hide right away after starting
+    taxiBtn.style.display = 'none'; 
   } else {
     taxiManager.setMessage("Not enough money to rent a Taxi! Need $" + taxiManager.rentCost, 60);
   }
 });
 
-// Trigger Restaurant purchase manually on tap
 restaurantBtn.addEventListener('click', () => {
   if (player.money >= restaurantZone.mealCost) {
-    if (player.hunger >= 100) {
-      taxiManager.setMessage("You are already full!", 60);
+    if (player.hunger >= 100 && player.health >= player.maxHealth) {
+      taxiManager.setMessage("You are already fully healed and full!", 60);
       return;
     }
     player.money -= restaurantZone.mealCost;
-    player.hunger =100;
+    player.hunger = 100;
+    player.health = Math.min(player.maxHealth, player.health + 40); 
+    
     localStorage.setItem("gma_player_money", player.money);
     localStorage.setItem("gma_player_hunger", player.hunger);
-    taxiManager.setMessage("Yum! Bought a burger meal. (Restored Hunger)", 120);
-    restaurantBtn.style.display = 'none'; // Hide right away after buying
+    localStorage.setItem("gma_player_health", player.health);
+    
+    taxiManager.setMessage("Yum! Bought a burger meal. (Restored Hunger & Health)", 120);
+    restaurantBtn.style.display = 'none'; 
   } else {
     taxiManager.setMessage("Not enough money to buy food!", 60);
   }
