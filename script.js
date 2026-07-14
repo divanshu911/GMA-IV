@@ -9,11 +9,106 @@ bgMusic.volume = 1.0;
 let gameActive = false;
 let showFullMap = false;
 
+// --- NEW FOOTSTEP AUDIO INTEGRATION ---
+const grassWalkUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/main/grasswalk.ogg";
+const roadWalkUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/main/roadwalk.ogg";
+
+// Audio pool factory to safely support rapid overlapping sound plays
+function createAudioPool(url, baseVolume = 1.0) {
+    const pool = [];
+    const poolSize = 6;
+    for (let i = 0; i < poolSize; i++) {
+        const audio = new Audio(url);
+        audio.volume = baseVolume;
+        pool.push(audio);
+    }
+    let currentIdx = 0;
+    return {
+        play(volume) {
+            const audio = pool[currentIdx];
+            audio.volume = volume !== undefined ? volume : baseVolume;
+            audio.currentTime = 0;
+            audio.play().catch(() => {});
+            currentIdx = (currentIdx + 1) % poolSize;
+        }
+    };
+}
+
+const grassAudioPool = createAudioPool(grassWalkUrl, 1.0);
+const roadAudioPool = createAudioPool(roadWalkUrl, 1.0);
+
+// Helper function to check if an entity's position is on road or grass using your collision logic
+function getSurfaceType(worldX, worldY) {
+    // Uses your game's existing road detection controller
+    if (typeof isStrictRoadColor === 'function' && isStrictRoadColor(worldX, worldY)) {
+        return 'road';
+    }
+    if (typeof isRoadColor === 'function' && isRoadColor(worldX, worldY)) {
+        return 'road';
+    }
+    return 'grass';
+}
+
+// Global function to trigger footstep sounds at an interval
+function handleFootstepSound(character, isPlayer, dt) {
+    if (!gameActive) return;
+
+    // Determine if the entity is actually moving on foot
+    let isMoving = false;
+    if (isPlayer) {
+        isMoving = (typeof keys !== 'undefined' && (keys['w'] || keys['s'] || keys['a'] || keys['d'] || keys['ArrowUp'] || keys['ArrowDown'] || keys['ArrowLeft'] || keys['ArrowRight'] || (typeof isJoystickMoving !== 'undefined' && isJoystickMoving)));
+    } else {
+        isMoving = (character.speed && character.speed > 0.1 && !character.isPassenger);
+    }
+
+    // Don't play steps if sitting inside a vehicle
+    if (!isMoving || (typeof playerCar !== 'undefined' && playerCar && isPlayer)) {
+        return;
+    }
+
+    if (character.footstepTimer === undefined) {
+        character.footstepTimer = 0;
+    }
+
+    character.footstepTimer += dt;
+    
+    // Footstep pacing interval (roughly every 16 frames/ticks)
+    const strideInterval = 16;
+
+    if (character.footstepTimer >= strideInterval) {
+        character.footstepTimer = 0;
+
+        let volume = 0.5; // Default player volume
+
+        if (!isPlayer) {
+            // NPC: Volume diminishes accurately by distance
+            if (typeof player !== 'undefined') {
+                let dx = character.x - player.x;
+                let dy = character.y - player.y;
+                let distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance > 350) return; // Unhearable past 350 pixels
+                volume = 0.12 * (1 - distance / 350); 
+            } else {
+                volume = 0.08;
+            }
+        }
+
+        // Detect surface underneath character coordinates
+        const surface = getSurfaceType(character.x, character.y);
+        if (surface === 'road') {
+            roadAudioPool.play(volume);
+        } else {
+            grassAudioPool.play(volume);
+        }
+    }
+}
+
 // ===== DAY / NIGHT SYSTEM =====
 let lastTimeSave = 0;
 let nightMusicPlaying = false;
 
-const DAY_LENGTH = 15 * 60; // 15 minutes
+const DAY_LENGTH = 15 * 60; 
 
 let gameSeconds = Number(localStorage.getItem("gameTime"));
 
@@ -1264,6 +1359,12 @@ function updateGame(dt) {
   camera.angle += camDiff * (0.025 * dt);
   
   handlePhysicsAndCollisions();
+  
+handleFootstepSound(player, true, dt);
+
+npcs.forEach(npc => {
+    handleFootstepSound(npc, false, dt);
+});
 }
 
 // --- 11. GRAPHICS DRAW ENGINE ---
