@@ -2,7 +2,7 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
 // --- 1. AUDIO & STATE ---
-const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/b48ccdc1cbcc9829afb0ca229958d3df10535733/sunset_glide.mp3";
+const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
 bgMusic.loop = true;
 bgMusic.volume = 0.4;
@@ -10,6 +10,7 @@ let gameActive = false;
 let showFullMap = false;
 // ===== DAY / NIGHT SYSTEM =====
 let lastTimeSave = 0;
+let nightMusicPlaying = false;
 
 const DAY_LENGTH = 15 * 60; // 15 minutes
 
@@ -100,7 +101,23 @@ localStorage.setItem("gameTime", gameSeconds);
     }
 
     ambientBrightness=1-darkness;
-}
+if (ambientBrightness < 0.75) {
+
+    if (!nightMusicPlaying) {
+        bgMusic.loop = true;
+        bgMusic.play();
+        nightMusicPlaying = true;
+    }
+
+} else {
+
+    if (nightMusicPlaying) {
+        bgMusic.pause();
+        bgMusic.currentTime = 0;
+        nightMusicPlaying = false;
+    }
+
+}}
 
 function drawNightOverlay(){
 
@@ -162,9 +179,9 @@ startBtn.addEventListener('click', () => {
   
 const restaurantBtn = document.getElementById('restaurantBtn');
 
-  bgMusic.play().catch(e => console.log("Audio play blocked."));
+  //bgMusic.play().catch(e => console.log("Audio play blocked."));
   
-  // 1. Request Fullscreen (Required by most browsers to allow orientation lock)
+  
   const docEl = document.documentElement;
   if (docEl.requestFullscreen) docEl.requestFullscreen().catch(err => {});
   else if (docEl.webkitRequestFullscreen) docEl.webkitRequestFullscreen();
@@ -970,7 +987,7 @@ mapImage.onload = () => {
   }
 };
 
-mapImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/IMG_map02.png"; 
+mapImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/map.png"; 
 
 // --- 8. KEYBOARD & JOYSTICK CONTROLS ---
 const activeMoves = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
