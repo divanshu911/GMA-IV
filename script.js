@@ -5,7 +5,7 @@ const ctx = canvas.getContext('2d');
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
 bgMusic.loop = true;
-bgMusic.volume = 0.4;
+bgMusic.volume = 1.0;
 let gameActive = false;
 let showFullMap = false;
 
@@ -1354,6 +1354,7 @@ function drawGame() {
   ctx.restore(); 
 
   if (!playerCar) player.draw(ctx, camera.angle);
+  drawNightOverlay()
 
   // --- DRAW HUD: MONEY ---
   ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
@@ -1389,7 +1390,6 @@ function drawGame() {
   ctx.textAlign = "center";
   ctx.fillText(` HEALTH: ${Math.ceil(player.health)}%`, 110, 217);
 
- drawNightOverlay();
   taxiManager.drawUI(ctx);
   drawClock();
 
