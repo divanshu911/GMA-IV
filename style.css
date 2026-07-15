@@ -231,3 +231,17 @@ canvas {
   transform: scale(0.95);
 }
 
+#enterHomeBtn { 
+  right: 55%; /* Next to the burger button */
+  background: rgba(52, 152, 219, 0.7); /* Blue */
+}
+
+#sleepBtn { 
+  right: 40%; 
+  background: rgba(155, 89, 182, 0.7); /* Purple */
+}
+
+#exitHomeBtn { 
+  right: 25%; 
+  background: rgba(149, 165, 166, 0.7); /* Grey */
+}
