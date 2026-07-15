@@ -10,8 +10,8 @@ let gameActive = false;
 let showFullMap = false;
 
 // --- NEW FOOTSTEP AUDIO INTEGRATION ---
-const grassWalkUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/main/grasswalk.ogg";
-const roadWalkUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/main/roadwalk.ogg";
+const grassWalkUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/ddddea61f0bfe6a7858006295392fa8b79839939/walkongrass.ogg";
+const roadWalkUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/ddddea61f0bfe6a7858006295392fa8b79839939/walkonroad.ogg";
 
 // Audio pool factory to safely support rapid overlapping sound plays
 function createAudioPool(url, baseVolume = 1.0) {
@@ -34,12 +34,11 @@ function createAudioPool(url, baseVolume = 1.0) {
     };
 }
 
-const grassAudioPool = createAudioPool(grassWalkUrl, 1.0);
+const grassAudioPool = createAudioPool(grassWalkUrl, 0.6);
 const roadAudioPool = createAudioPool(roadWalkUrl, 1.0);
 
-// Helper function to check if an entity's position is on road or grass using your collision logic
 function getSurfaceType(worldX, worldY) {
-    // Uses your game's existing road detection controller
+    if (typeof isInsideHouse !== 'undefined' && isInsideHouse) return 'road'; 
     if (typeof isStrictRoadColor === 'function' && isStrictRoadColor(worldX, worldY)) {
         return 'road';
     }
@@ -55,16 +54,19 @@ function handleFootstepSound(character, isPlayer, dt) {
 
     // Determine if the entity is actually moving on foot
     let isMoving = false;
-    if (isPlayer) {
-        isMoving = (typeof keys !== 'undefined' && (keys['w'] || keys['s'] || keys['a'] || keys['d'] || keys['ArrowUp'] || keys['ArrowDown'] || keys['ArrowLeft'] || keys['ArrowRight'] || (typeof isJoystickMoving !== 'undefined' && isJoystickMoving)));
-    } else {
+ if (isPlayer) {
+    isMoving = player.speed > 0.1;
+}  else {
         isMoving = (character.speed && character.speed > 0.1 && !character.isPassenger);
     }
 
-    // Don't play steps if sitting inside a vehicle
-    if (!isMoving || (typeof playerCar !== 'undefined' && playerCar && isPlayer)) {
-        return;
-    }
+if (!isMoving) {
+    return;
+}
+
+if (isPlayer && playerCar) {
+    return;
+}
 
     if (character.footstepTimer === undefined) {
         character.footstepTimer = 0;
@@ -72,29 +74,38 @@ function handleFootstepSound(character, isPlayer, dt) {
 
     character.footstepTimer += dt;
     
-    // Footstep pacing interval (roughly every 16 frames/ticks)
-    const strideInterval = 16;
+   
+    const speed = Math.max(character.speed || 0, 0.1);
+
+// Adjust these if needed.
+const MIN_INTERVAL = 8;    // Fastest (running)
+const MAX_INTERVAL = 30;  // Slowest (walking)
+const MAX_SPEED = 8;
+
+const strideInterval =
+    MAX_INTERVAL -
+    (Math.min(speed, MAX_SPEED) / MAX_SPEED) *
+    (MAX_INTERVAL - MIN_INTERVAL);
 
     if (character.footstepTimer >= strideInterval) {
         character.footstepTimer = 0;
 
-        let volume = 0.5; // Default player volume
+        let volume = 1.0; 
 
         if (!isPlayer) {
-            // NPC: Volume diminishes accurately by distance
+            
             if (typeof player !== 'undefined') {
                 let dx = character.x - player.x;
                 let dy = character.y - player.y;
                 let distance = Math.sqrt(dx * dx + dy * dy);
                 
                 if (distance > 350) return; // Unhearable past 350 pixels
-                volume = 0.12 * (1 - distance / 350); 
+                volume = 0.65 * (1 - distance / 350); 
             } else {
-                volume = 0.08;
+                volume = 0.42;
             }
         }
 
-        // Detect surface underneath character coordinates
         const surface = getSurfaceType(character.x, character.y);
         if (surface === 'road') {
             roadAudioPool.play(volume);
@@ -170,6 +181,16 @@ function updateDayNight(dt){
             bgMusic.currentTime = 0;
             nightMusicPlaying = false;
         }
+    }
+
+    // --- DAILY RENT LOGIC ($60 at 5:30 AM) ---
+    if (hour < 5 || hour > 6) {
+        rentPaidForDayCycle = false;
+    } else if (hour >= 5.5 && hour <= 6.0 && !rentPaidForDayCycle) {
+        player.money -= 60;
+        localStorage.setItem("gma_player_money", player.money);
+        if (typeof taxiManager !== 'undefined') taxiManager.setMessage("Paid Daily House Rent: $60", 240);
+        rentPaidForDayCycle = true;
     }
 }
 
@@ -251,15 +272,20 @@ let mapHeight = 0;
 let collisionData = null; 
 
 function isWalkableColor(nextX, nextY, entitySize = 24) {
-  if (!mapImage.complete || mapWidth === 0 || !collisionData) return false;
+  const currentMapWidth = isInsideHouse ? houseMapWidth : mapWidth;
+  const currentMapHeight = isInsideHouse ? houseMapHeight : mapHeight;
+  const data = isInsideHouse ? houseCollisionData : collisionData;
+  
+  if (!data || currentMapWidth === 0) return false;
+  
   let checkX = Math.floor(nextX + entitySize / 2);
   let checkY = Math.floor(nextY + entitySize / 2);
-  if (checkX < 0 || checkX >= mapWidth || checkY < 0 || checkY >= mapHeight) return false;
+  if (checkX < 0 || checkX >= currentMapWidth || checkY < 0 || checkY >= currentMapHeight) return false;
 
-  const index = (checkY * mapWidth + checkX) * 4;
-  const r = collisionData[index];
-  const g = collisionData[index + 1];
-  const b = collisionData[index + 2];
+  const index = (checkY * currentMapWidth + checkX) * 4;
+  const r = data[index];
+  const g = data[index + 1];
+  const b = data[index + 2];
 
   const isGreyWhiteOrShadow = (Math.abs(r - g) < 35 && Math.abs(g - b) < 35 && Math.abs(r - b) < 35);
   const isGreen = (g > r + 15 && g > b + 15);
@@ -985,6 +1011,29 @@ const restaurantZone = {
   messageTimer: 0
 };
 
+// --- HOME SYSTEM VARIABLES ---
+let isInsideHouse = false;
+let houseImage = new Image();
+houseImage.crossOrigin = "Anonymous";
+let houseCollisionData = null;
+let houseMapWidth = 0, houseMapHeight = 0;
+let outsideX = 0, outsideY = 0;
+let rentPaidForDayCycle = false;
+
+const homeZone = { x: 1912, y: 1768, radius: 60 };
+
+houseImage.onload = () => {
+  houseMapWidth = houseImage.width;
+  houseMapHeight = houseImage.height;
+  const hcCanvas = document.createElement('canvas');
+  hcCanvas.width = houseMapWidth;
+  hcCanvas.height = houseMapHeight;
+  const hCtx = hcCanvas.getContext('2d');
+  hCtx.drawImage(houseImage, 0, 0);
+  houseCollisionData = hCtx.getImageData(0, 0, houseMapWidth, houseMapHeight).data;
+};
+houseImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/IMG_20260715_162413.jpg";
+
 let camera = { angle: 0, targetAngle: 0, moveTimer: 0, lastAngle: 0 };
 
 mapImage.onload = () => {
@@ -1173,26 +1222,28 @@ function handlePhysicsAndCollisions() {
     }
   }
 
-  cars.forEach(car => {
-    if (playerCar && car.id === playerCar.id) return; 
-    let dx = player.x - car.x, dy = player.y - car.y, dist = Math.sqrt(dx * dx + dy * dy);
-    
-    if (dist < 24) {
-      if (dist === 0) { dx = 1; dy = 0; dist = 1; }
-      let overlap = 24 - dist, nx = dx / dist, ny = dy / dist;
-      let targetX = player.x + nx * overlap, targetY = player.y + ny * overlap;
-      if (isWalkableColor(targetX, player.y, player.size)) player.x = targetX;
-      if (isWalkableColor(player.x, targetY, player.size)) player.y = targetY;
+  if (!isInsideHouse) {
+      cars.forEach(car => {
+        if (playerCar && car.id === playerCar.id) return; 
+        let dx = player.x - car.x, dy = player.y - car.y, dist = Math.sqrt(dx * dx + dy * dy);
+        
+        if (dist < 24) {
+          if (dist === 0) { dx = 1; dy = 0; dist = 1; }
+          let overlap = 24 - dist, nx = dx / dist, ny = dy / dist;
+          let targetX = player.x + nx * overlap, targetY = player.y + ny * overlap;
+          if (isWalkableColor(targetX, player.y, player.size)) player.x = targetX;
+          if (isWalkableColor(player.x, targetY, player.size)) player.y = targetY;
 
-      // --- PLAYER VELOCITY-BASED DAMAGE LOGIC ---
-      if (!playerCar && !player.isInvulnerable && Math.abs(car.speed) > 1.5) {
-        player.health -= 35; // Take damage on high velocity hit
-        player.isInvulnerable = true;
-        player.invulnerabilityTimer = 60; // Setup i-frames
-        checkPlayerDeath();
-      }
-    }
-  });
+          // --- PLAYER VELOCITY-BASED DAMAGE LOGIC ---
+          if (!playerCar && !player.isInvulnerable && Math.abs(car.speed) > 1.5) {
+            player.health -= 35; // Take damage on high velocity hit
+            player.isInvulnerable = true;
+            player.invulnerabilityTimer = 60; // Setup i-frames
+            checkPlayerDeath();
+          }
+        }
+      });
+  }
 
   cars.forEach(car => {
     npcs.forEach(npc => {
@@ -1206,15 +1257,17 @@ function handlePhysicsAndCollisions() {
     });
   });
 
-  npcs.forEach(npc => {
-    let dx = npc.x - player.x, dy = npc.y - player.y, dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < 22) {
-      if (dist === 0) { dx = 1; dy = 0; dist = 1; }
-      let overlap = 22 - dist, nx = dx / dist, ny = dy / dist;
-      let tx = npc.x + nx * overlap, ty = npc.y + ny * overlap;
-      if (isRoadColor(tx, ty)) { npc.x = tx; npc.y = ty; }
-    }
-  });
+  if (!isInsideHouse) {
+      npcs.forEach(npc => {
+        let dx = npc.x - player.x, dy = npc.y - player.y, dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 22) {
+          if (dist === 0) { dx = 1; dy = 0; dist = 1; }
+          let overlap = 22 - dist, nx = dx / dist, ny = dy / dist;
+          let tx = npc.x + nx * overlap, ty = npc.y + ny * overlap;
+          if (isRoadColor(tx, ty)) { npc.x = tx; npc.y = ty; }
+        }
+      });
+  }
 }
 
 function updateGame(dt) {
@@ -1238,17 +1291,37 @@ function updateGame(dt) {
     }
   }
 
-  npcs.forEach(npc => npc.update(dt));
-  cars.forEach(car => car.updateAI(dt, player, npcs, cars));
-  taxiManager.update(dt, player, cars, npcs);
+  if (!isInsideHouse) {
+      npcs.forEach(npc => npc.update(dt));
+      cars.forEach(car => car.updateAI(dt, player, npcs, cars));
+      taxiManager.update(dt, player, cars, npcs);
+  } else {
+      taxiBtn.style.display = 'none';
+  }
 
   let distToRest = Math.sqrt(Math.pow(player.x - restaurantZone.x, 2) + Math.pow(player.y - restaurantZone.y, 2));
-  if (distToRest < restaurantZone.radius) {
-    restaurantBtn.style.display = 'flex';
-  } else {
-    restaurantBtn.style.display = 'none';
-  }
+  restaurantBtn.style.display = (!isInsideHouse && distToRest < restaurantZone.radius) ? 'flex' : 'none';
   
+  // 3. HOME ZONE TRIGGERS
+  if (!isInsideHouse) {
+      let distToHome = Math.sqrt(Math.pow(player.x - homeZone.x, 2) + Math.pow(player.y - homeZone.y, 2));
+      enterHomeBtn.style.display = (distToHome < homeZone.radius && !playerCar) ? 'flex' : 'none';
+      sleepBtn.style.display = 'none';
+      exitHomeBtn.style.display = 'none';
+  } else {
+      enterHomeBtn.style.display = 'none';
+      let hWidth = houseMapWidth > 0 ? houseMapWidth : 800;
+      let hHeight = houseMapHeight > 0 ? houseMapHeight : 600;
+
+      // Bed is at the top middle
+      let distToBed = Math.sqrt(Math.pow(player.x - (hWidth / 2), 2) + Math.pow(player.y - 200, 2));
+      sleepBtn.style.display = (distToBed < 80) ? 'flex' : 'none';
+
+      // Door is at the bottom middle
+      let distToDoor = Math.sqrt(Math.pow(player.x - (hWidth / 2), 2) + Math.pow(player.y - (hHeight - 100), 2));
+      exitHomeBtn.style.display = (distToDoor < 100) ? 'flex' : 'none';
+  }
+
   let inputX = 0, inputY = 0, isMoving = false;
   if (joystickActive) {
     if (Math.sqrt(joystickInputX * joystickInputX + joystickInputY * joystickInputY) > 0.15) { 
@@ -1277,11 +1350,13 @@ function updateGame(dt) {
 
   if (!playerCar) {
     let closestCar = null, minCarDist = 55; 
-    cars.forEach(car => {
-      if (car.recentlyJackedTimer > 0) return; 
-      let dist = Math.sqrt(Math.pow(car.x - player.x, 2) + Math.pow(car.y - player.y, 2));
-      if (dist < minCarDist) { minCarDist = dist; closestCar = car; }
-    });
+    if (!isInsideHouse) {
+        cars.forEach(car => {
+          if (car.recentlyJackedTimer > 0) return; 
+          let dist = Math.sqrt(Math.pow(car.x - player.x, 2) + Math.pow(car.y - player.y, 2));
+          if (dist < minCarDist) { minCarDist = dist; closestCar = car; }
+        });
+    }
     targetCar = closestCar;
     jackBtn.style.display = targetCar ? 'flex' : 'none';
     exitBtn.style.display = 'none'; 
@@ -1336,7 +1411,7 @@ function updateGame(dt) {
   }
 
   // --- ANGRY DRIVER DAMAGE ---
-  if (angryDriverInstance && playerCar) {
+  if (angryDriverInstance && playerCar && !isInsideHouse) {
     const keepAlive = angryDriverInstance.update(dt, playerCar, () => {
       player.x = playerCar.x + Math.cos(playerCar.angle - Math.PI / 2 - Math.PI / 2) * 35; 
       player.y = playerCar.y + Math.sin(playerCar.angle - Math.PI / 2 - Math.PI / 2) * 35;
@@ -1362,9 +1437,14 @@ function updateGame(dt) {
   
 handleFootstepSound(player, true, dt);
 
-npcs.forEach(npc => {
-    handleFootstepSound(npc, false, dt);
-});
+if (!isInsideHouse) {
+    npcs.forEach(npc => {
+        handleFootstepSound(npc, false, dt);
+    });
+      if (angryDriverInstance) {
+        handleFootstepSound(angryDriverInstance, false, dt);
+    }
+}
 }
 
 // --- 11. GRAPHICS DRAW ENGINE ---
@@ -1412,9 +1492,21 @@ function drawGame() {
       ctx.beginPath();
       ctx.arc(fullX + restaurantZone.x * scale, fullY + restaurantZone.y * scale, 12, 0, Math.PI * 2);
       ctx.fill(); ctx.stroke();
+      
+      // Home Full Map Marker
+      ctx.fillStyle = "#3498db";
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(fullX + homeZone.x * scale, fullY + homeZone.y * scale, 12, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
 
       ctx.save();
-      ctx.translate(fullX + (player.x + player.size / 2) * scale, fullY + (player.y + player.size / 2) * scale);
+      if (!isInsideHouse) {
+          ctx.translate(fullX + (player.x + player.size / 2) * scale, fullY + (player.y + player.size / 2) * scale);
+      } else {
+          ctx.translate(fullX + (homeZone.x) * scale, fullY + (homeZone.y) * scale);
+      }
       ctx.rotate(player.angle);
       ctx.fillStyle = "#f1c40f"; ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(-7, 7); ctx.lineTo(7, 7); ctx.closePath(); ctx.fill(); ctx.stroke();
@@ -1433,29 +1525,54 @@ function drawGame() {
   ctx.rotate(-camera.angle);
   ctx.translate(-player.x - player.size / 2, -player.y - player.size / 2);
   
-  if (mapImage.complete && mapWidth > 0) ctx.drawImage(mapImage, 0, 0, mapWidth, mapHeight);
-  else { ctx.fillStyle = "#e0deca"; ctx.fillRect(player.x - 400, player.y - 400, 800, 800); }
+  if (isInsideHouse) {
+      if (houseImage.complete && houseMapWidth > 0) ctx.drawImage(houseImage, 0, 0, houseMapWidth, houseMapHeight);
+  } else {
+      if (mapImage.complete && mapWidth > 0) ctx.drawImage(mapImage, 0, 0, mapWidth, mapHeight);
+      else { ctx.fillStyle = "#e0deca"; ctx.fillRect(player.x - 400, player.y - 400, 800, 800); }
+  }
 
-  taxiManager.drawWorldMarkers(ctx);
-  
-  ctx.save();
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = "#d35400"; 
-  ctx.fillStyle = "rgba(211, 84, 0, 0.2)";
-  ctx.beginPath();
-  ctx.arc(restaurantZone.x, restaurantZone.y, restaurantZone.radius, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.restore();
+  if (!isInsideHouse) {
+      taxiManager.drawWorldMarkers(ctx);
+      
+      ctx.save();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = "#d35400"; 
+      ctx.fillStyle = "rgba(211, 84, 0, 0.2)";
+      ctx.beginPath();
+      ctx.arc(restaurantZone.x, restaurantZone.y, restaurantZone.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
 
-  npcs.forEach(npc => npc.draw(ctx));
-  if (angryDriverInstance) angryDriverInstance.draw(ctx);
-  cars.forEach(car => car.draw(ctx));
+      ctx.strokeStyle = "#3498db"; 
+      ctx.fillStyle = "rgba(52, 152, 219, 0.2)";
+      ctx.beginPath();
+      ctx.arc(homeZone.x, homeZone.y, homeZone.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+  } else {
+      ctx.save();
+      ctx.lineWidth = 4;
+      // Draw a subtle marker for Bed Zone
+      ctx.strokeStyle = "#9b59b6"; ctx.fillStyle = "rgba(155, 89, 182, 0.2)";
+      ctx.beginPath(); ctx.arc(houseMapWidth / 2, 200, 80, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      // Draw a subtle marker for Door Zone
+      ctx.strokeStyle = "#95a5a6"; ctx.fillStyle = "rgba(149, 165, 166, 0.2)";
+      ctx.beginPath(); ctx.arc(houseMapWidth / 2, houseMapHeight - 100, 80, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.restore();
+  }
+
+  if (!isInsideHouse) {
+      npcs.forEach(npc => npc.draw(ctx));
+      if (angryDriverInstance) angryDriverInstance.draw(ctx);
+      cars.forEach(car => car.draw(ctx));
+  }
 
   ctx.restore(); 
 
   if (!playerCar) player.draw(ctx, camera.angle);
-  drawNightOverlay()
+  if (!isInsideHouse) drawNightOverlay()
 
   // --- DRAW HUD: MONEY ---
   ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
@@ -1504,23 +1621,38 @@ function drawGame() {
 
     ctx.save();
     ctx.translate(mmX, mmY); ctx.scale(radarZoom, radarZoom); ctx.translate(-(player.x + player.size / 2), -(player.y + player.size / 2));
-    ctx.globalAlpha = 0.9; ctx.drawImage(mapImage, 0, 0, mapWidth, mapHeight); ctx.globalAlpha = 1.0;
+    ctx.globalAlpha = 0.9; 
     
-    if (taxiManager.isJobActive && taxiManager.hasPassenger) {
-      ctx.fillStyle = "#2ecc71";
-      ctx.beginPath(); ctx.arc(taxiManager.destinationX, taxiManager.destinationY, 35, 0, Math.PI * 2); ctx.fill();
-    } else if (taxiManager.isJobActive && !taxiManager.hasPassenger && taxiManager.pickupX !== 0) {
-      ctx.fillStyle = "#f1c40f"; 
-      ctx.beginPath(); ctx.arc(taxiManager.pickupX, taxiManager.pickupY, 35, 0, Math.PI * 2); ctx.fill();
-    } else if (!taxiManager.isJobActive) {
-      ctx.fillStyle = "#f1c40f";
-      ctx.beginPath(); ctx.arc(taxiManager.depotX, taxiManager.depotY, 30, 0, Math.PI * 2); ctx.fill();
-    } 
+    if (isInsideHouse) {
+        if (houseImage.complete && houseMapWidth > 0) ctx.drawImage(houseImage, 0, 0, houseMapWidth, houseMapHeight);
+    } else {
+        if (mapImage.complete && mapWidth > 0) ctx.drawImage(mapImage, 0, 0, mapWidth, mapHeight);
+        
+        if (taxiManager.isJobActive && taxiManager.hasPassenger) {
+          ctx.fillStyle = "#2ecc71";
+          ctx.beginPath(); ctx.arc(taxiManager.destinationX, taxiManager.destinationY, 35, 0, Math.PI * 2); ctx.fill();
+        } else if (taxiManager.isJobActive && !taxiManager.hasPassenger && taxiManager.pickupX !== 0) {
+          ctx.fillStyle = "#f1c40f"; 
+          ctx.beginPath(); ctx.arc(taxiManager.pickupX, taxiManager.pickupY, 35, 0, Math.PI * 2); ctx.fill();
+        } else if (!taxiManager.isJobActive) {
+          ctx.fillStyle = "#f1c40f";
+          ctx.beginPath(); ctx.arc(taxiManager.depotX, taxiManager.depotY, 30, 0, Math.PI * 2); ctx.fill();
+        } 
+        
+        ctx.fillStyle = "#d35400";
+        ctx.beginPath();
+        ctx.arc(restaurantZone.x, restaurantZone.y, 30, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Radar Home Marker
+        ctx.fillStyle = "#3498db";
+        ctx.beginPath();
+        ctx.arc(homeZone.x, homeZone.y, 30, 0, Math.PI * 2);
+        ctx.fill();
+    }
     
-    ctx.fillStyle = "#d35400";
-    ctx.beginPath();
-    ctx.arc(restaurantZone.x, restaurantZone.y, 30, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.globalAlpha = 1.0;
+    
     ctx.restore(); 
     ctx.restore(); 
 
@@ -1583,4 +1715,42 @@ restaurantBtn.addEventListener('click', () => {
   } else {
     taxiManager.setMessage("Not enough money to buy food!", 60);
   }
+});
+
+const enterHomeBtn = document.getElementById('enterHomeBtn');
+const sleepBtn = document.getElementById('sleepBtn');
+const exitHomeBtn = document.getElementById('exitHomeBtn');
+
+enterHomeBtn.addEventListener('click', () => {
+    outsideX = player.x;
+    outsideY = player.y;
+    isInsideHouse = true;
+    player.x = (houseMapWidth > 0 ? houseMapWidth : 800) / 2;
+    player.y = (houseMapHeight > 0 ? houseMapHeight : 600) - 100;
+    player.size = 30; // Scale player up inside
+    enterHomeBtn.style.display = 'none';
+    taxiManager.setMessage("Welcome home! Enjoy your stay.", 120);
+});
+
+exitHomeBtn.addEventListener('click', () => {
+    isInsideHouse = false;
+    player.x = outsideX;
+    player.y = outsideY;
+    player.size = 20; // Revert size outside
+    exitHomeBtn.style.display = 'none';
+    sleepBtn.style.display = 'none';
+});
+
+sleepBtn.addEventListener('click', () => {
+    const hour = (gameSeconds / DAY_LENGTH) * 24;
+    if (hour >= 20 || hour < 5) {
+        gameSeconds = (5 / 24) * DAY_LENGTH; // Advance to 5 AM
+        localStorage.setItem("gameTime", gameSeconds);
+        player.health = player.maxHealth;
+        localStorage.setItem("gma_player_health", player.health);
+        taxiManager.setMessage("Slept until 5:00 AM. Health fully restored!", 240);
+        rentPaidForDayCycle = false; // Reset rent trigger
+    } else {
+        taxiManager.setMessage("You can only sleep at night (8 PM - 5 AM).", 120);
+    }
 });
