@@ -1336,9 +1336,9 @@ function updateGame(dt) {
   }
 
   // --- HUNGER SYSTEM LOGIC ---
-  let drainRate = 0.005; 
+  let drainRate = 0.003; 
   if (isMoving) {
-    drainRate = playerCar ? 0.008 : 0.013; 
+    drainRate = playerCar ? 0.005 : 0.008; 
   }
   
   player.hunger -= drainRate * dt;
