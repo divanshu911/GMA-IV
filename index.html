@@ -22,15 +22,17 @@
 
     <canvas id="gameCanvas"></canvas>
 
-    <div id="joystickZone">
-      <div
-         id="joystickBase">
-        
-        </div>
-      </div>
-    </div> <div id="joystickKnob"></div> <div id="loadingScreen">
-            <h2>Loading...</h2>
-            <p>Please wait while game assets are downloaded.</p> <button id="jackBtn">🚘</button>
+<div id="joystickZone">
+  <div id="joystickBase">
+    <div id="joystickKnob"></div>
+  </div>
+</div>
+
+<!-- moved outside joystickBase so showing joystick doesn't reveal loader -->
+<div id="loadingScreen">
+  <h2>Loading...</h2>
+  <p>Please wait while game assets are downloaded.</p>
+</div> <button id="jackBtn">🚘</button>
      <button id="taxiBtn" class="interact-btn">🚕</button>
     <button id="restaurantBtn" class="interact-btn">🍔</button>    <button id="enterHomeBtn" class="interact-btn">🏠</button>
     <button id="sleepBtn" class="interact-btn">🛌</button>
