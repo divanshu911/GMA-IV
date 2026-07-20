@@ -85,6 +85,14 @@ function updateDayNight(dt){
            } else if (player.rentDebtActive) {
                // Had unpaid debt from yesterday → evict now
                player.isEvicted = true;
+               if (typeof isInsideHouse !== 'undefined' && isInsideHouse) {
+                   isInsideHouse = false;
+                   player.x = outsideX;
+                   player.y = outsideY;
+                   player.size = 20;
+                   if (typeof exitHomeBtn !== 'undefined') exitHomeBtn.style.display = 'none';
+                   if (typeof sleepBtn !== 'undefined') sleepBtn.style.display = 'none';
+               }
                if (typeof taxiManager !== 'undefined') taxiManager.setMessage("You've been evicted! Visit the house with $80 to rent it again.", 360);
            } else {
                player.money -= 80;
