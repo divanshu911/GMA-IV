@@ -134,7 +134,18 @@ let outsideX = 0, outsideY = 0;
 let rentPaidForDayCycle = false;
 
 const homeZone = { x: 1912, y: 1768, radius: 50 };
+// -- ASSET LOADER: hide #loadingScreen when main assets finish --
+let assetsRemaining = 2; // houseImage and mapImage
 
+function markAssetLoaded() {
+  assetsRemaining--;
+  if (assetsRemaining <= 0) {
+    const loadingEl = document.getElementById('loadingScreen');
+    if (loadingEl) loadingEl.style.display = 'none';
+  }
+}
+
+// existing houseImage.onload already exists — append this line within it:
 houseImage.onload = () => {
   houseMapWidth = houseImage.width;
   houseMapHeight = houseImage.height;
@@ -144,8 +155,18 @@ houseImage.onload = () => {
   const hCtx = hcCanvas.getContext('2d');
   hCtx.drawImage(houseImage, 0, 0);
   houseCollisionData = hCtx.getImageData(0, 0, houseMapWidth, houseMapHeight).data;
-  
+
+  markAssetLoaded(); // <-- hide loading when both assets done
 };
+
+// add a load handler for mapImage before setting src
+mapImage.onload = () => {
+  // Optional: set mapWidth/mapHeight here if desired
+  mapWidth = mapImage.width;
+  mapHeight = mapImage.height;
+  markAssetLoaded();
+};
+
 
 houseImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/IMG_20260715_162413.jpg";
 mapImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/map.png";
