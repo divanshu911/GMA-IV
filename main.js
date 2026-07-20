@@ -145,6 +145,23 @@ houseImage.onload = () => {
   hCtx.drawImage(houseImage, 0, 0);
   houseCollisionData = hCtx.getImageData(0, 0, houseMapWidth, houseMapHeight).data;
 };
+let assetsLoaded = 0;
+const totalAssets = 2;
+
+function assetLoaded() {
+    assetsLoaded++;
+
+    if (assetsLoaded >= totalAssets) {
+        startBtn.textContent = "Start Game";
+        startBtn.disabled = false;
+    }
+}
+
+startBtn.textContent = "Loading...";
+startBtn.disabled = true;
+
+mapImage.onload = assetLoaded;
+houseImage.onload = assetLoaded;
 houseImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/IMG_20260715_162413.jpg";
 mapImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/map.png";
 
