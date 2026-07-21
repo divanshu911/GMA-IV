@@ -535,8 +535,8 @@ mapImage.onload = () => {
   collisionCtx.drawImage(mapImage, 0, 0);
   collisionData = collisionCtx.getImageData(0, 0, mapWidth, mapHeight).data;
 
-  const NUM_NPCS = 20;
-  const NUM_CARS = 17;
+  const NUM_NPCS = 17;
+  const NUM_CARS = 23;
 
   const shirtColors = ["#3498db", "#e74c3c", "#2ecc71", "#f1c40f", "#9b59b6", "#e67e22", "#1abc9c", "#e84393"];
   const hairColors = ["#2d3436", "#4a3728", "#d35400", "#f39c12"];
