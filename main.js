@@ -168,8 +168,8 @@ mapImage.onload = () => {
 };
 
 
-houseImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/IMG_20260715_162413.jpg";
-mapImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/map.png";
+houseImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/main/IMG_20260715_162413.jpg";
+mapImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/main/map.png";
 
 let camera = { angle: 0, targetAngle: 0, moveTimer: 0, lastAngle: 0 };
 
