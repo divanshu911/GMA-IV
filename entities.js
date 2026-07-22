@@ -216,7 +216,7 @@ class AngryDriver extends Pedestrian {
        } else if (roll < 0.45) {
          this.type = "Ranger, SUV";
        } else if (roll < 0.65) {
-         this.type = "Sprint, Hatchback ";
+         this.type = "Sprint, Hatchback";
        } else if (roll < 0.80) {
          this.type = "Porter, Van";
        } else if (roll < 0.92) {
@@ -251,7 +251,7 @@ class AngryDriver extends Pedestrian {
          this.baseSpeed = 1.2 + Math.random() * 0.5; // Medium (1.2 - 1.7)
          this.turnSpeed = 0.05;
          this.sensorLength = 35;
-       } else if (this.type === "Sprint, Hatchback ") {
+       } else if (this.type === "Sprint, Hatchback") {
          this.width = 15;                            // Similar to Falcon, Sports (15x26)
          this.length = 25;
          this.baseSpeed = 1.0 + Math.random() * 0.3; // Slower than Commuter, Sedan, faster than Hauler, Truck (1.0 - 1.3)
@@ -458,7 +458,7 @@ class AngryDriver extends Pedestrian {
          ctx.fillStyle = "#2c3e50"; // Rear wing
          ctx.fillRect(-this.width / 2 - 2, this.length / 2 - 3, this.width + 4, 3);
        } 
-       else if (this.type === "Sprint, Hatchback ") {
+       else if (this.type === "Sprint, Hatchback") {
          // Compact cabin with no spoiler
          ctx.fillStyle = "#34495e";
          ctx.fillRect(-this.width / 2 + 2, -this.length / 4, this.width - 4, this.length * 0.55);
