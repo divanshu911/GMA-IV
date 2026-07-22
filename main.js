@@ -1060,7 +1060,6 @@ let truckManager = new TruckJobManager(2491, 2206);
 
 // --- DYNAMIC TRUCK BUTTON SETUP ---
 const truckBtn = document.getElementById('truckBtn');
-truckBtn.className = 'interact-btn';
 truckBtn.style.right = '70%'; 
 truckBtn.style.background = 'rgba(230, 126, 34, 0.7)'; // Custom semi-transparent orange
 
@@ -1080,7 +1079,6 @@ document.getElementById('truckBtn').addEventListener('click', () => {
 });
 // --- DYNAMIC BLACK MARKET BUTTON SETUP ---
 const blackMarketBtn = document.getElementById('blackMarketBtn');
-blackMarketBtn.className = 'interact-btn';
 blackMarketBtn.style.right = '70%'; // Cleanly placed next to the other buttons
 blackMarketBtn.style.background = 'rgba(142, 68, 173, 0.7)'; // Custom semi-transparent purple
 blackMarketBtn.style.display = 'none';
