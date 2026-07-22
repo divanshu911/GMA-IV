@@ -1059,13 +1059,11 @@ class TruckJobManager {
 let truckManager = new TruckJobManager(2491, 2206);
 
 // --- DYNAMIC TRUCK BUTTON SETUP ---
-const truckBtn = document.createElement('button');
-truckBtn.id = 'truckBtn';
+const truckBtn = document.getElementById('truckBtn');
 truckBtn.className = 'interact-btn';
-const truckBtn = document.getElementById("truckBtn");
 truckBtn.style.right = '70%'; 
 truckBtn.style.background = 'rgba(230, 126, 34, 0.7)'; // Custom semi-transparent orange
-document.getElementById('gameContainer').appendChild(truckBtn);
+
 
 // --- FIXED: TRUCK BUTTON EVENT LISTENER ---
 document.getElementById('truckBtn').addEventListener('click', () => {
@@ -1081,14 +1079,11 @@ document.getElementById('truckBtn').addEventListener('click', () => {
   }
 });
 // --- DYNAMIC BLACK MARKET BUTTON SETUP ---
-const blackMarketBtn = document.createElement('button');
-blackMarketBtn.id = 'blackMarketBtn';
+const blackMarketBtn = document.getElementById('blackMarketBtn');
 blackMarketBtn.className = 'interact-btn';
-const blackMarketBtn = document.getElementById("blackMarketBtn");
 blackMarketBtn.style.right = '70%'; // Cleanly placed next to the other buttons
 blackMarketBtn.style.background = 'rgba(142, 68, 173, 0.7)'; // Custom semi-transparent purple
 blackMarketBtn.style.display = 'none';
-document.getElementById('gameContainer').appendChild(blackMarketBtn);
 
 // --- BLACK MARKET SALE LOGIC ---
 document.getElementById('blackMarketBtn').addEventListener('click', () => {
