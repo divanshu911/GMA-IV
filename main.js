@@ -1162,7 +1162,7 @@ if (enterHomeBtn) {
 
         player.x = hWidth / 2;
         player.y = hHeight - 120;
-        player.size = 30; 
+        player.size = 45; 
 
         if (enterHomeBtn) enterHomeBtn.style.display = 'none';
         if (leaveHomeBtn) leaveHomeBtn.style.display = 'none';
