@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>GMA IV</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+  <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+<script>eruda.init();</script>
+  
+<body>
+
+  <div id="gameContainer">
+    <div id="rotateMessageOverlay">ROTATE DEVICE TO PLAY!                 
+  </div>
+    <div id="startScreen">
+      <h1>GMA IV</h1>
+      <div class="menu-box">
+        <button id="startButton">START GAME</button>
+      </div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="joystickZone">
+      <div
+         id="joystickBase">
+        <div id="joystickKnob"></div>
+      </div>
+    </div> <button id="jackBtn">🚘</button>
+     <button id="taxiBtn" class="interact-btn">🚕</button>
+    <button id="restaurantBtn" class="interact-btn">🍔</button>    <button id="enterHomeBtn" class="interact-btn">🏠</button>
+    <button id="sleepBtn" class="interact-btn">🛌</button>
+    <button id="exitHomeBtn" class="interact-btn">🚪</button>
+  </div>
+      <button id="blackMarketBtn" class="interact-btn">💸</button>
+    <button id="truckBtn" class="interact-btn">🚚</button>
+  </div>
+
+  <div id="exitBtn">👟</div>
+  <!-- Dealership Action Buttons -->
+<button id="enterDealerBtn" style="display:none; position:absolute; bottom:20%; left:50%; transform:translateX(-50%); z-index:100; padding:10px; font-weight:bold;">ENTER DEALERSHIP</button>
+<button id="exitDealerBtn" style="display:none; position:absolute; bottom:15%; left:50%; transform:translateX(-50%); z-index:100; padding:10px; font-weight:bold;">EXIT DEALERSHIP</button>
+
+<!-- Dealership Buying Panel -->
+<div id="dealershipPanel" style="display:none; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); background:rgba(0,0,0,0.85); color:#fff; padding:20px; border:2px solid #00bcd4; z-index:200; text-align:center; border-radius:10px;">
+    <h2 id="carPanelName" style="margin-top:0;">Car Name</h2>
+    <h3 id="carPanelPrice" style="color:#2ecc71;">$0</h3>
+    <p id="carPanelStats" style="font-size:14px; color:#ccc;"></p>
+    
+    <label for="carColorPicker">Paint Color:</label>
+    <input type="color" id="carColorPicker" value="#ffffff" style="margin-bottom:15px; cursor:pointer;"><br>
+
+    <button id="buyCarBtn" style="padding:10px 20px; background:#2ecc71; color:black; font-weight:bold; cursor:pointer;">BUY</button>
+    <button id="closePanelBtn" style="padding:10px 20px; background:#e74c3c; color:white; font-weight:bold; cursor:pointer; margin-left:10px;">CANCEL</button>
+</div>
+  
+
+  <script src="important.js"></script>
+  <script src="main.js"></script>
+  <script src="entities.js"></script>
+  
+  
+</body>
+</html>
