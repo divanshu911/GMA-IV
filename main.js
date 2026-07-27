@@ -546,7 +546,7 @@ function handlePhysicsAndCollisions() {
             }
 
             let tryExplode = (car, strikingCar, speed) => {
-                if (speed > 2.5 && strikingCar.weightMultiplier >= 2.2 && Math.random() < (speed * 0.15) && !car.exploded) {
+                if (speed > 2.8 && strikingCar.weightMultiplier >= 2.5 && Math.random() < (speed * 0.12) && !car.exploded) {
                     playSpatialSound(explosionPool, car.x, car.y, 1.0, 500);
                     car.health = 0;
                     car.exploded = true;
