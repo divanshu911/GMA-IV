@@ -797,7 +797,7 @@ window.addEventListener('load', () => {
     let repairModal = document.createElement('div');
     repairModal.id = 'repairModal';
     repairModal.style.position = 'absolute';
-    repairModal.style.top = '50%';
+    repairModal.style.top = '30%';
     repairModal.style.left = '50%';
     repairModal.style.transform = 'translate(-50%, -50%)';
     repairModal.style.background = 'rgba(20, 20, 20, 0.95)';
@@ -840,7 +840,7 @@ window.addEventListener('load', () => {
 
             const basePrice = carPrices[parkedCar.type] || 4000;
             const missingHealthRatio = (parkedCar.maxHealth - parkedCar.health) / parkedCar.maxHealth;
-            calculatedRepairCost = Math.max(50, Math.round(missingHealthRatio * basePrice * 0.20));
+            calculatedRepairCost = Math.max(50, Math.round(missingHealthRatio * basePrice * 0.06));
             carToRepair = parkedCar;
 
             const textElem = document.getElementById('repairModalText');
