@@ -144,7 +144,7 @@ const startBtn = document.getElementById('startButton');
 const startScreen = document.getElementById('startScreen');
 // --- START BUTTON LOADING DELAY ---
 const hasPlayedBefore = localStorage.getItem("gma_has_played") === "true";
-const loadingDelay = hasPlayedBefore ? 3500 : 7600;
+const loadingDelay = hasPlayedBefore ? 4000 : 8690;
 
 startBtn.disabled = true;
 startBtn.textContent = "Loading...";
