@@ -1,4 +1,4 @@
-console.log("oos");
+
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -39,7 +39,7 @@ const carCrashUrl = "https://raw.githubusercontent.com/divanshu911/My-game-asset
 const engineDeadUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/54c156cbfdbb75449f031cf44e5b16fbe0c3c475/enginedying.wav";
 const explosionUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/54c156cbfdbb75449f031cf44e5b16fbe0c3c475/CarExplosion.mp3";
 const fireUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/54c156cbfdbb75449f031cf44e5b16fbe0c3c475/Fire.wav";
-const engineHumUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/ecef13a8910b70df5bf3527fe681fa6a5424a246/EngineHumming.wav";
+const engineHumUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/6b8fbf5081be72f61939ec75c81c102588697d47/Enginehumming.ogg";
 
 const npcHitPool = createAudioPool(npcHitUrl, 1.0);
 const carCrashPool = createAudioPool(carCrashUrl, 0.6);
