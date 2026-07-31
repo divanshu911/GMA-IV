@@ -644,7 +644,7 @@ if (blackMarketBtn) {
             return;
         }
         if (carToSell.ownerType !== "civilian") {
-          taxiManager.setMessage("The black market won't buy company or taxi vehicles.", 180);
+          taxiManager.setMessage("The black market only buys civillian owned vehicles.", 180);
           return;
         }
 
