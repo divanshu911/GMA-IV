@@ -236,7 +236,7 @@ function checkPlayerDeath() {
   }
 }
 
-function handlePhysicsAndCollisions() {
+function handlePhysicsAndCollisions(dt) {
   for (let i = 0; i < cars.length; i++) {
     for (let j = i + 1; j < cars.length; j++) {
       let c1 = cars[i], c2 = cars[j];
@@ -794,7 +794,7 @@ function updateGame(dt) {
   while (camDiff > Math.PI) camDiff -= Math.PI * 2;
   camera.angle += camDiff * (0.025 * dt);
 
-  handlePhysicsAndCollisions();
+  handlePhysicsAndCollisions(dt);
   handleFootstepSound(player, true, dt);
 
   if (!isInsideHouse && !isInsideDealership) {
