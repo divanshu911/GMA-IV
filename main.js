@@ -6,8 +6,8 @@ bgMusic.loop = true;
 bgMusic.volume = 1.0;
 
 // --- POLICE SIREN AUDIO URLS ---
-const sirenWailUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/66ab953b8e4e6f03c084ab3a9a7d87c4d58e2550/PoliceSirenWail.ogg"; 
-const sirenYelpUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/66ab953b8e4e6f03c084ab3a9a7d87c4d58e2550/PoliceSirenYelp.ogg"; 
+const sirenWailUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/3f2e1c44ba2a5125a8e9110c934c07e9a2079164/SirenWail.ogg"; 
+const sirenYelpUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/3f2e1c44ba2a5125a8e9110c934c07e9a2079164/SirenYelp.ogg"; 
 
 // --- NEW FOOTSTEP AUDIO INTEGRATION ---
 const grassWalkUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/ddddea61f0bfe6a7858006295392fa8b79839939/walkongrass.ogg";
