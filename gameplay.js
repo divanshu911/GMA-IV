@@ -1124,7 +1124,7 @@ if (!sirenBtn) {
     sirenBtn.innerText = '🚨 SIREN: OFF';
     sirenBtn.style.position = 'fixed';
     sirenBtn.style.bottom = '130px';
-    sirenBtn.style.right = '25px';
+    sirenBtn.style.right = '37px';
     sirenBtn.style.padding = '9px 15px';
     sirenBtn.style.fontSize = '10px';
     sirenBtn.style.fontWeight = 'bold';
