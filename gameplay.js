@@ -1151,7 +1151,9 @@ window.addEventListener('load', () => {
 });
 // --- DYNAMIC SIREN BUTTON CREATION & EVENT LISTENERS ---
 let sirenBtn = document.getElementById('sirenBtn');
-let exitBtn = document.getElementById('exitBtn'); // Make sure this matches your exit button's ID
+if (!exitBtn) {
+    exitBtn = document.getElementById('exitBtn');
+}
 
 if (!sirenBtn) {
     sirenBtn = document.createElement('button');
