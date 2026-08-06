@@ -1169,7 +1169,7 @@ if (!sirenBtn) {
     sirenBtn.style.position = 'fixed';
 
     // Position directly on the right side of the screen
-    sirenBtn.style.right = '20px';
+    sirenBtn.style.right = '30px';
     sirenBtn.style.bottom = '120px'; // Adjust bottom distance as needed to sit neatly near your controls
 
     sirenBtn.style.padding = '10px 16px';
