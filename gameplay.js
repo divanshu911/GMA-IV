@@ -1155,31 +1155,19 @@ function repositionSirenButton() {
     if (exitBtn) {
         const exitRect = exitBtn.getBoundingClientRect();
         sirenBtn.style.right = (window.innerWidth - exitRect.right) + 'px';
-        sirenBtn.style.bottom = (window.innerHeight - exitRect.top + 10) + 'px';
+        sirenBtn.style.bottom = (window.innerHeight - exitRect.top + 10) + 'px'; // 10px spacing above exitBtn
     }
 }
 
 // --- DYNAMIC SIREN BUTTON CREATION & EVENT LISTENERS ---
 let sirenBtn = document.getElementById('sirenBtn');
-if (!exitBtn) {
-    exitBtn = document.getElementById('exitBtn');}
+let exitBtn = document.getElementById('exitBtn');
 
 if (!sirenBtn) {
     sirenBtn = document.createElement('button');
     sirenBtn.id = 'sirenBtn';
     sirenBtn.innerText = '🚨 SIREN: OFF';
     sirenBtn.style.position = 'fixed';
-
-    // Position sirenBtn directly above exitBtn if exitBtn exists
-    if (exitBtn) {
-        const exitRect = exitBtn.getBoundingClientRect();
-        sirenBtn.style.right = (window.innerWidth - exitRect.right) + 'px';
-        sirenBtn.style.bottom = (window.innerHeight - exitRect.top + 10) + 'px'; // 10px space above exitBtn
-    } else {
-        // Fallback positioning
-        sirenBtn.style.bottom = '190px';
-        sirenBtn.style.right = '39px';
-    }
 
     sirenBtn.style.padding = '9px 15px';
     sirenBtn.style.fontSize = '10px';
@@ -1191,8 +1179,13 @@ if (!sirenBtn) {
     sirenBtn.style.zIndex = '1000';
     sirenBtn.style.display = 'none';
     document.body.appendChild(sirenBtn);
+
+    // Initial positioning
+    repositionSirenButton();
 }
 
+// Reposition on window resize
+window.addEventListener('resize', repositionSirenButton);
 
 // Siren Button Tap Handler: OFF -> WAIL -> YELP -> OFF
 sirenBtn.addEventListener('pointerdown', (e) => {
@@ -1211,6 +1204,9 @@ function updateSirenButtonLabel() {
         sirenBtn.style.display = 'none';
         return;
     }
+
+    // Recalculate position relative to exitBtn when displayed
+    repositionSirenButton();
 
     // Show button when inside a police car
     sirenBtn.style.display = 'flex';
