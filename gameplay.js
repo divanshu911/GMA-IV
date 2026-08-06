@@ -1,4 +1,4 @@
-console.log("8oo")
+console.log("ksgoo")
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -1161,7 +1161,6 @@ function repositionSirenButton() {
 
 // --- DYNAMIC SIREN BUTTON CREATION & EVENT LISTENERS ---
 let sirenBtn = document.getElementById('sirenBtn');
-let exitBtn = document.getElementById('exitBtn');
 
 if (!sirenBtn) {
     sirenBtn = document.createElement('button');
@@ -1169,8 +1168,12 @@ if (!sirenBtn) {
     sirenBtn.innerText = '🚨 SIREN: OFF';
     sirenBtn.style.position = 'fixed';
 
-    sirenBtn.style.padding = '9px 15px';
-    sirenBtn.style.fontSize = '10px';
+    // Position directly on the right side of the screen
+    sirenBtn.style.right = '20px';
+    sirenBtn.style.bottom = '120px'; // Adjust bottom distance as needed to sit neatly near your controls
+
+    sirenBtn.style.padding = '10px 16px';
+    sirenBtn.style.fontSize = '12px';
     sirenBtn.style.fontWeight = 'bold';
     sirenBtn.style.backgroundColor = '#111';
     sirenBtn.style.color = '#fff';
@@ -1178,14 +1181,13 @@ if (!sirenBtn) {
     sirenBtn.style.borderRadius = '6px';
     sirenBtn.style.zIndex = '1000';
     sirenBtn.style.display = 'none';
+    
+    // UI alignment setup
+    sirenBtn.style.alignItems = 'center';
+    sirenBtn.style.justifyContent = 'center';
+
     document.body.appendChild(sirenBtn);
-
-    // Initial positioning
-    repositionSirenButton();
 }
-
-// Reposition on window resize
-window.addEventListener('resize', repositionSirenButton);
 
 // Siren Button Tap Handler: OFF -> WAIL -> YELP -> OFF
 sirenBtn.addEventListener('pointerdown', (e) => {
@@ -1204,9 +1206,6 @@ function updateSirenButtonLabel() {
         sirenBtn.style.display = 'none';
         return;
     }
-
-    // Recalculate position relative to exitBtn when displayed
-    repositionSirenButton();
 
     // Show button when inside a police car
     sirenBtn.style.display = 'flex';
