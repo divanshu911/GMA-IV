@@ -1,4 +1,4 @@
-console.log("new");
+console.log("spiderw");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1133,21 +1133,22 @@ function drawGame() {
   ctx.textAlign = "center";
   ctx.fillText(` HEALTH: ${Math.ceil(player.health)}%`, 110, 247);
 
-  //Wanted UI
+  
     taxiManager.drawUI(ctx);
   truckManager.drawUI(ctx); 
   if (typeof drawClock === 'function') drawClock();
-
+//Wanted UI
+if (player && player.wanted) {
 if (player && player.wanted) {
     ctx.save();
     ctx.font = "bold 30px Arial";
-    ctx.textAlign = "nter";   ctx.textBaseline = "top";
+    ctx.textAlign = "center";   ctx.textBaseline = "top";
     // Drop shadow
     ctx.fillStyle = "#000000";
-    ctx.fillText⚠ WANT ⚠", canvas.width / 2 + 2, 12);
+    ctx.fillText("WANTED", canvas.width / 2 + 2, 12);
     // Red text
     ctx.fillStyle = "#e74c3c";
-    ctx.fillText("⚠ WANTED ⚠", canvas.width / 2, 10);
+    ctx.fillText("WANTED", canvas.width / 2, 10);
     ctx.restore();
 }
     
