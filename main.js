@@ -1,4 +1,4 @@
-console.log("spiderw");
+console.log("spiderman");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1137,8 +1137,8 @@ function drawGame() {
     taxiManager.drawUI(ctx);
   truckManager.drawUI(ctx); 
   if (typeof drawClock === 'function') drawClock();
-//Wanted UI
-if (player && player.wanted) {
+
+    //Wanted UI
 if (player && player.wanted) {
     ctx.save();
     ctx.font = "bold 30px Arial";
