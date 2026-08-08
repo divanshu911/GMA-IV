@@ -1013,7 +1013,7 @@ if (savedX !== null && savedY !== null) {
     player.x = parseFloat(savedX);
     player.y = parseFloat(savedY);
 }
-let npcs = [];
+
 let cars = [];
 
 function initSpawns() {
