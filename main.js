@@ -4,6 +4,7 @@ const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a
 const bgMusic = new Audio(musicUrl);
 bgMusic.loop = true;
 bgMusic.volume = 1.0;
+let npcs = []; 
 // --- STOLEN CAR HISTORY & WANTED STATE HELPERS ---
 let stolenCarIds = JSON.parse(localStorage.getItem("gma_stolen_car_ids") || "[]");
 
