@@ -1236,7 +1236,7 @@ function updateSirenButtonLabel() {
 
 class PoliceSystem {
   constructor() {
-    this.spottedTimer = 0;          // 3-second (180 frames @ 60fps) countdown timer
+    this.spottedTimer = 0;          // 10-second (180 frames @ 60fps) countdown timer
     this.isSpotted = false;         // Currently in initial stop warning phase
     this.activePoliceUnit = null;   // Active intercepting police car or NPC
     this.arrestState = "NONE";      // "NONE", "STEP_OUT", "ARREST_SPEECH", "DONE"
@@ -1290,7 +1290,7 @@ class PoliceSystem {
     // --- 2. SPOTTED PHASE (3-SECOND STOP TIMER) ---
     if (player.wanted && !player.beingChased && !this.isSpotted && nearestPolice && nearestPolice.dist < 280) {
       this.isSpotted = true;
-      this.spottedTimer = 180; // 3 seconds @ 60 FPS
+      this.spottedTimer = 600; // 10 seconds @ 60 FPS
       this.activePoliceUnit = nearestPolice.unit;
 
       if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
@@ -1313,7 +1313,7 @@ class PoliceSystem {
       }
 
       let isPlayerStopped = Math.abs(player.speed || 0) < 0.2;
-      let isNearPolice = nearestPolice && nearestPolice.dist < 140;
+      let isNearPolice = nearestPolice && nearestPolice.dist < 65;
 
       // Player stops in time -> Trigger Arrest
       if (isPlayerStopped && isNearPolice) {
@@ -1321,7 +1321,7 @@ class PoliceSystem {
         return;
       }
 
-      // Failed to stop in 3 seconds OR drove away -> Trigger Chase
+      // Failed to stop in 10 seconds OR drove away -> Trigger Chase
       if (this.spottedTimer <= 0 || (nearestPolice && nearestPolice.dist > 350)) {
         this.startChase(player, cars);
       }
