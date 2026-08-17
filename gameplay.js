@@ -1695,4 +1695,6 @@ else if (activePoliceUnit.policeState === "CHASE") {
         // Halt completely when within 30 pixels of the player
         activePoliceUnit.speed = 0;
     }
-}       
+}  }
+                               }
+                                   
