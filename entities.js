@@ -586,9 +586,9 @@ if (this.path && this.pathIndex < this.path.length) {
     const previousX = this.x;
     const previousY = this.y;
 
-    const canMoveTo = (x, y) => { isAngryDriverWalkable(x, y, this.size) &&
+    const canMoveTo = (x, y) =>
+    isAngryDriverWalkable(x, y, this.size) &&
     !this.isBlockedByEntity(x, y, npcs, cars, targetEntity);
-};
     let moved = false;
     // Prefer the full diagonal step, then try axis-aligned sliding along a wall.
     if (canMoveTo(nextNx, nextNy)) {
