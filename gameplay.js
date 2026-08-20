@@ -1781,7 +1781,7 @@ if (!isCar && playerCar) {
     // Player car is stopped:
     // fall through to the existing officer chase behavior.
 
-
+}
     // Handle siren & unpark status for police cars
     if (isCar) {
         activePoliceUnit.isParked = false; 
@@ -1960,4 +1960,3 @@ if (movedDistance > 0.001) {
     }
 }
   }                                   }  
-}
