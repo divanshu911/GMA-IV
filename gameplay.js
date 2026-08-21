@@ -1588,7 +1588,7 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
     const surrenderBtn = document.getElementById('surrenderBtn');
 
     // 1. CLEAR ALL POLICE UNITS WHEN NOT WANTED
-    if (!player.wanted) {
+    if (!player.wanted && !player.beingChased) {
         cars.forEach(c => {
             if (c.isPolice && c.policeState && c.policeState !== "PATROL") {
                 if (typeof c.stopSiren === 'function') c.stopSiren();
