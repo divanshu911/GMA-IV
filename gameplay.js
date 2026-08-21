@@ -1431,17 +1431,19 @@ function updatePoliceBullets(dt) {
         );
 
         if (hitDistance <= hitRadius) {
-            // One successful police shot punctures a tire.
-            car.tirePunctured = true;
-            taxiManager.setMessage("Car's tyre is punctured!", 240);
+    // Only puncture and notify once.
+    if (!car.tirePunctured) {
+        car.tirePunctured = true;
+        taxiManager.setMessage("Car's tyre is punctured!", 240);
 
-            // Immediately reduce current speed so the effect is noticeable.
-            if (Math.abs(car.speed) > car.baseSpeed * 1.15) {
-                car.speed = Math.sign(car.speed) * car.baseSpeed * 1.15;
-            }
+        // Immediately reduce current speed so the effect is noticeable.
+        if (Math.abs(car.speed) > car.baseSpeed * 1.15) {
+            car.speed = Math.sign(car.speed) * car.baseSpeed * 1.15;
+        }
+    }
 
-            policeBullets.splice(i, 1);
-            continue;
+    policeBullets.splice(i, 1);
+    continue;
         }
 
         if (bullet.life <= 0) {
