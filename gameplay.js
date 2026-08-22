@@ -1674,6 +1674,7 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
 
         if (!nearbyChasingCar && !nearbyChasingOfficer) {
     player.beingChased = false;
+          player.wanted = true;
 
     // Player has escaped the active chase, but remains wanted.
     if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
