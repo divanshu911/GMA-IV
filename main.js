@@ -108,6 +108,10 @@ const restaurantZone = {
 mapImage.addEventListener('load', () => {
     mapWidth = mapImage.width;
     mapHeight = mapImage.height;
+
+    // Tell the loading screen that the visual map is ready.
+    mapAssetLoaded = true;
+    tryEnableStartButton();
 });
 mapImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/Map2.png";
 
@@ -132,9 +136,13 @@ collisionMapImage.addEventListener('load', () => {
     mapHeight = collisionMapImage.height;
     collisionData = collisionCtx.getImageData(0, 0, mapWidth, mapHeight).data;
 
-    //do not touch 
+    //do not touch
     navigationSystem.buildGrid();
-    //end of do not touch 
+    //end of do not touch
+
+    // Tell the loading screen that the collision map is ready.
+    collisionMapAssetLoaded = true;
+    tryEnableStartButton();
 });
 
 collisionMapImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/CollisionMap2.png";

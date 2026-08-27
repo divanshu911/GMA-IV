@@ -153,12 +153,34 @@ const startScreen = document.getElementById('startScreen');
 const hasPlayedBefore = localStorage.getItem("gma_has_played") === "true";
 const loadingDelay = hasPlayedBefore ? 4000 : 8690;
 
+// Loading state
+let mapAssetLoaded = false;
+let collisionMapAssetLoaded = false;
+let minimumLoadingTimeElapsed = false;
+let startButtonReady = false;
+
 startBtn.disabled = true;
 startBtn.textContent = "Loading...";
 
+
+function tryEnableStartButton() {
+    if (
+        minimumLoadingTimeElapsed &&
+        mapAssetLoaded &&
+        collisionMapAssetLoaded &&
+        !startButtonReady
+    ) {
+        startButtonReady = true;
+        startBtn.disabled = false;
+        startBtn.textContent = "START GAME";
+    }
+}
+
+// First-time player: 8.690 seconds.
+// Returning player: 4 seconds.
 setTimeout(() => {
-    startBtn.disabled = false;
-    startBtn.textContent = "START GAME";
+    minimumLoadingTimeElapsed = true;
+    tryEnableStartButton();
 }, loadingDelay);
 
 startBtn.addEventListener('click', () => {
