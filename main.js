@@ -109,7 +109,7 @@ mapImage.addEventListener('load', () => {
     mapWidth = mapImage.width;
     mapHeight = mapImage.height;
 });
-mapImage.src = "https://github.com/divanshu911/My-game-assets/blob/main/Map2.png";
+mapImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/Map2.png";
 
 
 // ===== 2. COLLISION & A* NAVIGATION MAP =====
@@ -137,7 +137,7 @@ collisionMapImage.addEventListener('load', () => {
     //end of do not touch 
 });
 
-collisionMapImage.src = "https://github.com/divanshu911/My-game-assets/blob/main/CollisionMap2.png";
+collisionMapImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/CollisionMap2.png";
 
 let camera = { angle: 0, targetAngle: 0, moveTimer: 0, lastAngle: 0 };
 
