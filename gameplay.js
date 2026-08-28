@@ -1276,56 +1276,669 @@ surrenderBtn.style.display = 'none';
 (document.getElementById('gameContainer') || document.body).appendChild(surrenderBtn);
 
 function executeArrestProcess() {
-    taxiManager.setMessage("BUSTED: You surrendered to the police!", 240);
-    
-    beingchased = false;
+    if (player.isBeingArrested) return;
 
-    // 1. Clean up player car state if driving
+    player.isBeingArrested = true;
+    player.beingChased = false;
+
+    // Stop player input immediately.
+    player.speed = 0;
+
+    // Hide all interaction controls immediately.
+    if (typeof exitBtn !== 'undefined' && exitBtn) {
+        exitBtn.style.display = 'none';
+    }
+
+    if (typeof jackBtn !== 'undefined' && jackBtn) {
+        jackBtn.style.display = 'none';
+    }
+
+    if (typeof surrenderBtn !== 'undefined' && surrenderBtn) {
+        surrenderBtn.style.display = 'none';
+    }
+
+    // If player was driving, force them out immediately.
+    // The stolen/player car remains in the world until the
+    // black-screen transition, so arrest cleanup is NOT immediate.
     if (playerCar) {
         if (playerCar.humAudio) {
             playerCar.humAudio.pause();
             playerCar.humAudio = null;
         }
-        
-        // If driving a non-stolen car, park it safely before resetting playerCar
-        if (!playerCar.isStolen) {
-            playerCar.isParked = true;
-            playerCar.hasDriver = false;
-        }
-        
+
+        const arrestedCar = playerCar;
+        arrestedCar.speed = 0;
+        arrestedCar.isParked = true;
+        arrestedCar.hasDriver = false;
+
+        const sideAngle = arrestedCar.angle - Math.PI / 2;
+
+        player.x =
+            arrestedCar.x +
+            Math.cos(sideAngle) * 35;
+
+        player.y =
+            arrestedCar.y +
+            Math.sin(sideAngle) * 35;
+
+        player.angle = arrestedCar.angle;
+
         playerCar = null;
-        if (exitBtn) exitBtn.style.display = 'none';
-        if (jackBtn) jackBtn.style.display = 'none';
     }
 
-    // 2. Stop audio streams and remove ALL stolen cars from the active array
-    cars = cars.filter(c => {
-        if (c.isStolen) {
-            if (c.humAudio) {
-                c.humAudio.pause();
-                c.humAudio = null;
-            }
-            if (c.sirenAudio) {
-                c.sirenAudio.pause();
-                c.sirenAudio = null;
-            }
-            return false; // Exclude from array
+    // ------------------------------------------------------------
+    // Capture police cars that were ACTUALLY chasing at the
+    // instant of arrest. These become escort vehicles.
+    // ------------------------------------------------------------
+    arrestEscortCars = cars.filter(c =>
+        c &&
+        c.isPolice &&
+        c.policeState === "CHASE" &&
+        c !== playerCar &&
+        !c.exploded &&
+        c.health > 0
+    );
+
+    arrestEscortCars.forEach((escort, index) => {
+        escort.policeState = "ARREST_ESCORT";
+        escort.isParked = false;
+        escort.hasDriver = true;
+        escort.arrestEscortIndex = index;
+        escort.arrestEscortPath = null;
+        escort.arrestEscortRepathTimer = 0;
+
+        if (typeof escort.playSiren === 'function') {
+            escort.playSiren(2);
+        } else {
+            escort.sirenState = 2;
         }
-        return true; // Keep in array
     });
 
-    // 3. Clear local storage records and reset wanted status
-    localStorage.removeItem("stolen_cars");
-    localStorage.removeItem("stolen car");
-    player.wanted = false;
-    player.beingChased = false;
-    localStorage.setItem("gma_player_wanted", "false");
+    // The arresting police car is a NEW vehicle.
+    arrestTransportCar = null;
+    arrestTransportState = "SPAWNING";
+    arrestTransportPath = null;
+    arrestTransportRepathTimer = 0;
+    arrestTransitionStarted = false;
+
+    // Make absolutely sure wanted status remains active during
+    // the arrest sequence.
+    player.wanted = true;
+    localStorage.setItem("gma_player_wanted", "true");
+
+    if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
+        taxiManager.setMessage("Police are taking you in...", 180);
+    }
+
+    spawnArrestTransportCar();
+}
     
-    surrenderBtn.style.display = 'none';
+// ============================================================
+// ARREST TRANSPORT SYSTEM
+// ============================================================
+
+const ARREST_STATION_X = 3692;
+const ARREST_STATION_Y = 421;
+
+let arrestTransportCar = null;
+let arrestEscortCars = [];
+let arrestTransportState = "NONE";
+let arrestTransportPath = null;
+let arrestTransportRepathTimer = 0;
+let arrestTransitionStarted = false;
+let arrestFadeOverlay = null;
+
+
+// ------------------------------------------------------------
+// Create the black transition overlay once.
+// ------------------------------------------------------------
+function getArrestFadeOverlay() {
+    if (arrestFadeOverlay) return arrestFadeOverlay;
+
+    arrestFadeOverlay = document.createElement("div");
+    arrestFadeOverlay.id = "arrestFadeOverlay";
+
+    arrestFadeOverlay.style.position = "fixed";
+    arrestFadeOverlay.style.left = "0";
+    arrestFadeOverlay.style.top = "0";
+    arrestFadeOverlay.style.width = "100vw";
+    arrestFadeOverlay.style.height = "100vh";
+    arrestFadeOverlay.style.background = "#000";
+    arrestFadeOverlay.style.opacity = "0";
+    arrestFadeOverlay.style.pointerEvents = "none";
+    arrestFadeOverlay.style.zIndex = "99999";
+    arrestFadeOverlay.style.transition = "opacity 0.45s ease";
+
+    document.body.appendChild(arrestFadeOverlay);
+
+    return arrestFadeOverlay;
 }
 
 
+// ------------------------------------------------------------
+// Find a road position outside the current viewport.
+// ------------------------------------------------------------
+function getArrestSpawnPosition() {
+    const viewDistance =
+        Math.max(canvas.width, canvas.height) * 0.75 + 180;
+
+    const angles = [
+        0,
+        Math.PI * 0.25,
+        Math.PI * 0.5,
+        Math.PI * 0.75,
+        Math.PI,
+        Math.PI * 1.25,
+        Math.PI * 1.5,
+        Math.PI * 1.75
+    ];
+
+    // Try deterministic directions first.
+    for (const angle of angles) {
+        const x = player.x + Math.cos(angle) * viewDistance;
+        const y = player.y + Math.sin(angle) * viewDistance;
+
+        if (
+            x > 30 &&
+            y > 30 &&
+            x < mapWidth - 30 &&
+            y < mapHeight - 30 &&
+            isAICarWalkable(x, y)
+        ) {
+            return { x, y };
+        }
+    }
+
+    // Fallback: search random positions far enough away.
+    for (let i = 0; i < 80; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const distance =
+            viewDistance +
+            Math.random() * 250;
+
+        const x = player.x + Math.cos(angle) * distance;
+        const y = player.y + Math.sin(angle) * distance;
+
+        if (
+            x > 30 &&
+            y > 30 &&
+            x < mapWidth - 30 &&
+            y < mapHeight - 30 &&
+            isAICarWalkable(x, y)
+        ) {
+            return { x, y };
+        }
+    }
+
+    // Final fallback.
+    return getRandomStrictRoadPosition();
+}
+
+
+// ------------------------------------------------------------
+// Spawn the arrest transport police car.
+// ------------------------------------------------------------
+function spawnArrestTransportCar() {
+    const spawn = getArrestSpawnPosition();
+
+    const id =
+        Date.now() +
+        700000 +
+        Math.floor(Math.random() * 10000);
+
+    const policeCar =
+        new Car(
+            id,
+            spawn.x,
+            spawn.y,
+            "#111111",
+            true
+        );
+
+    policeCar.isPolice = true;
+    policeCar.ownerType = "police";
+    policeCar.type = "Commuter, Sedan";
+
+    // Keep police-car characteristics.
+    policeCar.width = 16;
+    policeCar.length = 28;
+    policeCar.baseSpeed = 2.3;
+    policeCar.speed = policeCar.baseSpeed;
+
+    policeCar.isParked = false;
+    policeCar.hasDriver = true;
+    policeCar.policeState = "ARREST_TRANSPORT";
+
+    // Face roughly toward the player initially.
+    policeCar.angle =
+        Math.atan2(
+            player.y - policeCar.y,
+            player.x - policeCar.x
+        ) + Math.PI / 2;
+
+    policeCar.arrestTransportRepathTimer = 0;
+    policeCar.arrestTransportPath = null;
+
+    if (typeof policeCar.playSiren === 'function') {
+        policeCar.playSiren(2);
+    } else {
+        policeCar.sirenState = 2;
+    }
+
+    cars.push(policeCar);
+
+    arrestTransportCar = policeCar;
+    arrestTransportState = "APPROACHING";
+}
+
+
+// ------------------------------------------------------------
+// Move one police car using A* toward a target.
+// ------------------------------------------------------------
+function moveArrestPoliceCar(
+    car,
+    targetX,
+    targetY,
+    dt,
+    speed
+) {
+    if (!car) return;
+
+    if (
+        car.arrestTransportRepathTimer === undefined
+    ) {
+        car.arrestTransportRepathTimer = 0;
+    }
+
+    car.arrestTransportRepathTimer -= dt;
+
+    if (
+        !car.arrestTransportPath ||
+        car.arrestTransportRepathTimer <= 0
+    ) {
+        car.arrestTransportPath =
+            navigationSystem.findPath(
+                car.x,
+                car.y,
+                targetX,
+                targetY
+            );
+
+        car.arrestTransportRepathTimer = 0.33;
+    }
+
+    let moveAngle =
+        Math.atan2(
+            targetY - car.y,
+            targetX - car.x
+        );
+
+    const path = car.arrestTransportPath;
+
+    if (path && path.length > 1) {
+        const waypoint = path[1];
+
+        if (waypoint) {
+            moveAngle =
+                Math.atan2(
+                    waypoint.y - car.y,
+                    waypoint.x - car.x
+                );
+        }
+    }
+
+    car.angle = moveAngle + Math.PI / 2;
+    car.speed = speed;
+
+    const nextX =
+        car.x +
+        Math.cos(moveAngle) *
+        speed *
+        dt;
+
+    const nextY =
+        car.y +
+        Math.sin(moveAngle) *
+        speed *
+        dt;
+
+    if (isAICarWalkable(nextX, nextY)) {
+        car.x = nextX;
+        car.y = nextY;
+    } else {
+        const xWalkable =
+            isAICarWalkable(nextX, car.y);
+
+        const yWalkable =
+            isAICarWalkable(car.x, nextY);
+
+        if (xWalkable) {
+            car.x = nextX;
+        }
+
+        if (yWalkable) {
+            car.y = nextY;
+        }
+
+        if (!xWalkable && !yWalkable) {
+            car.arrestTransportPath = null;
+            car.arrestTransportRepathTimer = 0;
+        }
+    }
+}
+
+
+// ------------------------------------------------------------
+// Begin fade transition when the transport reaches station.
+// ------------------------------------------------------------
+function startArrestTransition() {
+    if (arrestTransitionStarted) return;
+
+    arrestTransitionStarted = true;
+    arrestTransportState = "TRANSITION";
+
+    const overlay = getArrestFadeOverlay();
+
+    overlay.style.opacity = "1";
+
+    // Give the fade time to reach black.
+    setTimeout(() => {
+
+        // ------------------------------------------------------
+        // DESPAWN TRANSPORT CAR.
+        // ------------------------------------------------------
+        if (arrestTransportCar) {
+            if (typeof arrestTransportCar.stopSiren === 'function') {
+                arrestTransportCar.stopSiren();
+            }
+
+            if (arrestTransportCar.humAudio) {
+                arrestTransportCar.humAudio.pause();
+                arrestTransportCar.humAudio = null;
+            }
+
+            const index =
+                cars.indexOf(arrestTransportCar);
+
+            if (index > -1) {
+                cars.splice(index, 1);
+            }
+        }
+
+        arrestTransportCar = null;
+
+        // ------------------------------------------------------
+        // DESPAWN ESCORT POLICE CARS.
+        // ------------------------------------------------------
+        arrestEscortCars.forEach(escort => {
+            if (!escort) return;
+
+            if (typeof escort.stopSiren === 'function') {
+                escort.stopSiren();
+            }
+
+            if (escort.humAudio) {
+                escort.humAudio.pause();
+                escort.humAudio = null;
+            }
+
+            const index = cars.indexOf(escort);
+
+            if (index > -1) {
+                cars.splice(index, 1);
+            }
+        });
+
+        arrestEscortCars = [];
+
+        // ------------------------------------------------------
+        // REMOVE ALL STOLEN CARS ONLY NOW.
+        // ------------------------------------------------------
+        cars = cars.filter(car => {
+            if (!car || !car.isStolen) {
+                return true;
+            }
+
+            if (typeof car.stopSiren === 'function') {
+                car.stopSiren();
+            }
+
+            if (car.humAudio) {
+                car.humAudio.pause();
+                car.humAudio = null;
+            }
+
+            return false;
+        });
+
+        // ------------------------------------------------------
+        // NOW clear wanted/stolen records.
+        // ------------------------------------------------------
+        localStorage.removeItem("stolen_cars");
+        localStorage.removeItem("stolen car");
+
+        player.wanted = false;
+        player.beingChased = false;
+
+        localStorage.setItem(
+            "gma_player_wanted",
+            "false"
+        );
+
+        // Place player at the police station.
+        player.x = ARREST_STATION_X;
+        player.y = ARREST_STATION_Y;
+        player.speed = 0;
+
+        // ------------------------------------------------------
+        // Hold black screen for 2 seconds.
+        // ------------------------------------------------------
+        setTimeout(() => {
+
+            overlay.style.opacity = "0";
+
+            setTimeout(() => {
+                player.isBeingArrested = false;
+                arrestTransportState = "NONE";
+                arrestTransitionStarted = false;
+                arrestTransportPath = null;
+                arrestTransportRepathTimer = 0;
+
+                if (typeof surrenderBtn !== 'undefined' && surrenderBtn) {
+                    surrenderBtn.style.display = 'none';
+                }
+
+                if (typeof exitBtn !== 'undefined' && exitBtn) {
+                    exitBtn.style.display = 'none';
+                }
+
+                if (typeof jackBtn !== 'undefined' && jackBtn) {
+                    jackBtn.style.display = 'none';
+                }
+
+                if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
+                    taxiManager.setMessage(
+                        "You were arrested. Stolen vehicles impounded.",
+                        240
+                    );
+                }
+            }, 450);
+
+        }, 2000);
+
+    }, 450);
+}
+
+
+// ------------------------------------------------------------
+// Update arrest transport + escorts.
+// ------------------------------------------------------------
+function updateArrestTransport(dt) {
+    if (!player.isBeingArrested) return false;
+
+    // Keep player absolutely immobile.
+    player.speed = 0;
+
+    if (typeof exitBtn !== 'undefined' && exitBtn) {
+        exitBtn.style.display = 'none';
+    }
+
+    if (typeof jackBtn !== 'undefined' && jackBtn) {
+        jackBtn.style.display = 'none';
+    }
+
+    if (typeof surrenderBtn !== 'undefined' && surrenderBtn) {
+        surrenderBtn.style.display = 'none';
+    }
+
+    // ----------------------------------------------------------
+    // Transport car approaching player.
+    // ----------------------------------------------------------
+    if (
+        arrestTransportState === "APPROACHING" &&
+        arrestTransportCar
+    ) {
+        const distance =
+            Math.hypot(
+                player.x - arrestTransportCar.x,
+                player.y - arrestTransportCar.y
+            );
+
+        if (distance <= 42) {
+
+            arrestTransportState = "CARRYING";
+
+            arrestTransportCar.speed = 0;
+
+            // Player is now considered inside the police car.
+            player.x = arrestTransportCar.x;
+            player.y = arrestTransportCar.y;
+            player.angle = arrestTransportCar.angle;
+
+            arrestTransportCar.arrestTransportPath = null;
+            arrestTransportCar.arrestTransportRepathTimer = 0;
+
+        } else {
+            moveArrestPoliceCar(
+                arrestTransportCar,
+                player.x,
+                player.y,
+                dt,
+                arrestTransportCar.baseSpeed || 2.3
+            );
+        }
+    }
+
+    // ----------------------------------------------------------
+    // Transport car carrying player to station.
+    // ----------------------------------------------------------
+    if (
+        arrestTransportState === "CARRYING" &&
+        arrestTransportCar
+    ) {
+        player.x = arrestTransportCar.x;
+        player.y = arrestTransportCar.y;
+        player.angle = arrestTransportCar.angle;
+        player.speed = 0;
+
+        const stationDistance =
+            Math.hypot(
+                ARREST_STATION_X - arrestTransportCar.x,
+                ARREST_STATION_Y - arrestTransportCar.y
+            );
+
+        if (stationDistance <= 55) {
+
+            arrestTransportCar.x =
+                ARREST_STATION_X;
+
+            arrestTransportCar.y =
+                ARREST_STATION_Y;
+
+            arrestTransportCar.speed = 0;
+
+            player.x = ARREST_STATION_X;
+            player.y = ARREST_STATION_Y;
+
+            startArrestTransition();
+
+        } else {
+            moveArrestPoliceCar(
+                arrestTransportCar,
+                ARREST_STATION_X,
+                ARREST_STATION_Y,
+                dt,
+                arrestTransportCar.baseSpeed || 2.3
+            );
+
+            // Keep player attached after movement.
+            player.x = arrestTransportCar.x;
+            player.y = arrestTransportCar.y;
+            player.angle = arrestTransportCar.angle;
+        }
+    }
+
+    // ----------------------------------------------------------
+    // Escort police cars follow the transport vehicle.
+    // ----------------------------------------------------------
+    if (
+        arrestTransportCar &&
+        arrestTransportState !== "TRANSITION"
+    ) {
+        arrestEscortCars.forEach((escort, index) => {
+
+            if (!escort) return;
+            if (!cars.includes(escort)) return;
+
+            const forwardAngle =
+                arrestTransportCar.angle -
+                Math.PI / 2;
+
+            // Keep escorts behind / beside the transport rather
+            // than sending every car to exactly the same point.
+            const side =
+                index % 2 === 0 ? -1 : 1;
+
+            const row =
+                Math.floor(index / 2);
+
+            const targetX =
+                arrestTransportCar.x -
+                Math.cos(forwardAngle) *
+                (65 + row * 45) +
+                Math.cos(forwardAngle + Math.PI / 2) *
+                side *
+                45;
+
+            const targetY =
+                arrestTransportCar.y -
+                Math.sin(forwardAngle) *
+                (65 + row * 45) +
+                Math.sin(forwardAngle + Math.PI / 2) *
+                side *
+                45;
+
+            moveArrestPoliceCar(
+                escort,
+                targetX,
+                targetY,
+                dt,
+                escort.baseSpeed || 2.3
+            );
+
+            if (typeof escort.playSiren === 'function') {
+                escort.playSiren(2);
+            } else {
+                escort.sirenState = 2;
+            }
+        });
+    }
+
+    return true;
+}    
 surrenderBtn.addEventListener('click', () => {
+    if (player.isBeingArrested) return;
+
     isPlayerSurrendered = true;
     executeArrestProcess();
 });
@@ -1539,21 +2152,7 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
     // --- POLICE CAR STOP/START CHASE TIMERS ---
     // Police cars only. Officer NPC chase behavior is untouched.
     if (isCar) {
-    if (unit.policeLastPlayerX === undefined) {
-    unit.policeLastPlayerX = player.x;
-    unit.policeLastPlayerY = player.y;
-}
-
-const playerDistanceMoved = Math.hypot(
-    player.x - unit.policeLastPlayerX,
-    player.y - unit.policeLastPlayerY
-);
-
-const playerIsMoving = playerDistanceMoved > 0.001;
-
-unit.policeLastPlayerX = player.x;
-unit.policeLastPlayerY = player.y;
-
+    const playerIsMoving = Math.abs(player.speed || 0) > 0.05;
         if (!playerIsMoving) {
 
             // Player just stopped during a normal chase.
@@ -1845,6 +2444,11 @@ unit.policeLastPlayerY = player.y;
 function updatePoliceStage4A(dt, player, cars, npcs) {
     if (!player) return;
     if (player.beingChased === undefined) player.beingChased = false;
+    
+    if (player.isBeingArrested) {
+        updateArrestTransport(dt);
+        return;
+    }
 
     const surrenderBtn = document.getElementById('surrenderBtn');
 
@@ -2077,34 +2681,15 @@ if (!player.wanted && !player.beingChased) {
                     taxiManager.setMessage("You are being chased!", 180);
                 }
             }
-        } else if (warningOrArrestingUnit.policeState === "ARRESTING") {
-            if (surrenderBtn) surrenderBtn.style.display = 'none';
-            if (warningOrArrestingUnit.arrestTimer > 0) {
-                warningOrArrestingUnit.arrestTimer -= dt;
-                return;
-            }
+    } else if (warningOrArrestingUnit.policeState === "ARRESTING") {
 
-            if (playerCar && warningOrArrestingUnit.arrestStage === 0) {
-                if (officerNPC && typeof officerNPC.say === 'function') officerNPC.say("Step out!", 120);
-                let sideAngle = playerCar.angle - Math.PI / 2;
-                playerCar.isParked = true;
-                playerCar.hasDriver = false;
-                player.x = playerCar.x + Math.cos(sideAngle) * 35;
-                player.y = playerCar.y + Math.sin(sideAngle) * 35;
-                playerCar = null;
-                warningOrArrestingUnit.arrestStage = 1;
-                warningOrArrestingUnit.arrestTimer = 60;
-                return;
-            }
+    if (surrenderBtn) {
+        surrenderBtn.style.display = 'none';
+    }
 
-            player.wanted = false;
-            player.beingChased = false;
-            warningOrArrestingUnit.policeState = "PATROL";
-            if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
-                taxiManager.setMessage("You were arrested! Stolen vehicles impounded.", 240);
-            }
-            return;
-        }
+    warningOrArrestingUnit.speed = 0;
+    return;
+        }                
     }
 
     // 4. JOIN CHASE MECHANIC FOR NEARBY UNITS (Within 240px | Max 3 Cars, 2 Officers)

@@ -834,6 +834,7 @@ if (!isInsideHouse && angryDrivers.length > 0) {
     
   // --- 0. CALCULATE PLAYER INPUT & MOVING STATE FIRST ---
   let inputX = 0, inputY = 0, isMoving = false;
+      if (player.isBeingArrested) { isMoving = false;                                  }
   if (typeof joystickActive !== 'undefined' && joystickActive) {
     if (Math.sqrt(joystickInputX * joystickInputX + joystickInputY * joystickInputY) > 0.15) { 
        inputX = joystickInputX; inputY = joystickInputY; isMoving = true; 
@@ -1108,12 +1109,20 @@ cars.forEach(car => {
     }
 
       targetCar = closestCar;
-      if (jackBtn) jackBtn.style.display = (targetCar && !targetCar.exploded) ? 'flex' : 'none'; 
+        if (jackBtn) {
+            jackBtn.style.display =
+                (!player.isBeingArrested && targetCar && !targetCar.exploded)
+                    ? 'flex'
+                    : 'none';
+        }
       if (exitBtn) exitBtn.style.display = 'none'; 
       if (typeof sirenBtn !== 'undefined' && sirenBtn) sirenBtn.style.display = 'none'; // Hide siren when on foot
 
   } else {
-    if (exitBtn) exitBtn.style.display = 'flex';
+    if (exitBtn) {
+    exitBtn.style.display =
+        player.isBeingArrested ? 'none' : 'flex';
+    }
     if (jackBtn) jackBtn.style.display = 'none';
    // Update siren button label and display status when driving
     if (typeof updateSirenButtonLabel === 'function') {
