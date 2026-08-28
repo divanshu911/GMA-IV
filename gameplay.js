@@ -1,4 +1,4 @@
-console.log("lloo")
+console.log("oooo")
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -1552,8 +1552,9 @@ function moveArrestPoliceCar(
 
     car.arrestTransportRepathTimer -= dt;
 
-    // Recalculate the A* route every 0.33 seconds,
-    // exactly like the working police chase.
+    // ------------------------------------------------------------
+    // A* route
+    // ------------------------------------------------------------
     if (
         !car.arrestTransportPath ||
         car.arrestTransportRepathTimer <= 0
@@ -1571,24 +1572,81 @@ function moveArrestPoliceCar(
 
     const path = car.arrestTransportPath;
 
-    let moveAngle =
-        Math.atan2(
-            targetY - car.y,
-            targetX - car.x
-        );
+    let moveAngle = Math.atan2(
+        targetY - car.y,
+        targetX - car.x
+    );
 
-    // Follow the next A* waypoint exactly like the
-    // normal police-car chase.
     if (path && path.length > 1) {
         const nextWaypoint = path[1];
 
         if (nextWaypoint) {
-            moveAngle =
-                Math.atan2(
-                    nextWaypoint.y - car.y,
-                    nextWaypoint.x - car.x
-                );
+            moveAngle = Math.atan2(
+                nextWaypoint.y - car.y,
+                nextWaypoint.x - car.x
+            );
         }
+    }
+
+    // ------------------------------------------------------------
+    // Check the actual police-car footprint.
+    // ------------------------------------------------------------
+    const halfWidth = (car.width || 16) * 0.5;
+    const halfLength = (car.length || 28) * 0.5;
+
+    function arrestCarPositionWalkable(x, y) {
+        const cos = Math.cos(moveAngle);
+        const sin = Math.sin(moveAngle);
+
+        // Forward/backward points
+        const frontX = x + cos * halfLength;
+        const frontY = y + sin * halfLength;
+
+        const backX = x - cos * halfLength;
+        const backY = y - sin * halfLength;
+
+        // Left/right points
+        const sideCos = -sin;
+        const sideSin = cos;
+
+        const leftX = x + sideCos * halfWidth;
+        const leftY = y + sideSin * halfWidth;
+
+        const rightX = x - sideCos * halfWidth;
+        const rightY = y - sideSin * halfWidth;
+
+        // Four corners
+        const frontLeftX =
+            frontX + sideCos * halfWidth;
+        const frontLeftY =
+            frontY + sideSin * halfWidth;
+
+        const frontRightX =
+            frontX - sideCos * halfWidth;
+        const frontRightY =
+            frontY - sideSin * halfWidth;
+
+        const backLeftX =
+            backX + sideCos * halfWidth;
+        const backLeftY =
+            backY + sideSin * halfWidth;
+
+        const backRightX =
+            backX - sideCos * halfWidth;
+        const backRightY =
+            backY - sideSin * halfWidth;
+
+        return (
+            isGrassOrRoad(x, y) &&
+            isGrassOrRoad(frontX, frontY) &&
+            isGrassOrRoad(backX, backY) &&
+            isGrassOrRoad(leftX, leftY) &&
+            isGrassOrRoad(rightX, rightY) &&
+            isGrassOrRoad(frontLeftX, frontLeftY) &&
+            isGrassOrRoad(frontRightX, frontRightY) &&
+            isGrassOrRoad(backLeftX, backLeftY) &&
+            isGrassOrRoad(backRightX, backRightY)
+        );
     }
 
     car.angle = moveAngle + Math.PI / 2;
@@ -1606,52 +1664,40 @@ function moveArrestPoliceCar(
         speed *
         dt;
 
-    // IMPORTANT:
-    // Use the SAME movement/walkability test used by
-    // the working police-car chase.
-    if (isGrassOrRoad(nextX, nextY)) {
+    // ------------------------------------------------------------
+    // Move only if the ENTIRE police car fits.
+    // ------------------------------------------------------------
+    if (arrestCarPositionWalkable(nextX, nextY)) {
         car.x = nextX;
         car.y = nextY;
-    } else {
-        const xWalkable =
-            isGrassOrRoad(nextX, car.y);
-
-        const yWalkable =
-            isGrassOrRoad(car.x, nextY);
-
-        if (xWalkable && yWalkable) {
-            const xDist =
-                Math.hypot(
-                    targetX - nextX,
-                    targetY - car.y
-                );
-
-            const yDist =
-                Math.hypot(
-                    targetX - car.x,
-                    targetY - nextY
-                );
-
-            if (xDist <= yDist) {
-                car.x = nextX;
-            } else {
-                car.y = nextY;
-            }
-
-        } else if (xWalkable) {
-            car.x = nextX;
-
-        } else if (yWalkable) {
-            car.y = nextY;
-
-        } else {
-            // No valid movement this frame.
-            // Force a fresh A* calculation next frame.
-            car.arrestTransportPath = null;
-            car.arrestTransportRepathTimer = 0;
-        }
+        return;
     }
-}        
+
+    // ------------------------------------------------------------
+    // Try X-only movement.
+    // ------------------------------------------------------------
+    const xOnlyX = nextX;
+    const xOnlyY = car.y;
+
+    if (arrestCarPositionWalkable(xOnlyX, xOnlyY)) {
+        car.x = xOnlyX;
+        return;
+    }
+
+    // -------------
+    const yOnlyX = car.x;
+    const yOnlyY = nextY;
+
+    if (arrestCarPositionWalkable(yOnlyX, yOnlyY)) {
+        car.y = yOnlyY;
+        return;
+    }
+
+    //-
+    car.arrestTransportPath = null;
+    car.arrestTransportRepathTimer = 0;
+    car.speed = 0;
+}
 
 
 function startArrestTransition() {
@@ -1666,8 +1712,6 @@ function startArrestTransition() {
 
     // Give the fade time to reach black.
     setTimeout(() => {
-
-        // ------------------------------------------------------
         // DESPAWN TRANSPORT CAR.
         // ------------------------------------------------------
         if (arrestTransportCar) {
