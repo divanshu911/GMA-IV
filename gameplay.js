@@ -1279,6 +1279,8 @@ function executeArrestProcess() {
     if (player.isBeingArrested) return;
 
     player.isBeingArrested = true;
+    player.isArrestPassenger = false;
+player.arrestTransportCar = null;
     player.beingChased = false;
 
     // Stop player input immediately.
@@ -1806,14 +1808,13 @@ function updateArrestTransport(dt) {
 
         if (distance <= 42) {
 
-            arrestTransportState = "CARRYING";
+     arrestTransportState = "CARRYING";
 
-            arrestTransportCar.speed = 0;
+player.isArrestPassenger = true;
+player.arrestTransportCar = arrestTransportCar;
 
-            // Player is now considered inside the police car.
-            player.x = arrestTransportCar.x;
-            player.y = arrestTransportCar.y;
-            player.angle = arrestTransportCar.angle;
+arrestTransportCar.speed = 0;
+arrestTransportCar.hasArrestPassenger = true;       
 
             arrestTransportCar.arrestTransportPath = null;
             arrestTransportCar.arrestTransportRepathTimer = 0;

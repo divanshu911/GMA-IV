@@ -594,11 +594,16 @@ function handlePhysicsAndCollisions(dt) {
               if (isWalkableColor(player.x, targetY, player.size)) player.y = targetY;
           }
 
-          if (!playerCar && !player.isInvulnerable && Math.abs(car.speed) > 1.5) {
-            player.health -= 35; 
-            player.isInvulnerable = true;
-            player.invulnerabilityTimer = 60; 
-            checkPlayerDeath();
+          if (
+    !playerCar &&
+    !player.isArrestPassenger &&
+    !player.isInvulnerable &&
+    Math.abs(car.speed) > 1.5
+) {
+    player.health -= 35;
+    player.isInvulnerable = true;
+    player.invulnerabilityTimer = 60;
+    checkPlayerDeath();
           }
         }
       });
@@ -1132,8 +1137,9 @@ cars.forEach(car => {
         updateSirenButtonLabel();
     }
     } 
-
-  if (playerCar) {
+if (player.isBeingArrested) {
+    player.speed = 0;
+} else if (playerCar) {
     if (isMoving) {
       let screenAngle = Math.atan2(inputY, inputX) + Math.PI / 2;
       let worldMoveAngle = screenAngle + camera.angle;
@@ -1472,7 +1478,9 @@ function drawGame() {
 
   ctx.restore();
 
-  if (!playerCar) player.draw(ctx, isInsideDealership ? 0 : camera.angle);
+  if (!playerCar && !player.isArrestPassenger) {
+    player.draw(ctx, isInsideDealership ? 0 : camera.angle);
+  }
   if (!isInsideHouse && !isInsideDealership && typeof drawNightOverlay === 'function') drawNightOverlay();
 
   ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
