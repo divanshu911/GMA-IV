@@ -1536,7 +1536,7 @@ function spawnArrestTransportCar() {
 
 // ------------------------------------------------------------
 // Move one police car using A* toward a target.
-// ------------------------------------------------------------
+
 function moveArrestPoliceCar(
     car,
     targetX,
@@ -1546,14 +1546,14 @@ function moveArrestPoliceCar(
 ) {
     if (!car) return;
 
-    if (
-        car.arrestTransportRepathTimer === undefined
-    ) {
+    if (car.arrestTransportRepathTimer === undefined) {
         car.arrestTransportRepathTimer = 0;
     }
 
     car.arrestTransportRepathTimer -= dt;
 
+    // Recalculate the A* route every 0.33 seconds,
+    // exactly like the working police chase.
     if (
         !car.arrestTransportPath ||
         car.arrestTransportRepathTimer <= 0
@@ -1569,22 +1569,24 @@ function moveArrestPoliceCar(
         car.arrestTransportRepathTimer = 0.33;
     }
 
+    const path = car.arrestTransportPath;
+
     let moveAngle =
         Math.atan2(
             targetY - car.y,
             targetX - car.x
         );
 
-    const path = car.arrestTransportPath;
-
+    // Follow the next A* waypoint exactly like the
+    // normal police-car chase.
     if (path && path.length > 1) {
-        const waypoint = path[1];
+        const nextWaypoint = path[1];
 
-        if (waypoint) {
+        if (nextWaypoint) {
             moveAngle =
                 Math.atan2(
-                    waypoint.y - car.y,
-                    waypoint.x - car.x
+                    nextWaypoint.y - car.y,
+                    nextWaypoint.x - car.x
                 );
         }
     }
@@ -1604,35 +1606,54 @@ function moveArrestPoliceCar(
         speed *
         dt;
 
-    if (isAICarWalkable(nextX, nextY)) {
+    // IMPORTANT:
+    // Use the SAME movement/walkability test used by
+    // the working police-car chase.
+    if (isGrassOrRoad(nextX, nextY)) {
         car.x = nextX;
         car.y = nextY;
     } else {
         const xWalkable =
-            isAICarWalkable(nextX, car.y);
+            isGrassOrRoad(nextX, car.y);
 
         const yWalkable =
-            isAICarWalkable(car.x, nextY);
+            isGrassOrRoad(car.x, nextY);
 
-        if (xWalkable) {
+        if (xWalkable && yWalkable) {
+            const xDist =
+                Math.hypot(
+                    targetX - nextX,
+                    targetY - car.y
+                );
+
+            const yDist =
+                Math.hypot(
+                    targetX - car.x,
+                    targetY - nextY
+                );
+
+            if (xDist <= yDist) {
+                car.x = nextX;
+            } else {
+                car.y = nextY;
+            }
+
+        } else if (xWalkable) {
             car.x = nextX;
-        }
 
-        if (yWalkable) {
+        } else if (yWalkable) {
             car.y = nextY;
-        }
 
-        if (!xWalkable && !yWalkable) {
+        } else {
+            // No valid movement this frame.
+            // Force a fresh A* calculation next frame.
             car.arrestTransportPath = null;
             car.arrestTransportRepathTimer = 0;
         }
     }
-}
+}        
 
 
-// ------------------------------------------------------------
-// Begin fade transition when the transport reaches station.
-// ------------------------------------------------------------
 function startArrestTransition() {
     if (arrestTransitionStarted) return;
 
@@ -2257,7 +2278,7 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
             // stationary delay.
             if (unit.policeChaseTimerState === "STOPPING") {
                 unit.policeStopTimer = 0;
-                unit.policeStartTimer = 0.8 * 60;
+                unit.policeStartTimer = 0.5 * 60;
                 unit.policeChaseTimerState = "STARTING";
                 unit.speed = 0;
                 return;
@@ -2265,7 +2286,7 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
 
             // Player starts moving after police has completely stopped.
             if (unit.policeChaseTimerState === "STOPPED") {
-                unit.policeStartTimer = 0.8 * 60;
+                unit.policeStartTimer = 0.5 * 60;
                 unit.policeChaseTimerState = "STARTING";
                 unit.speed = 0;
                 return;
