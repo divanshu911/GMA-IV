@@ -147,7 +147,13 @@ collisionMapImage.addEventListener('load', () => {
 
 collisionMapImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/CollisionMap2.png";
 
-let camera = { angle: 0, targetAngle: 0, moveTimer: 0, lastAngle: 0 };
+let camera = {
+    angle: 0,
+    targetAngle: 0,
+    moveTimer: 0,
+    lastAngle: 0,
+    arrestFollowAngle: null
+};
 
 const jackBtn = document.getElementById('jackBtn');
 const exitBtn = document.getElementById('exitBtn');
@@ -1237,10 +1243,15 @@ if (playerCar.health <= 0) {
     }
   }
 
-  let camDiff = camera.targetAngle - camera.angle;
-  while (camDiff < -Math.PI) camDiff += Math.PI * 2;
-  while (camDiff > Math.PI) camDiff -= Math.PI * 2;
-  camera.angle += camDiff * (0.025 * dt);
+  if (player.isArrestPassenger && camera.arrestFollowAngle !== null) {
+    camera.angle = camera.arrestFollowAngle;
+    camera.targetAngle = camera.arrestFollowAngle;
+} else {
+    let camDiff = camera.targetAngle - camera.angle;
+    while (camDiff < -Math.PI) camDiff += Math.PI * 2;
+    while (camDiff > Math.PI) camDiff -= Math.PI * 2;
+    camera.angle += camDiff * (0.025 * dt);
+  }
 
   handlePhysicsAndCollisions(dt);
   handleFootstepSound(player, true, dt);
@@ -1428,7 +1439,16 @@ function drawGame() {
   ctx.save();
   ctx.translate(canvas.width / 2, canvas.height / 2);
   ctx.rotate(-camera.angle);
-  ctx.translate(-player.x - player.size / 2, -player.y - player.size / 2);
+  const cameraTarget =
+    player.isArrestPassenger &&
+    arrestTransportCar
+        ? arrestTransportCar
+        : player;
+
+ctx.translate(
+    -cameraTarget.x - (cameraTarget.size || player.size) / 2,
+    -cameraTarget.y - (cameraTarget.size || player.size) / 2
+);
 
   // Map / Floor rendering
   if (isInsideHouse) {

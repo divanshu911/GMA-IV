@@ -1806,7 +1806,7 @@ function startArrestTransition() {
             setTimeout(() => {
  player.isBeingArrested = false;
 player.isArrestPassenger = false;
-player.arrestTransportCar = null; 
+camera.arrestFollowAngle = null;  player.arrestTransportCar = null; 
 arrestTransportState = "NONE";                       arrestTransitionStarted = false;                 arrestTransportPath = null;
                 arrestTransportRepathTimer = 0;
 
@@ -1900,6 +1900,7 @@ player.speed = 0;
 
 player.isArrestPassenger = true;
 player.arrestTransportCar = arrestTransportCar;
+camera.arrestFollowAngle = camera.angle;            
 
 arrestTransportCar.speed = 0;
 arrestTransportCar.hasArrestPassenger = true;       
