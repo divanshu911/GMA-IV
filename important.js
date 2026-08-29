@@ -806,7 +806,7 @@ class NavigationSystem {
     // Get neighboring cells
     // --------------------------------------------------------
 
-    getNeighbors(node) {
+    getNeighbors(node, preferRoads = false) {
 
         const neighbors = [];
 
@@ -850,11 +850,11 @@ class NavigationSystem {
                 }
             }
 
-            neighbors.push({
-                x,
-                y,
-                cost: dir.cost
-            });
+           neighbors.push({
+    x,
+    y,
+    cost: dir.cost * this.getTerrainCost(x, y, preferRoads)
+}); 
         }
 
         return neighbors;
@@ -866,7 +866,50 @@ class NavigationSystem {
     // Returns an array of world-coordinate waypoints.
     // --------------------------------------------------------
 
-    findPath(startX, startY, targetX, targetY) {
+      getTerrainCost(gridX, gridY, preferRoads = false) {
+        if (!preferRoads) return 1;
+
+        if (
+            !collisionData ||
+            gridX < 0 ||
+            gridY < 0 ||
+            gridX >= this.gridWidth ||
+            gridY >= this.gridHeight
+        ) {
+            return Infinity;
+        }
+
+        const world = this.gridToWorld(gridX, gridY);
+
+        const checkX = Math.floor(world.x);
+        const checkY = Math.floor(world.y);
+
+        if (
+            checkX < 0 ||
+            checkX >= mapWidth ||
+            checkY < 0 ||
+            checkY >= mapHeight
+        ) {
+            return Infinity;
+        }
+
+        const index = (checkY * mapWidth + checkX) * 4;
+
+        const type = getTerrainType(
+            collisionData[index],
+            collisionData[index + 1],
+            collisionData[index + 2]
+        );
+
+        // Strongly prefer roads.
+        // Transition is cheap because it is used to enter/leave roads.
+        // Grass remains possible, but is expensive.
+        if (type === "ROAD") return 1;
+        if (type === "TRANSITION") return 2;
+        if (type === "GRASS") return 12;
+
+        return Infinity;
+    }  findPath(startX, startY, targetX, targetY, preferRoads = false) {
 
         if (!this.ready) {
             return null;
@@ -971,7 +1014,7 @@ class NavigationSystem {
             }
 
             const neighbors =
-                this.getNeighbors(current);
+                this.getNeighbors(current, preferRoads);
 
             for (const neighbor of neighbors) {
 

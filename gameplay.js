@@ -1,4 +1,4 @@
-console.log("lldv")
+console.log("kkk")
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -1572,7 +1572,8 @@ function moveArrestPoliceCar(
             car.x,
             car.y,
             targetX,
-            targetY
+            targetY,
+            true
         );
 
         if (newPath && newPath.length > 1) {
