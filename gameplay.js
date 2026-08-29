@@ -326,7 +326,7 @@ if (blackMarketBtn) {
         );
         blackMarketBtn.style.display = 'none';
     });
-    
+
 }
 
 // --- TRUCK JOB SYSTEM MANAGER ---
@@ -726,7 +726,7 @@ const buyCarBtn = document.getElementById('buyCarBtn');
 if (enterDealerBtn) {
     enterDealerBtn.addEventListener('click', () => {
         let ownsCar = localStorage.getItem("gma_player_owned_car");
-        
+
         isInsideDealership = true;
         outsideX = player.x;
         outsideY = player.y;
@@ -1210,7 +1210,7 @@ if (!sirenBtn) {
     sirenBtn.style.borderRadius = '6px';
     sirenBtn.style.zIndex = '1000';
     sirenBtn.style.display = 'none';
-    
+
     // UI alignment setup
     sirenBtn.style.alignItems = 'center';
     sirenBtn.style.justifyContent = 'center';
@@ -1374,7 +1374,7 @@ player.arrestTransportCar = null;
 
     spawnArrestTransportCar();
 }
-    
+
 // ============================================================
 // ARREST TRANSPORT SYSTEM
 // ============================================================
@@ -1532,8 +1532,8 @@ function spawnArrestTransportCar() {
 
 
 
-    // ------------------------------------------------------------
-  function moveArrestPoliceCar(
+// ------------------------------------------------------------
+function moveArrestPoliceCar(
     car,
     targetX,
     targetY,
@@ -1542,91 +1542,85 @@ function spawnArrestTransportCar() {
 ) {
     if (!car) return;
 
-    if (car.arrestTransportRepathTimer === undefined) {
-        car.arrestTransportRepathTimer = 0;
-    }
-
-    if (car.arrestTransportPathIndex === undefined) {
-        car.arrestTransportPathIndex = 1;
-    }
+    // Initialize tracking properties if not present
+    if (car.arrestTransportRepathTimer === undefined) car.arrestTransportRepathTimer = 0;
+    if (car.arrestTransportPathIndex === undefined) car.arrestTransportPathIndex = 1;
 
     car.arrestTransportRepathTimer -= dt;
 
-    // ------------------------------------------------------------
-    // A* route
-    // ------------------------------------------------------------
-    if (
-    !car.arrestTransportPath ||
-    car.arrestTransportRepathTimer <= 0
-) {
-    const newPath = navigationSystem.findPath(
-        car.x,
-        car.y,
-        targetX,
-        targetY
-    );
+    // Check if path is physically blocked by another vehicle ahead
+    const checkSensorDist = (car.sensorLength || 35) + 10;
+    const forwardAngle = car.angle - Math.PI / 2;
+    const frontCheckX = car.x + Math.cos(forwardAngle) * checkSensorDist;
+    const frontCheckY = car.y + Math.sin(forwardAngle) * checkSensorDist;
 
-    if (newPath && newPath.length > 1) {
-        car.arrestTransportPath = newPath;
-
-        // Do NOT blindly reset to waypoint 1.
-        // Find the waypoint closest to the car so
-        // repathing never sends the car backwards.
-        let closestIndex = 1;
-        let closestDistance = Infinity;
-
-        for (let i = 1; i < newPath.length; i++) {
-            const waypoint = newPath[i];
-            if (!waypoint) continue;
-
-            const distance = Math.hypot(
-                waypoint.x - car.x,
-                waypoint.y - car.y
-            );
-
-            if (distance < closestDistance) {
-                closestDistance = distance;
-                closestIndex = i;
+    let pathBlockedByCar = false;
+    if (typeof cars !== 'undefined') {
+        for (let i = 0; i < cars.length; i++) {
+            const otherCar = cars[i];
+            if (otherCar !== car && otherCar !== playerCar && !otherCar.exploded) {
+                if (Math.hypot(otherCar.x - frontCheckX, otherCar.y - frontCheckY) < 25) {
+                    pathBlockedByCar = true;
+                    break;
+                }
             }
         }
-
-        car.arrestTransportPathIndex = closestIndex;
     }
 
-    car.arrestTransportRepathTimer = 0.33;
+    // Repath ONLY if path is missing or blocked by a car (and repath cooldown expired)
+    if (!car.arrestTransportPath || (pathBlockedByCar && car.arrestTransportRepathTimer <= 0)) {
+        const newPath = navigationSystem.findPath(
+            car.x,
+            car.y,
+            targetX,
+            targetY
+        );
+
+        if (newPath && newPath.length > 1) {
+            car.arrestTransportPath = newPath;
+
+            let closestIndex = 1;
+            let closestDistance = Infinity;
+
+            for (let i = 1; i < newPath.length; i++) {
+                const waypoint = newPath[i];
+                if (!waypoint) continue;
+
+                const distance = Math.hypot(
+                    waypoint.x - car.x,
+                    waypoint.y - car.y
+                );
+
+                if (distance < closestDistance) {
+                    closestDistance = distance;
+                    closestIndex = i;
+                }
+            }
+
+            car.arrestTransportPathIndex = closestIndex;
+        }
+
+        car.arrestTransportRepathTimer = 0.33;
     }
 
     const path = car.arrestTransportPath;
-
     let moveAngle = Math.atan2(
         targetY - car.y,
         targetX - car.x
     );
 
-    // ------------------------------------------------------------
-    // Follow the current A* waypoint.
-    // Advance it once the car gets close enough.
-    // ------------------------------------------------------------
-    if (
-        path &&
-        path.length > 1 &&
-        car.arrestTransportPathIndex < path.length
-    ) {
-        let waypoint =
-            path[car.arrestTransportPathIndex];
+    if (path && path.length > 1 && car.arrestTransportPathIndex < path.length) {
+        let waypoint = path[car.arrestTransportPathIndex];
 
         if (waypoint) {
-            const waypointDistance =
-                Math.hypot(
-                    waypoint.x - car.x,
-                    waypoint.y - car.y
-                );
+            const waypointDistance = Math.hypot(
+                waypoint.x - car.x,
+                waypoint.y - car.y
+            );
 
             if (waypointDistance < 18) {
                 car.arrestTransportPathIndex++;
-
-                waypoint =
-                    path[car.arrestTransportPathIndex];
+                waypoint = path[car.arrestTransportPathIndex];
             }
 
             if (waypoint) {
@@ -1638,259 +1632,72 @@ function spawnArrestTransportCar() {
         }
     }
 
-    // ------------------------------------------------------------
-    // ROAD SENSOR STEERING
-    //
-    // Only the transport car uses this while carrying
-    // the player. Approach-to-player remains unchanged.
-    // ------------------------------------------------------------
-    const isTransportCar =
-        car === arrestTransportCar &&
-        arrestTransportState === "CARRYING";
+    // Dynamic Police Unit Separation (prevent stacking/spinning)
+    let avoidX = 0;
+    let avoidY = 0;
+    const avoidanceRadius = 55;
 
-    if (isTransportCar) {
-        const probeDist = car.sensorLength || 35;
+    if (typeof cars !== 'undefined') {
+        cars.forEach(otherCar => {
+            if (otherCar !== car && otherCar !== playerCar && otherCar.isPolice) {
+                const dx = otherCar.x - car.x;
+                const dy = otherCar.y - car.y;
+                const d = Math.hypot(dx, dy);
 
-        const frontX =
-            car.x +
-            Math.cos(moveAngle) *
-            probeDist;
-
-        const frontY =
-            car.y +
-            Math.sin(moveAngle) *
-            probeDist;
-
-        const leftX =
-            car.x +
-            Math.cos(moveAngle - 0.4) *
-            probeDist;
-
-        const leftY =
-            car.y +
-            Math.sin(moveAngle - 0.4) *
-            probeDist;
-
-        const rightX =
-            car.x +
-            Math.cos(moveAngle + 0.4) *
-            probeDist;
-
-        const rightY =
-            car.y +
-            Math.sin(moveAngle + 0.4) *
-            probeDist;
-
-        const frontRoad =
-            isRoadColor(frontX, frontY);
-
-        const leftRoad =
-            isRoadColor(leftX, leftY);
-
-        const rightRoad =
-            isRoadColor(rightX, rightY);
-
-        if (!frontRoad || !leftRoad || !rightRoad) {
-
-            if (!leftRoad && rightRoad) {
-                moveAngle += 0.035 * dt;
-
-            } else if (!rightRoad && leftRoad) {
-                moveAngle -= 0.035 * dt;
-
-            } else {
-                if (car.turnDirection === undefined) {
-                    car.turnDirection =
-                        Math.random() < 0.5 ? 1 : -1;
+                if (d < avoidanceRadius && d > 0.01) {
+                    const strength = (avoidanceRadius - d) / avoidanceRadius;
+                    avoidX -= (dx / d) * strength;
+                    avoidY -= (dy / d) * strength;
                 }
-
-                moveAngle +=
-                    0.035 *
-                    car.turnDirection *
-                    dt;
             }
+        });
+    }
+
+    if (avoidX !== 0 || avoidY !== 0) {
+        const avoidAngle = Math.atan2(avoidY, avoidX);
+        const separationStrength = Math.min(0.35, Math.hypot(avoidX, avoidY) * 0.35);
+
+        const chaseX = Math.cos(moveAngle);
+        const chaseY = Math.sin(moveAngle);
+        const avoidDirX = Math.cos(avoidAngle);
+        const avoidDirY = Math.sin(avoidAngle);
+
+        const finalX = chaseX * (1 - separationStrength) + avoidDirX * separationStrength;
+        const finalY = chaseY * (1 - separationStrength) + avoidDirY * separationStrength;
+
+        if (Math.hypot(finalX, finalY) > 0.001) {
+            moveAngle = Math.atan2(finalY, finalX);
         }
     }
 
-    car.angle =
-        moveAngle + Math.PI / 2;
-
+    car.angle = moveAngle + Math.PI / 2;
     car.speed = speed;
 
-    // ------------------------------------------------------------
-    // Movement distance
-    // ------------------------------------------------------------
-    const nextX =
-        car.x +
-        Math.cos(moveAngle) *
-        speed *
-        dt;
+    const nextX = car.x + Math.cos(moveAngle) * speed * dt;
+    const nextY = car.y + Math.sin(moveAngle) * speed * dt;
 
-    const nextY =
-        car.y +
-        Math.sin(moveAngle) *
-        speed *
-        dt;
-
-    // ------------------------------------------------------------
-    // During transport, the entire car must remain on ROAD.
-    //
-    // During approach, preserve the previous grass/road behavior.
-    // ------------------------------------------------------------
-    const roadOnly = isTransportCar;
-
-    const canOccupyPosition = (x, y) => {
-
-        const halfWidth =
-            (car.width || 16) * 0.5;
-
-        const halfLength =
-            (car.length || 28) * 0.5;
-
-        const cos =
-            Math.cos(moveAngle);
-
-        const sin =
-            Math.sin(moveAngle);
-
-        const sideCos = -sin;
-        const sideSin = cos;
-
-        const frontX =
-            x + cos * halfLength;
-
-        const frontY =
-            y + sin * halfLength;
-
-        const backX =
-            x - cos * halfLength;
-
-        const backY =
-            y - sin * halfLength;
-
-        const leftX =
-            x + sideCos * halfWidth;
-
-        const leftY =
-            y + sideSin * halfWidth;
-
-        const rightX =
-            x - sideCos * halfWidth;
-
-        const rightY =
-            y - sideSin * halfWidth;
-
-        const frontLeftX =
-            frontX + sideCos * halfWidth;
-
-        const frontLeftY =
-            frontY + sideSin * halfWidth;
-
-        const frontRightX =
-            frontX - sideCos * halfWidth;
-
-        const frontRightY =
-            frontY - sideSin * halfWidth;
-
-        const backLeftX =
-            backX + sideCos * halfWidth;
-
-        const backLeftY =
-            backY + sideSin * halfWidth;
-
-        const backRightX =
-            backX - sideCos * halfWidth;
-
-        const backRightY =
-            backY - sideSin * halfWidth;
-
-        const check =
-            roadOnly
-                ? isRoadColor
-                : isGrassOrRoad;
-
-        return (
-            check(x, y) &&
-            check(frontX, frontY) &&
-            check(backX, backY) &&
-            check(leftX, leftY) &&
-            check(rightX, rightY) &&
-            check(frontLeftX, frontLeftY) &&
-            check(frontRightX, frontRightY) &&
-            check(backLeftX, backLeftY) &&
-            check(backRightX, backRightY)
-        );
-    };
-
-    // ------------------------------------------------------------
-    // Normal full movement
-    // ------------------------------------------------------------
-    if (canOccupyPosition(nextX, nextY)) {
+    // Movement check matching chasing police (primarily road, secondary grass)
+    if (isGrassOrRoad(nextX, nextY)) {
         car.x = nextX;
         car.y = nextY;
-        return;
-    }
+    } else {
+        const xWalkable = isGrassOrRoad(nextX, car.y);
+        const yWalkable = isGrassOrRoad(car.x, nextY);
 
-    // ------------------------------------------------------------
-    // Try sliding along the obstacle.
-    // ------------------------------------------------------------
-    const xOnlyX = nextX;
-    const xOnlyY = car.y;
-
-    const yOnlyX = car.x;
-    const yOnlyY = nextY;
-
-    const xValid =
-        canOccupyPosition(
-            xOnlyX,
-            xOnlyY
-        );
-
-    const yValid =
-        canOccupyPosition(
-            yOnlyX,
-            yOnlyY
-        );
-
-    if (xValid && yValid) {
-
-        const xDistance =
-            Math.hypot(
-                targetX - xOnlyX,
-                targetY - xOnlyY
-            );
-
-        const yDistance =
-            Math.hypot(
-                targetX - yOnlyX,
-                targetY - yOnlyY
-            );
-
-        if (xDistance <= yDistance) {
-            car.x = xOnlyX;
+        if (xWalkable && yWalkable) {
+            const xDist = Math.hypot(targetX - nextX, targetY - car.y);
+            const yDist = Math.hypot(targetX - car.x, targetY - nextY);
+            if (xDist <= yDist) car.x = nextX;
+            else car.y = nextY;
+        } else if (xWalkable) {
+            car.x = nextX;
+        } else if (yWalkable) {
+            car.y = nextY;
         } else {
-            car.y = yOnlyY;
+            car.speed = 0;
         }
-
-        return;
     }
-
-    if (xValid) {
-        car.x = xOnlyX;
-        return;
-    }
-
-    if (yValid) {
-        car.y = yOnlyY;
-        return;
-    }
-
-    car.speed = 0;
-
-    if (car.arrestTransportRepathTimer > 0) {
-        car.arrestTransportRepathTimer = 0;
-    }
-  }  
+}  
 
 function startArrestTransition() {
     if (arrestTransitionStarted) return;
@@ -2725,7 +2532,7 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
 function updatePoliceStage4A(dt, player, cars, npcs) {
     if (!player) return;
     if (player.beingChased === undefined) player.beingChased = false;
-    
+
     if (player.isBeingArrested) {
         updateArrestTransport(dt);
         return;
@@ -2954,10 +2761,10 @@ if (!player.wanted && !player.beingChased) {
                 (Math.hypot(player.x - warningOrArrestingUnit.x, player.y - warningOrArrestingUnit.y) > 250 ||
                  (playerCar ? Math.abs(playerCar.speed) : Math.abs(player.speed || 0)) > 2.5 ||
                  warningOrArrestingUnit.warningTimer <= 0)) {
-                
+
                 player.beingChased = true;
                 warningOrArrestingUnit.policeState = "CHASE";
-                
+
                 if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
                     taxiManager.setMessage("You are being chased!", 180);
                 }
@@ -3008,7 +2815,7 @@ if (surrenderBtn) {
                           // --- HUD MESSAGE FOR NEW OFFICER JOINING ---
                             if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
                                 taxiManager.setMessage("A police unit joined the chase!", 180);
-                        
+
                     }
                 }}
             });
