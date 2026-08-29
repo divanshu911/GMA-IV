@@ -1804,10 +1804,10 @@ function startArrestTransition() {
             overlay.style.opacity = "0";
 
             setTimeout(() => {
-                player.isBeingArrested = false;
-                arrestTransportState = "NONE";
-                arrestTransitionStarted = false;
-                arrestTransportPath = null;
+ player.isBeingArrested = false;
+player.isArrestPassenger = false;
+player.arrestTransportCar = null; 
+arrestTransportState = "NONE";                       arrestTransitionStarted = false;                 arrestTransportPath = null;
                 arrestTransportRepathTimer = 0;
 
                 if (typeof surrenderBtn !== 'undefined' && surrenderBtn) {
@@ -1868,17 +1868,6 @@ if (window.arrestTransportDebugTimer <= 0) {
 // Keep player absolutely immobile.
 player.speed = 0;
 
-if (!player.isArrestPassenger) {
-    cars.forEach(c => {
-        if (
-            c &&
-            c.isPolice &&
-            c.policeState === "CHASE"
-        ) {
-            c.speed = 0;
-        }
-    });
-}
 
     if (typeof exitBtn !== 'undefined' && exitBtn) {
         exitBtn.style.display = 'none';
@@ -1978,14 +1967,19 @@ arrestTransportCar.hasArrestPassenger = true;
         }
     }
 
-    // ----------------------------------------------------------
-    // Escort police cars follow the transport vehicle.
-    // ----------------------------------------------------------
     if (
-        arrestTransportCar &&
-        arrestTransportState !== "TRANSITION"
-    ) {
-        arrestEscortCars.forEach((escort, index) => {
+    arrestTransportCar &&
+    arrestTransportState !== "TRANSITION"
+) {
+    arrestEscortCars.forEach((escort, index) => {
+
+         
+        if (!player.isArrestPassenger) {
+            escort.speed = 0;
+            escort.velocityX = 0;
+            escort.velocityY = 0;
+            return;
+        }
 
             if (!escort) return;
             if (!cars.includes(escort)) return;
