@@ -1,4 +1,4 @@
-console.log("dvdv")
+console.log("dvdvdv")
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -1333,14 +1333,13 @@ player.arrestTransportCar = null;
     // instant of arrest. These become escort vehicles.
     // ------------------------------------------------------------
     arrestEscortCars = cars.filter(c =>
-        c &&
-        c.isPolice &&
-        c.policeState === "CHASE" &&
-        c !== playerCar &&
-        !c.exploded &&
-        c.health > 0
-    );
-
+    c &&
+    c.isPolice &&
+    (c.policeState === "CHASE" || c.policeState === "WARNING") &&
+    c !== playerCar &&
+    !c.exploded &&
+    c.health > 0
+);
     arrestEscortCars.forEach((escort, index) => {
         escort.policeState = "ARREST_ESCORT";
         escort.isParked = false;
@@ -1865,8 +1864,20 @@ if (window.arrestTransportDebugTimer <= 0) {
 }
     if (!player.isBeingArrested) return false;
 
-    // Keep player absolutely immobile.
-    player.speed = 0;
+// Keep player absolutely immobile.
+player.speed = 0;
+
+if (!player.isArrestPassenger) {
+    cars.forEach(c => {
+        if (
+            c &&
+            c.isPolice &&
+            c.policeState === "CHASE"
+        ) {
+            c.speed = 0;
+        }
+    });
+}
 
     if (typeof exitBtn !== 'undefined' && exitBtn) {
         exitBtn.style.display = 'none';
