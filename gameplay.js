@@ -1,4 +1,4 @@
-console.log("oooo")
+console.log("wooo")
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -1648,7 +1648,44 @@ function moveArrestPoliceCar(
             isGrassOrRoad(backRightX, backRightY)
         );
     }
+// --- LOCAL OBSTACLE STEERING (same idea as normal AI cars) ---
+const probeDist = car.sensorLength || 35;
+const probeAngle = 0.4;
 
+const frontX = car.x + Math.cos(moveAngle) * probeDist;
+const frontY = car.y + Math.sin(moveAngle) * probeDist;
+
+const leftX = car.x + Math.cos(moveAngle - probeAngle) * probeDist;
+const leftY = car.y + Math.sin(moveAngle - probeAngle) * probeDist;
+
+const rightX = car.x + Math.cos(moveAngle + probeAngle) * probeDist;
+const rightY = car.y + Math.sin(moveAngle + probeAngle) * probeDist;
+
+const frontClear = isGrassOrRoad(frontX, frontY);
+const leftClear = isGrassOrRoad(leftX, leftY);
+const rightClear = isGrassOrRoad(rightX, rightY);
+
+if (!frontClear) {
+    if (leftClear && !rightClear) {
+        moveAngle -= 0.12;
+    } else if (rightClear && !leftClear) {
+        moveAngle += 0.12;
+    } else if (leftClear && rightClear) {
+        // Choose the side closer to the A* direction.
+        const leftDeviation = Math.abs(
+            Math.atan2(leftY - targetY, leftX - targetX) - moveAngle
+        );
+        const rightDeviation = Math.abs(
+            Math.atan2(rightY - targetY, rightX - targetX) - moveAngle
+        );
+
+        if (leftDeviation < rightDeviation) {
+            moveAngle -= 0.12;
+        } else {
+            moveAngle += 0.12;
+        }
+    }
+}
     car.angle = moveAngle + Math.PI / 2;
     car.speed = speed;
 
