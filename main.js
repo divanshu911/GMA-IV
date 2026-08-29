@@ -554,7 +554,7 @@ function handlePhysicsAndCollisions(dt) {
                 playerCar &&
                 car.id === playerCar.id
               ) {
-                DamagePlayer(60);
+                damagePlayer(60);
 
                 car.isParked = true;
                 car.hasDriver = false;
@@ -616,7 +616,7 @@ function handlePhysicsAndCollisions(dt) {
     !player.isInvulnerable &&
     Math.hypot(car.x - car.lastX, car.y - car.lastY) > 1.5
 ) {
-    DamagePlayer(35);
+    damagePlayer(35);
     player.isInvulnerable = true;
     player.invulnerabilityTimer = 60;
     
@@ -790,7 +790,7 @@ if (!isInsideHouse && angryDrivers.length > 0) {
         let isChasing = driver.update(dt, player, (caughtDriver) => {
             caught = true; // Flag that player was caught
             taxiManager.setMessage("The driver caught you and beat you up! (-40 HP)", 180);
-            DamagePlayer(40);
+            damagePlayer(40);
 
             if (playerCar) {
                 if (typeof playerCar.stopSiren === 'function') {
