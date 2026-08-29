@@ -1,4 +1,4 @@
-console.log("o")
+console.log("dvdvdv")
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -1534,10 +1534,9 @@ function spawnArrestTransportCar() {
 }
 
 
-// ------------------------------------------------------------
-// Move one police car using A* toward a target.
 
-function moveArrestPoliceCar(
+    // ------------------------------------------------------------
+  function moveArrestPoliceCar(
     car,
     targetX,
     targetY,
@@ -1548,6 +1547,10 @@ function moveArrestPoliceCar(
 
     if (car.arrestTransportRepathTimer === undefined) {
         car.arrestTransportRepathTimer = 0;
+    }
+
+    if (car.arrestTransportPathIndex === undefined) {
+        car.arrestTransportPathIndex = 1;
     }
 
     car.arrestTransportRepathTimer -= dt;
@@ -1567,6 +1570,7 @@ function moveArrestPoliceCar(
                 targetY
             );
 
+        car.arrestTransportPathIndex = 1;
         car.arrestTransportRepathTimer = 0.33;
     }
 
@@ -1577,133 +1581,123 @@ function moveArrestPoliceCar(
         targetX - car.x
     );
 
-    if (path && path.length > 1) {
-        const nextWaypoint = path[1];
+    // ------------------------------------------------------------
+    // Follow the current A* waypoint.
+    // Advance it once the car gets close enough.
+    // ------------------------------------------------------------
+    if (
+        path &&
+        path.length > 1 &&
+        car.arrestTransportPathIndex < path.length
+    ) {
+        let waypoint =
+            path[car.arrestTransportPathIndex];
 
-        if (nextWaypoint) {
-            moveAngle = Math.atan2(
-                nextWaypoint.y - car.y,
-                nextWaypoint.x - car.x
-            );
+        if (waypoint) {
+            const waypointDistance =
+                Math.hypot(
+                    waypoint.x - car.x,
+                    waypoint.y - car.y
+                );
+
+            if (waypointDistance < 18) {
+                car.arrestTransportPathIndex++;
+
+                waypoint =
+                    path[car.arrestTransportPathIndex];
+            }
+
+            if (waypoint) {
+                moveAngle = Math.atan2(
+                    waypoint.y - car.y,
+                    waypoint.x - car.x
+                );
+            }
         }
     }
-// ------------------------------------------------------------
-// ROAD-ONLY LOCAL OBSTACLE STEERING.
-// Used only while transporting player to the station.
-// ------------------------------------------------------------
-if (
-    arrestTransportState === "CARRYING" &&
-    car === arrestTransportCar
-) {
-    const probeDist = car.sensorLength || 35;
-    const probeAngle = 0.4;
 
-    const frontX =
-        car.x + Math.cos(moveAngle) * probeDist;
-    const frontY =
-        car.y + Math.sin(moveAngle) * probeDist;
+    // ------------------------------------------------------------
+    // ROAD SENSOR STEERING
+    //
+    // Only the transport car uses this while carrying
+    // the player. Approach-to-player remains unchanged.
+    // ------------------------------------------------------------
+    const isTransportCar =
+        car === arrestTransportCar &&
+        arrestTransportState === "CARRYING";
 
-    const leftX =
-        car.x +
-        Math.cos(moveAngle - probeAngle) * probeDist;
-    const leftY =
-        car.y +
-        Math.sin(moveAngle - probeAngle) * probeDist;
+    if (isTransportCar) {
+        const probeDist = car.sensorLength || 35;
 
-    const rightX =
-        car.x +
-        Math.cos(moveAngle + probeAngle) * probeDist;
-    const rightY =
-        car.y +
-        Math.sin(moveAngle + probeAngle) * probeDist;
+        const frontX =
+            car.x +
+            Math.cos(moveAngle) *
+            probeDist;
 
-    const frontRoad = isRoadColor(frontX, frontY);
-    const leftRoad = isRoadColor(leftX, leftY);
-    const rightRoad = isRoadColor(rightX, rightY);
+        const frontY =
+            car.y +
+            Math.sin(moveAngle) *
+            probeDist;
 
-    if (!frontRoad || !leftRoad || !rightRoad) {
-        if (!leftRoad && rightRoad) {
-            moveAngle += 0.04 * dt;
-        } else if (!rightRoad && leftRoad) {
-            moveAngle -= 0.04 * dt;
-        } else {
-            moveAngle +=
-                0.04 *
-                (car.turnDirection || 1) *
-                dt;
+        const leftX =
+            car.x +
+            Math.cos(moveAngle - 0.4) *
+            probeDist;
+
+        const leftY =
+            car.y +
+            Math.sin(moveAngle - 0.4) *
+            probeDist;
+
+        const rightX =
+            car.x +
+            Math.cos(moveAngle + 0.4) *
+            probeDist;
+
+        const rightY =
+            car.y +
+            Math.sin(moveAngle + 0.4) *
+            probeDist;
+
+        const frontRoad =
+            isRoadColor(frontX, frontY);
+
+        const leftRoad =
+            isRoadColor(leftX, leftY);
+
+        const rightRoad =
+            isRoadColor(rightX, rightY);
+
+        if (!frontRoad || !leftRoad || !rightRoad) {
+
+            if (!leftRoad && rightRoad) {
+                moveAngle += 0.035 * dt;
+
+            } else if (!rightRoad && leftRoad) {
+                moveAngle -= 0.035 * dt;
+
+            } else {
+                if (car.turnDirection === undefined) {
+                    car.turnDirection =
+                        Math.random() < 0.5 ? 1 : -1;
+                }
+
+                moveAngle +=
+                    0.035 *
+                    car.turnDirection *
+                    dt;
+            }
         }
     }
-}
-    // ------------------------------------------------------------
-    // Check the actual police-car footprint.
-    // ------------------------------------------------------------
-    const halfWidth = (car.width || 16) * 0.5;
-    const halfLength = (car.length || 28) * 0.5;
-const transportRoadOnly =
-    arrestTransportState === "CARRYING" &&
-    car === arrestTransportCar;
 
-const walkableCheck = transportRoadOnly
-    ? isRoadColor
-    : isGrassOrRoad;
-    function arrestCarPositionWalkable(x, y) {
-        const cos = Math.cos(moveAngle);
-        const sin = Math.sin(moveAngle);
+    car.angle =
+        moveAngle + Math.PI / 2;
 
-        // Forward/backward points
-        const frontX = x + cos * halfLength;
-        const frontY = y + sin * halfLength;
-
-        const backX = x - cos * halfLength;
-        const backY = y - sin * halfLength;
-
-        // Left/right points
-        const sideCos = -sin;
-        const sideSin = cos;
-
-        const leftX = x + sideCos * halfWidth;
-        const leftY = y + sideSin * halfWidth;
-
-        const rightX = x - sideCos * halfWidth;
-        const rightY = y - sideSin * halfWidth;
-
-        // Four corners
-        const frontLeftX =
-            frontX + sideCos * halfWidth;
-        const frontLeftY =
-            frontY + sideSin * halfWidth;
-
-        const frontRightX =
-            frontX - sideCos * halfWidth;
-        const frontRightY =
-            frontY - sideSin * halfWidth;
-
-        const backLeftX =
-            backX + sideCos * halfWidth;
-        const backLeftY =
-            backY + sideSin * halfWidth;
-
-        const backRightX =
-            backX - sideCos * halfWidth;
-        const backRightY =
-            backY - sideSin * halfWidth;
-
-        return (
-    walkableCheck(x, y) &&
-    walkableCheck(frontX, frontY) &&
-    walkableCheck(backX, backY) &&
-    walkableCheck(leftX, leftY) &&
-    walkableCheck(rightX, rightY) &&
-    walkableCheck(frontLeftX, frontLeftY) &&
-    walkableCheck(frontRightX, frontRightY) &&
-    walkableCheck(backLeftX, backLeftY) &&
-    walkableCheck(backRightX, backRightY)
-);
-    }
-
-    car.angle = moveAngle + Math.PI / 2;
     car.speed = speed;
 
+    // ------------------------------------------------------------
+    // Movement distance
+    // ------------------------------------------------------------
     const nextX =
         car.x +
         Math.cos(moveAngle) *
@@ -1717,40 +1711,164 @@ const walkableCheck = transportRoadOnly
         dt;
 
     // ------------------------------------------------------------
-    // Move only if the ENTIRE police car fits.
+    // During transport, the entire car must remain on ROAD.
+    //
+    // During approach, preserve the previous grass/road behavior.
     // ------------------------------------------------------------
-    if (arrestCarPositionWalkable(nextX, nextY)) {
+    const roadOnly = isTransportCar;
+
+    const canOccupyPosition = (x, y) => {
+
+        const halfWidth =
+            (car.width || 16) * 0.5;
+
+        const halfLength =
+            (car.length || 28) * 0.5;
+
+        const cos =
+            Math.cos(moveAngle);
+
+        const sin =
+            Math.sin(moveAngle);
+
+        const sideCos = -sin;
+        const sideSin = cos;
+
+        const frontX =
+            x + cos * halfLength;
+
+        const frontY =
+            y + sin * halfLength;
+
+        const backX =
+            x - cos * halfLength;
+
+        const backY =
+            y - sin * halfLength;
+
+        const leftX =
+            x + sideCos * halfWidth;
+
+        const leftY =
+            y + sideSin * halfWidth;
+
+        const rightX =
+            x - sideCos * halfWidth;
+
+        const rightY =
+            y - sideSin * halfWidth;
+
+        const frontLeftX =
+            frontX + sideCos * halfWidth;
+
+        const frontLeftY =
+            frontY + sideSin * halfWidth;
+
+        const frontRightX =
+            frontX - sideCos * halfWidth;
+
+        const frontRightY =
+            frontY - sideSin * halfWidth;
+
+        const backLeftX =
+            backX + sideCos * halfWidth;
+
+        const backLeftY =
+            backY + sideSin * halfWidth;
+
+        const backRightX =
+            backX - sideCos * halfWidth;
+
+        const backRightY =
+            backY - sideSin * halfWidth;
+
+        const check =
+            roadOnly
+                ? isRoadColor
+                : isGrassOrRoad;
+
+        return (
+            check(x, y) &&
+            check(frontX, frontY) &&
+            check(backX, backY) &&
+            check(leftX, leftY) &&
+            check(rightX, rightY) &&
+            check(frontLeftX, frontLeftY) &&
+            check(frontRightX, frontRightY) &&
+            check(backLeftX, backLeftY) &&
+            check(backRightX, backRightY)
+        );
+    };
+
+    // ------------------------------------------------------------
+    // Normal full movement
+    // ------------------------------------------------------------
+    if (canOccupyPosition(nextX, nextY)) {
         car.x = nextX;
         car.y = nextY;
         return;
     }
 
     // ------------------------------------------------------------
-    // Try X-only movement.
+    // Try sliding along the obstacle.
     // ------------------------------------------------------------
     const xOnlyX = nextX;
     const xOnlyY = car.y;
 
-    if (arrestCarPositionWalkable(xOnlyX, xOnlyY)) {
+    const yOnlyX = car.x;
+    const yOnlyY = nextY;
+
+    const xValid =
+        canOccupyPosition(
+            xOnlyX,
+            xOnlyY
+        );
+
+    const yValid =
+        canOccupyPosition(
+            yOnlyX,
+            yOnlyY
+        );
+
+    if (xValid && yValid) {
+
+        const xDistance =
+            Math.hypot(
+                targetX - xOnlyX,
+                targetY - xOnlyY
+            );
+
+        const yDistance =
+            Math.hypot(
+                targetX - yOnlyX,
+                targetY - yOnlyY
+            );
+
+        if (xDistance <= yDistance) {
+            car.x = xOnlyX;
+        } else {
+            car.y = yOnlyY;
+        }
+
+        return;
+    }
+
+    if (xValid) {
         car.x = xOnlyX;
         return;
     }
 
-    // -------------
-    const yOnlyX = car.x;
-    const yOnlyY = nextY;
-
-    if (arrestCarPositionWalkable(yOnlyX, yOnlyY)) {
+    if (yValid) {
         car.y = yOnlyY;
         return;
     }
 
-    //-
-    car.arrestTransportPath = null;
-    car.arrestTransportRepathTimer = 0;
     car.speed = 0;
-}
 
+    if (car.arrestTransportRepathTimer > 0) {
+        car.arrestTransportRepathTimer = 0;
+    }
+  }  
 
 function startArrestTransition() {
     if (arrestTransitionStarted) return;
@@ -1893,7 +2011,7 @@ function startArrestTransition() {
 // Update arrest transport + escorts.
 // ------------------------------------------------------------
 function updateArrestTransport(dt) {
-  if (!window.arrestTransportDebugTimer) {
+    if (!window.arrestTransportDebugTimer) {
     window.arrestTransportDebugTimer = 0;
 }
 
