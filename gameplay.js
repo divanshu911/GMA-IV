@@ -1420,9 +1420,9 @@ function getArrestFadeOverlay() {
 // ------------------------------------------------------------
 // Find a road position outside the current viewport.
 // ------------------------------------------------------------
+
 function getArrestSpawnPosition() {
-    const viewDistance =
-        Math.max(canvas.width, canvas.height) * 0.75 + 180;
+    const SPAWN_DISTANCE = 500;
 
     const angles = [
         0,
@@ -1437,8 +1437,8 @@ function getArrestSpawnPosition() {
 
     // Try deterministic directions first.
     for (const angle of angles) {
-        const x = player.x + Math.cos(angle) * viewDistance;
-        const y = player.y + Math.sin(angle) * viewDistance;
+        const x = player.x + Math.cos(angle) * SPAWN_DISTANCE;
+        const y = player.y + Math.sin(angle) * SPAWN_DISTANCE;
 
         if (
             x > 30 &&
@@ -1451,12 +1451,11 @@ function getArrestSpawnPosition() {
         }
     }
 
-    // Fallback: search random positions far enough away.
+    // Fallback: search around the same 500-unit distance.
     for (let i = 0; i < 80; i++) {
         const angle = Math.random() * Math.PI * 2;
         const distance =
-            viewDistance +
-            Math.random() * 250;
+            SPAWN_DISTANCE - 40 + Math.random() * 80;
 
         const x = player.x + Math.cos(angle) * distance;
         const y = player.y + Math.sin(angle) * distance;
@@ -1472,10 +1471,8 @@ function getArrestSpawnPosition() {
         }
     }
 
-    // Final fallback.
     return getRandomStrictRoadPosition();
-}
-
+}        
 
 // ------------------------------------------------------------
 // Spawn the arrest transport police car.
@@ -1559,19 +1556,44 @@ function spawnArrestTransportCar() {
     // A* route
     // ------------------------------------------------------------
     if (
-        !car.arrestTransportPath ||
-        car.arrestTransportRepathTimer <= 0
-    ) {
-        car.arrestTransportPath =
-            navigationSystem.findPath(
-                car.x,
-                car.y,
-                targetX,
-                targetY
+    !car.arrestTransportPath ||
+    car.arrestTransportRepathTimer <= 0
+) {
+    const newPath = navigationSystem.findPath(
+        car.x,
+        car.y,
+        targetX,
+        targetY
+    );
+
+    if (newPath && newPath.length > 1) {
+        car.arrestTransportPath = newPath;
+
+        // Do NOT blindly reset to waypoint 1.
+        // Find the waypoint closest to the car so
+        // repathing never sends the car backwards.
+        let closestIndex = 1;
+        let closestDistance = Infinity;
+
+        for (let i = 1; i < newPath.length; i++) {
+            const waypoint = newPath[i];
+            if (!waypoint) continue;
+
+            const distance = Math.hypot(
+                waypoint.x - car.x,
+                waypoint.y - car.y
             );
 
-        car.arrestTransportPathIndex = 1;
-        car.arrestTransportRepathTimer = 0.33;
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closestIndex = i;
+            }
+        }
+
+        car.arrestTransportPathIndex = closestIndex;
+    }
+
+    car.arrestTransportRepathTimer = 0.33;
     }
 
     const path = car.arrestTransportPath;
