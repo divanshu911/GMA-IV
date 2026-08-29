@@ -1,4 +1,4 @@
-console.log("wooo")
+console.log("o")
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
