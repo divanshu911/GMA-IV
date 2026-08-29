@@ -1587,13 +1587,65 @@ function moveArrestPoliceCar(
             );
         }
     }
+// ------------------------------------------------------------
+// ROAD-ONLY LOCAL OBSTACLE STEERING.
+// Used only while transporting player to the station.
+// ------------------------------------------------------------
+if (
+    arrestTransportState === "CARRYING" &&
+    car === arrestTransportCar
+) {
+    const probeDist = car.sensorLength || 35;
+    const probeAngle = 0.4;
 
+    const frontX =
+        car.x + Math.cos(moveAngle) * probeDist;
+    const frontY =
+        car.y + Math.sin(moveAngle) * probeDist;
+
+    const leftX =
+        car.x +
+        Math.cos(moveAngle - probeAngle) * probeDist;
+    const leftY =
+        car.y +
+        Math.sin(moveAngle - probeAngle) * probeDist;
+
+    const rightX =
+        car.x +
+        Math.cos(moveAngle + probeAngle) * probeDist;
+    const rightY =
+        car.y +
+        Math.sin(moveAngle + probeAngle) * probeDist;
+
+    const frontRoad = isRoadColor(frontX, frontY);
+    const leftRoad = isRoadColor(leftX, leftY);
+    const rightRoad = isRoadColor(rightX, rightY);
+
+    if (!frontRoad || !leftRoad || !rightRoad) {
+        if (!leftRoad && rightRoad) {
+            moveAngle += 0.04 * dt;
+        } else if (!rightRoad && leftRoad) {
+            moveAngle -= 0.04 * dt;
+        } else {
+            moveAngle +=
+                0.04 *
+                (car.turnDirection || 1) *
+                dt;
+        }
+    }
+}
     // ------------------------------------------------------------
     // Check the actual police-car footprint.
     // ------------------------------------------------------------
     const halfWidth = (car.width || 16) * 0.5;
     const halfLength = (car.length || 28) * 0.5;
+const transportRoadOnly =
+    arrestTransportState === "CARRYING" &&
+    car === arrestTransportCar;
 
+const walkableCheck = transportRoadOnly
+    ? isRoadColor
+    : isGrassOrRoad;
     function arrestCarPositionWalkable(x, y) {
         const cos = Math.cos(moveAngle);
         const sin = Math.sin(moveAngle);
@@ -1637,55 +1689,18 @@ function moveArrestPoliceCar(
             backY - sideSin * halfWidth;
 
         return (
-            isGrassOrRoad(x, y) &&
-            isGrassOrRoad(frontX, frontY) &&
-            isGrassOrRoad(backX, backY) &&
-            isGrassOrRoad(leftX, leftY) &&
-            isGrassOrRoad(rightX, rightY) &&
-            isGrassOrRoad(frontLeftX, frontLeftY) &&
-            isGrassOrRoad(frontRightX, frontRightY) &&
-            isGrassOrRoad(backLeftX, backLeftY) &&
-            isGrassOrRoad(backRightX, backRightY)
-        );
+    walkableCheck(x, y) &&
+    walkableCheck(frontX, frontY) &&
+    walkableCheck(backX, backY) &&
+    walkableCheck(leftX, leftY) &&
+    walkableCheck(rightX, rightY) &&
+    walkableCheck(frontLeftX, frontLeftY) &&
+    walkableCheck(frontRightX, frontRightY) &&
+    walkableCheck(backLeftX, backLeftY) &&
+    walkableCheck(backRightX, backRightY)
+);
     }
-// --- LOCAL OBSTACLE STEERING (same idea as normal AI cars) ---
-const probeDist = car.sensorLength || 35;
-const probeAngle = 0.4;
 
-const frontX = car.x + Math.cos(moveAngle) * probeDist;
-const frontY = car.y + Math.sin(moveAngle) * probeDist;
-
-const leftX = car.x + Math.cos(moveAngle - probeAngle) * probeDist;
-const leftY = car.y + Math.sin(moveAngle - probeAngle) * probeDist;
-
-const rightX = car.x + Math.cos(moveAngle + probeAngle) * probeDist;
-const rightY = car.y + Math.sin(moveAngle + probeAngle) * probeDist;
-
-const frontClear = isGrassOrRoad(frontX, frontY);
-const leftClear = isGrassOrRoad(leftX, leftY);
-const rightClear = isGrassOrRoad(rightX, rightY);
-
-if (!frontClear) {
-    if (leftClear && !rightClear) {
-        moveAngle -= 0.12;
-    } else if (rightClear && !leftClear) {
-        moveAngle += 0.12;
-    } else if (leftClear && rightClear) {
-        // Choose the side closer to the A* direction.
-        const leftDeviation = Math.abs(
-            Math.atan2(leftY - targetY, leftX - targetX) - moveAngle
-        );
-        const rightDeviation = Math.abs(
-            Math.atan2(rightY - targetY, rightX - targetX) - moveAngle
-        );
-
-        if (leftDeviation < rightDeviation) {
-            moveAngle -= 0.12;
-        } else {
-            moveAngle += 0.12;
-        }
-    }
-}
     car.angle = moveAngle + Math.PI / 2;
     car.speed = speed;
 
