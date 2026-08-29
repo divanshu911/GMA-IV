@@ -300,6 +300,16 @@ function checkPlayerDeath() {
       }
   }
 }
+let playerDamageVignette = 0;
+
+function damagePlayer(amount) {
+    if (!amount || amount <= 0) return;
+
+    player.health -= amount;
+    playerDamageVignette = 1;
+
+    checkPlayerDeath();
+}
 
  // --- SPATIAL GRID FOR COLLISION BROAD-PHASE ---
 const collisionGrid = new Map();
@@ -544,7 +554,7 @@ function handlePhysicsAndCollisions(dt) {
                 playerCar &&
                 car.id === playerCar.id
               ) {
-                player.health -= 60;
+                DamagePlayer(60);
 
                 car.isParked = true;
                 car.hasDriver = false;
@@ -574,7 +584,7 @@ function handlePhysicsAndCollisions(dt) {
                   jackBtn.style.display = 'none';
                 }
 
-                checkPlayerDeath();
+                
               }
             }
           };
@@ -604,12 +614,12 @@ function handlePhysicsAndCollisions(dt) {
     !playerCar &&
     !player.isArrestPassenger &&
     !player.isInvulnerable &&
-    Math.abs(car.speed) > 1.5
+    Math.hypot(car.x - car.lastX, car.y - car.lastY) > 1.5
 ) {
-    player.health -= 35;
+    DamagePlayer(35);
     player.isInvulnerable = true;
     player.invulnerabilityTimer = 60;
-    checkPlayerDeath();
+    
           }
         }
       });
@@ -780,7 +790,7 @@ if (!isInsideHouse && angryDrivers.length > 0) {
         let isChasing = driver.update(dt, player, (caughtDriver) => {
             caught = true; // Flag that player was caught
             taxiManager.setMessage("The driver caught you and beat you up! (-40 HP)", 180);
-            player.health -= 40;
+            DamagePlayer(40);
 
             if (playerCar) {
                 if (typeof playerCar.stopSiren === 'function') {
@@ -888,7 +898,12 @@ if (!isInsideHouse && angryDrivers.length > 0) {
           emitExhaustSmoke(car);
       }
   });
-
+if (playerDamageVignette > 0) {
+    playerDamageVignette -= 0.08 * dt;
+    if (playerDamageVignette < 0) {
+        playerDamageVignette = 0;
+    }
+}
   if (player.isInvulnerable) {
     player.invulnerabilityTimer -= 1 * dt;
     if (player.invulnerabilityTimer <= 0) player.isInvulnerable = false;
@@ -1640,6 +1655,33 @@ if (player && player.wanted) {
     ctx.restore();
     ctx.restore(); 
   }
+    if (playerDamageVignette > 0) {
+    ctx.save();
+
+    const gradient = ctx.createRadialGradient(
+        canvas.width / 2,
+        canvas.height / 2,
+        Math.min(canvas.width, canvas.height) * 0.25,
+        canvas.width / 2,
+        canvas.height / 2,
+        Math.max(canvas.width, canvas.height) * 0.75
+    );
+
+    gradient.addColorStop(0, "rgba(255, 0, 0, 0)");
+    gradient.addColorStop(
+        0.65,
+        `rgba(255, 0, 0, ${0.05 * playerDamageVignette})`
+    );
+    gradient.addColorStop(
+        1,
+        `rgba(180, 0, 0, ${0.55 * playerDamageVignette})`
+    );
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.restore();
+    }
 }
 
 let lastTime = 0;
