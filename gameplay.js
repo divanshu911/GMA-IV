@@ -1893,19 +1893,28 @@ function startArrestTransition() {
 // Update arrest transport + escorts.
 // ------------------------------------------------------------
 function updateArrestTransport(dt) {
-  // DEBUG: arrest transport status
-if (arrestTransportCar) {
-    const transportDistance = Math.hypot(
-        arrestTransportCar.x - player.x,
-        arrestTransportCar.y - player.y
-    );
+  if (!window.arrestTransportDebugTimer) {
+    window.arrestTransportDebugTimer = 0;
+}
 
-    console.log(
-        `[ARREST TRANSPORT] EXISTS | Distance from player: ${transportDistance.toFixed(1)} | ` +
-        `Position: (${arrestTransportCar.x.toFixed(0)}, ${arrestTransportCar.y.toFixed(0)})`
-    );
-} else {
-    console.log("[ARREST TRANSPORT] NOT EXISTING");
+window.arrestTransportDebugTimer -= dt;
+
+if (window.arrestTransportDebugTimer <= 0) {
+    window.arrestTransportDebugTimer = 0.5;
+
+    if (arrestTransportCar) {
+        const transportDistance = Math.hypot(
+            arrestTransportCar.x - player.x,
+            arrestTransportCar.y - player.y
+        );
+
+        console.log(
+            `[ARREST TRANSPORT] EXISTS | Distance: ${transportDistance.toFixed(1)} | ` +
+            `Position: (${arrestTransportCar.x.toFixed(0)}, ${arrestTransportCar.y.toFixed(0)})`
+        );
+    } else {
+        console.log("[ARREST TRANSPORT] NOT EXISTING");
+    }
 }
     if (!player.isBeingArrested) return false;
 
