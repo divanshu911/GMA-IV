@@ -1,4 +1,4 @@
-console.log("v")
+console.log("pp9v")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -1057,6 +1057,7 @@ if (typeof playerCar !== 'undefined' && playerCar && this.id === playerCar.id) r
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
+    
 
     if (typeof ambientBrightness !== 'undefined' && ambientBrightness >= 0.75) {
       ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
@@ -1163,152 +1164,164 @@ if (typeof playerCar !== 'undefined' && playerCar && this.id === playerCar.id) r
         ctx.fill();
       }
     }
-// --- POLICE SIREN ANIMATION & GLOW EFFECT ---
-if (this.isPolice) {
-    const isFlashing = this.sirenState > 0 && !this.exploded;
-    const flashSpeed = this.sirenState === 2 ? 80 : 160;
-    const flashPhase = Math.floor(Date.now() / flashSpeed) % 2 === 0;
+    
+    ctx.restore();
+  }  drawLights(ctx) {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.angle);
 
-    // Use the game's actual day/night brightness.
-    // Full night = ambientBrightness 0.47.
-    const ambient = (typeof ambientBrightness !== "undefined")
-        ? ambientBrightness
-        : 1;
+    // --- POLICE SIREN ANIMATION & GLOW EFFECT ---
+    if (this.isPolice) {
+        const isFlashing = this.sirenState > 0 && !this.exploded;
+        const flashSpeed = this.sirenState === 2 ? 80 : 160;
+        const flashPhase = Math.floor(Date.now() / flashSpeed) % 2 === 0;
+        const bulbAlpha = 0.95;
+        const glowAlpha = 0.70;
+        const glowRadius = 45;
 
-    // Compensate for the night overlay without making daytime sirens brighter.
-    const nightAmount = Math.max(0, 1 - ambient);
-    const bulbAlpha = Math.min(1, 0.95 + nightAmount * 0.05);
-    const glowAlpha = Math.min(1, 0.70 + nightAmount * 0.30);
+        // Lightbar bulbs
+        let leftColor = `rgba(255, 30, 30, ${bulbAlpha})`;
+        let rightColor = `rgba(30, 100, 255, ${bulbAlpha})`;
 
-    // Slightly increase glow radius at night.
-    const glowRadius = 45 + nightAmount * 15;
+        if (isFlashing) {
+            leftColor = flashPhase
+                ? `rgba(255, 30, 30, ${bulbAlpha})`
+                : `rgba(30, 100, 255, ${bulbAlpha})`;
 
-    // Lightbar bulbs
-    let leftColor = `rgba(255, 30, 30, ${bulbAlpha})`;
-    let rightColor = `rgba(30, 100, 255, ${bulbAlpha})`;
+            rightColor = flashPhase
+                ? `rgba(30, 100, 255, ${bulbAlpha})`
+                : `rgba(255, 30, 30, ${bulbAlpha})`;
+        }
 
-    if (isFlashing) {
-        leftColor = flashPhase
-            ? `rgba(255, 30, 30, ${bulbAlpha})`
-            : `rgba(30, 100, 255, ${bulbAlpha})`;
+        // Draw lightbar bulbs
+        ctx.fillStyle = leftColor;
+        ctx.fillRect(
+            -this.width / 2 + 2,
+            -2,
+            this.width / 2 - 2,
+            4
+        );
 
-        rightColor = flashPhase
-            ? `rgba(30, 100, 255, ${bulbAlpha})`
-            : `rgba(255, 30, 30, ${bulbAlpha})`;
+        ctx.fillStyle = rightColor;
+        ctx.fillRect(
+            0,
+            -2,
+            this.width / 2 - 2,
+            4
+        );
+
+        // Radial glow
+        if (isFlashing) {
+            ctx.save();
+
+            const leftGlowColor = flashPhase
+                ? `rgba(255, 0, 0, ${glowAlpha})`
+                : `rgba(0, 100, 255, ${glowAlpha})`;
+
+            const rightGlowColor = flashPhase
+                ? `rgba(0, 100, 255, ${glowAlpha})`
+                : `rgba(255, 0, 0, ${glowAlpha})`;
+
+            const leftGlow = ctx.createRadialGradient(
+                -this.width / 4, 0, 2,
+                -this.width / 4, 0, glowRadius
+            );
+
+            leftGlow.addColorStop(0, leftGlowColor);
+            leftGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
+
+            ctx.fillStyle = leftGlow;
+            ctx.beginPath();
+            ctx.arc(
+                -this.width / 4,
+                0,
+                glowRadius,
+                0,
+                Math.PI * 2
+            );
+            ctx.fill();
+
+            const rightGlow = ctx.createRadialGradient(
+                this.width / 4, 0, 2,
+                this.width / 4, 0, glowRadius
+            );
+
+            rightGlow.addColorStop(0, rightGlowColor);
+            rightGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
+
+            ctx.fillStyle = rightGlow;
+            ctx.beginPath();
+            ctx.arc(
+                this.width / 4,
+                0,
+                glowRadius,
+                0,
+                Math.PI * 2
+            );
+            ctx.fill();
+
+            ctx.restore();
+        }
     }
 
-    // Draw lightbar bulbs
-    ctx.fillStyle = leftColor;
-    ctx.fillRect(
-        -this.width / 2 + 2,
-        -2,
-        this.width / 2 - 2,
-        4
-    );
+    // Headlights
+    if (typeof ambientBrightness !== 'undefined' && ambientBrightness < 0.75 && !this.isParked && !this.exploded) {
+      ctx.save();
 
-    ctx.fillStyle = rightColor;
-    ctx.fillRect(
+      const headlightLength = 180;
+      const beamSpread = this.width * 1.8;
+
+      let beamGradient = ctx.createLinearGradient(
         0,
-        -2,
-        this.width / 2 - 2,
-        4
-    );
+        -this.length / 2,
+        0,
+        -this.length / 2 - headlightLength
+      );
 
-    // Radial glow
-    if (isFlashing) {
-        ctx.save();
+      beamGradient.addColorStop(0, 'rgba(255, 255, 220, 0.85)');
+      beamGradient.addColorStop(0.3, 'rgba(255, 255, 190, 0.45)');
+      beamGradient.addColorStop(1, 'rgba(255, 255, 180, 0)');
 
-        const leftGlowColor = flashPhase
-            ? `rgba(255, 0, 0, ${glowAlpha})`
-            : `rgba(0, 100, 255, ${glowAlpha})`;
+      ctx.fillStyle = beamGradient;
 
-        const rightGlowColor = flashPhase
-            ? `rgba(0, 100, 255, ${glowAlpha})`
-            : `rgba(255, 0, 0, ${glowAlpha})`;
+      // Left Headlight Cone
+      ctx.beginPath();
+      ctx.moveTo(-this.width / 3, -this.length / 2);
+      ctx.lineTo(
+        -this.width / 3 - beamSpread,
+        -this.length / 2 - headlightLength
+      );
+      ctx.lineTo(
+        this.width * 0.1,
+        -this.length / 2 - headlightLength
+      );
+      ctx.closePath();
+      ctx.fill();
 
-        // Left glow
-        const leftGlow = ctx.createRadialGradient(
-            -this.width / 4, 0, 2,
-            -this.width / 4, 0, glowRadius
-        );
+      // Right Headlight Cone
+      ctx.beginPath();
+      ctx.moveTo(this.width / 3, -this.length / 2);
+      ctx.lineTo(
+        -this.width * 0.1,
+        -this.length / 2 - headlightLength
+      );
+      ctx.lineTo(
+        this.width / 3 + beamSpread,
+        -this.length / 2 - headlightLength
+      );
+      ctx.closePath();
+      ctx.fill();
 
-        leftGlow.addColorStop(0, leftGlowColor);
-        leftGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
+      // Focal point bulb glow
+      ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+      ctx.beginPath();
+      ctx.arc(-this.width / 3, -this.length / 2, 2.5, 0, Math.PI * 2);
+      ctx.arc(this.width / 3, -this.length / 2, 2.5, 0, Math.PI * 2);
+      ctx.fill();
 
-        ctx.fillStyle = leftGlow;
-        ctx.beginPath();
-        ctx.arc(
-            -this.width / 4,
-            0,
-            glowRadius,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
-
-        // Right glow
-        const rightGlow = ctx.createRadialGradient(
-            this.width / 4, 0, 2,
-            this.width / 4, 0, glowRadius
-        );
-
-        rightGlow.addColorStop(0, rightGlowColor);
-        rightGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
-
-        ctx.fillStyle = rightGlow;
-        ctx.beginPath();
-        ctx.arc(
-            this.width / 4,
-            0,
-            glowRadius,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
-
-        ctx.restore();
+      ctx.restore();
     }
-}     
-        
-if (typeof ambientBrightness !== 'undefined' && ambientBrightness < 0.75 && !this.isParked && !this.exploded) {
-  ctx.save();
-
-  // Headlight rendering logic...
-  const headlightLength = 180;
-  const beamSpread = this.width * 1.8;
-
-  let beamGradient = ctx.createLinearGradient(0, -this.length / 2, 0, -this.length / 2 - headlightLength);
-  beamGradient.addColorStop(0, 'rgba(255, 255, 220, 0.85)');   
-  beamGradient.addColorStop(0.3, 'rgba(255, 255, 190, 0.45)');  
-  beamGradient.addColorStop(1, 'rgba(255, 255, 180, 0)');     
-
-  ctx.fillStyle = beamGradient;
-
-  // Left Headlight Cone
-  ctx.beginPath();
-  ctx.moveTo(-this.width / 3, -this.length / 2);
-  ctx.lineTo(-this.width / 3 - beamSpread, -this.length / 2 - headlightLength); 
-  ctx.lineTo(this.width * 0.1, -this.length / 2 - headlightLength);  
-  ctx.closePath();
-  ctx.fill();
-
-  // Right Headlight Cone
-  ctx.beginPath();
-  ctx.moveTo(this.width / 3, -this.length / 2);  
-  ctx.lineTo(-this.width * 0.1, -this.length / 2 - headlightLength); 
-  ctx.lineTo(this.width / 3 + beamSpread, -this.length / 2 - headlightLength);  
-  ctx.closePath();
-  ctx.fill();
-
-  // Focal point bulb glow
-  ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
-  ctx.beginPath();
-  ctx.arc(-this.width / 3, -this.length / 2, 2.5, 0, Math.PI * 2);
-  ctx.arc(this.width / 3, -this.length / 2, 2.5, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.restore();
-}
 
     ctx.restore();
   }

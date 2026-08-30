@@ -1562,7 +1562,7 @@ ctx.translate(
 
     cars.forEach(car => {
         if (isEntityOnScreen(car)) {
-            car.draw(ctx, true);
+            car.drawLights(ctx);
         }
     });
 
