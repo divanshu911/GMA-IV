@@ -1,4 +1,4 @@
-console.log("kkk")
+console.log("pkk")
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -691,7 +691,7 @@ let viewingCar = null;
 const carPrices = {
     "Commuter, Sedan": 4200,
     "Sprint, Hatchback": 3000,
-    "Ranger, SUV": 6300,
+    "Ranger, SUV": -9300,
     "Porter, Van": 5500,
     "Falcon, Sports": 8900
 };
