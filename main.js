@@ -300,6 +300,18 @@ function checkPlayerDeath() {
       }
   }
 }
+const previousCarPositions = new Map();
+
+function snapshotCarPositions() {
+    for (const car of cars) {
+        if (car) {
+            previousCarPositions.set(car.id, {
+                x: car.x,
+                y: car.y
+            });
+        }
+    }
+}
 let playerDamageVignette = 0;
 
 function damagePlayer(amount) {
@@ -614,7 +626,11 @@ function handlePhysicsAndCollisions(dt) {
     !playerCar &&
     !player.isArrestPassenger &&
     !player.isInvulnerable &&
-    Math.hypot(car.x - car.lastX, car.y - car.lastY) > 1.5
+    (() => {
+    const previous = previousCarPositions.get(car.id);
+    return previous &&
+        Math.hypot(car.x - previous.x, car.y - previous.y) > 1.5;
+})()
 ) {
     damagePlayer(35);
     player.isInvulnerable = true;
@@ -899,7 +915,7 @@ if (!isInsideHouse && angryDrivers.length > 0) {
       }
   });
 if (playerDamageVignette > 0) {
-    playerDamageVignette -= 0.08 * dt;
+    playerDamageVignette -= 0.035 * dt;
     if (playerDamageVignette < 0) {
         playerDamageVignette = 0;
     }
@@ -923,8 +939,11 @@ if (playerDamageVignette > 0) {
   }
 
   if (!isInsideHouse && !isInsideDealership) {
-      npcs.forEach(npc => npc.update(dt));
-      cars.forEach(car => car.updateAI(dt, player, npcs, cars));
+     npcs.forEach(npc => npc.update(dt));
+
+snapshotCarPositions();
+
+cars.forEach(car => car.updateAI(dt, player, npcs, cars)); 
 
       // Update NPC-NPC Conversations
       updateNPCConversations(dt);
@@ -1655,27 +1674,36 @@ if (player && player.wanted) {
     ctx.restore();
     ctx.restore(); 
   }
-    if (playerDamageVignette > 0) { console.log("HEALTH FEEDBACK DRAWN", playerDamageVignette);
-                                   
+    if (playerDamageVignette > 0) {
     ctx.save();
 
     const gradient = ctx.createRadialGradient(
         canvas.width / 2,
         canvas.height / 2,
-        Math.min(canvas.width, canvas.height) * 0.25,
+        Math.min(canvas.width, canvas.height) * 0.22,
         canvas.width / 2,
         canvas.height / 2,
-        Math.max(canvas.width, canvas.height) * 0.75
+        Math.max(canvas.width, canvas.height) * 0.78
     );
 
-    gradient.addColorStop(0, "rgba(255, 0, 0, 0)");
     gradient.addColorStop(
-        0.65,
-        `rgba(255, 0, 0, ${0.05 * playerDamageVignette})`
+        0,
+        "rgba(255, 0, 0, 0)"
     );
+
+    gradient.addColorStop(
+        0.55,
+        `rgba(255, 0, 0, ${0.12 * playerDamageVignette})`
+    );
+
+    gradient.addColorStop(
+        0.78,
+        `rgba(220, 0, 0, ${0.32 * playerDamageVignette})`
+    );
+
     gradient.addColorStop(
         1,
-        `rgba(180, 0, 0, ${0.55 * playerDamageVignette})`
+        `rgba(160, 0, 0, ${0.75 * playerDamageVignette})`
     );
 
     ctx.fillStyle = gradient;
