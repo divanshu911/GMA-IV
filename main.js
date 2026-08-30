@@ -315,12 +315,17 @@ function snapshotCarPositions() {
 let playerDamageVignette = 0;
 
 function damagePlayer(amount) {
-    if (!amount || amount <= 0) return;
+    if (!amount || amount <= 0) return false;
 
     player.health -= amount;
     playerDamageVignette = 1;
 
-    checkPlayerDeath();
+    if (player.health <= 0) {
+        checkPlayerDeath();
+        return true;
+    }
+
+    return false;
 }
 
  // --- SPATIAL GRID FOR COLLISION BROAD-PHASE ---
@@ -566,9 +571,9 @@ function handlePhysicsAndCollisions(dt) {
                 playerCar &&
                 car.id === playerCar.id
               ) {
-                damagePlayer(60);
+                 if (damagePlayer(60)) return;
 
-                car.isParked = true;
+car.isParked = true;
                 car.hasDriver = false;
                 car.recentlyJackedTimer = 90;
 
@@ -1677,37 +1682,13 @@ if (player && player.wanted) {
     if (playerDamageVignette > 0) {
     ctx.save();
 
-    const gradient = ctx.createRadialGradient(
-        canvas.width / 2,
-        canvas.height / 2,
-        Math.min(canvas.width, canvas.height) * 0.22,
-        canvas.width / 2,
-        canvas.height / 2,
-        Math.max(canvas.width, canvas.height) * 0.78
-    );
-
-    gradient.addColorStop(
+    ctx.fillStyle = `rgba(255, 0, 0, ${0.35 * playerDamageVignette})`;
+    ctx.fillRect(
         0,
-        "rgba(255, 0, 0, 0)"
+        0,
+        canvas.width,
+        canvas.height
     );
-
-    gradient.addColorStop(
-        0.55,
-        `rgba(255, 0, 0, ${0.12 * playerDamageVignette})`
-    );
-
-    gradient.addColorStop(
-        0.78,
-        `rgba(220, 0, 0, ${0.32 * playerDamageVignette})`
-    );
-
-    gradient.addColorStop(
-        1,
-        `rgba(160, 0, 0, ${0.75 * playerDamageVignette})`
-    );
-
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     ctx.restore();
     }
