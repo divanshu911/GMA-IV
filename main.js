@@ -1541,6 +1541,33 @@ ctx.translate(
     player.draw(ctx, isInsideDealership ? 0 : camera.angle);
   }
   if (!isInsideHouse && !isInsideDealership && typeof drawNightOverlay === 'function') drawNightOverlay();
+    if (!isInsideHouse && !isInsideDealership) {
+    ctx.save();
+
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate(-camera.angle);
+
+    const lightCameraTarget =
+        player.isArrestPassenger &&
+        arrestTransportCar
+            ? arrestTransportCar
+            : player;
+
+    ctx.translate(
+        -lightCameraTarget.x -
+            (lightCameraTarget.size || player.size) / 2,
+        -lightCameraTarget.y -
+            (lightCameraTarget.size || player.size) / 2
+    );
+
+    cars.forEach(car => {
+        if (isEntityOnScreen(car)) {
+            car.draw(ctx, true);
+        }
+    });
+
+    ctx.restore();
+    }
 
   ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
   ctx.fillRect(20, 20, 150, 45);

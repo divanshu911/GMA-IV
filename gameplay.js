@@ -1,4 +1,4 @@
-console.log("pkk")
+console.log("kkk")
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -691,7 +691,7 @@ let viewingCar = null;
 const carPrices = {
     "Commuter, Sedan": 4200,
     "Sprint, Hatchback": 3000,
-    "Ranger, SUV": -9300,
+    "Ranger, SUV": 6300,
     "Porter, Van": 5500,
     "Falcon, Sports": 8900
 };
@@ -1840,29 +1840,7 @@ arrestTransportState = "NONE";                       arrestTransitionStarted = f
 // Update arrest transport + escorts.
 // ------------------------------------------------------------
 function updateArrestTransport(dt) {
-    if (!window.arrestTransportDebugTimer) {
-    window.arrestTransportDebugTimer = 0;
-}
-
-window.arrestTransportDebugTimer -= dt;
-
-if (window.arrestTransportDebugTimer <= 0) {
-    window.arrestTransportDebugTimer = 0.5;
-
-    if (arrestTransportCar) {
-        const transportDistance = Math.hypot(
-            arrestTransportCar.x - player.x,
-            arrestTransportCar.y - player.y
-        );
-
-        console.log(
-            `[ARREST TRANSPORT] EXISTS | Distance: ${transportDistance.toFixed(1)} | ` +
-            `Position: (${arrestTransportCar.x.toFixed(0)}, ${arrestTransportCar.y.toFixed(0)})`
-        );
-    } else {
-        console.log("[ARREST TRANSPORT] NOT EXISTING");
-    }
-}
+    
     if (!player.isBeingArrested) return false;
 
 // Keep player absolutely immobile.
