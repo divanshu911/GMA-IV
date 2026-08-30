@@ -2037,8 +2037,16 @@ surrenderBtn.addEventListener('click', () => {
     isPlayerSurrendered = true;
     executeArrestProcess();
 });
-function isPlayerNearPoliceUnit(maxDistance = 120) {
+function isPlayerNearPoliceUnit(maxDistance = 120, specificUnit = null) {
     if (!player) return false;
+
+    if (specificUnit) {
+        return (
+            specificUnit.isPolice &&
+            specificUnit.policeState === "CHASE" &&
+            Math.hypot(player.x - specificUnit.x, player.y - specificUnit.y) <= maxDistance
+        );
+    }
 
     let nearby = false;
 
@@ -2066,8 +2074,7 @@ function isPlayerNearPoliceUnit(maxDistance = 120) {
     });
 
     return nearby;
-}
-                               // --- STAGE 4A: POLICE RECOGNITION, WARNING & ARREST SYSTEM ---
+}              // --- STAGE 4A: POLICE RECOGNITION, WARNING & ARREST SYSTEM ---
 // POLICE OFFICER VEHICLE INTERCEPTION BULLETS
 // ============================================================
 
@@ -2248,7 +2255,9 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
     // Police cars only. Officer NPC chase behavior is untouched.
     if (isCar) {
     const playerIsMoving = Math.abs(player.speed || 0) > 0.05;
-        if (!playerIsMoving) {
+    const policeCarIsNearPlayer = isPlayerNearPoliceUnit(120, unit);
+
+    if (!playerIsMoving && policeCarIsNearPlayer) {
 
             // Player just stopped during a normal chase.
             // Start the 1.4 second forward-coast period.
