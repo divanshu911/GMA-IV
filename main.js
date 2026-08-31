@@ -103,7 +103,12 @@ const restaurantZone = {
 };
 
 
+// ===== NIGHT MAP OVERLAY IMAGE 
+const NIGHT_OVERLAY_IMAGE_URL = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/Lights.png";
 
+const nightOverlayImage = new Image();
+nightOverlayImage.crossOrigin = "Anonymous";
+nightOverlayImage.src = NIGHT_OVERLAY_IMAGE_URL;
 // ===== 1. VISUAL MAP (Renders the world & mini-map) =====
 mapImage.addEventListener('load', () => {
     mapWidth = mapImage.width;
@@ -1304,7 +1309,54 @@ if (playerCar.health <= 0) {
       });
   }
 }
+function drawNightMapImage() {
+    // Use the EXACT same threshold as car headlights.
+    if (typeof ambientBrightness === 'undefined' || ambientBrightness >= 0.75) {
+        return;
+    }
 
+    if (!nightOverlayImage.complete || nightOverlayImage.naturalWidth === 0) {
+        return;
+    }
+
+    if (isInsideHouse || isInsideDealership) {
+        return;
+    }
+
+    ctx.save();
+
+    // Same camera transform used for the world/map.
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate(-camera.angle);
+
+    const overlayCameraTarget =
+        player.isArrestPassenger &&
+        arrestTransportCar
+            ? arrestTransportCar
+            : player;
+
+    ctx.translate(
+        -overlayCameraTarget.x -
+            (overlayCameraTarget.size || player.size) / 2,
+        -overlayCameraTarget.y -
+            (overlayCameraTarget.size || player.size) / 2
+    );
+
+    // The overlay has the same dimensions/aspect ratio as the map.
+    ctx.globalAlpha = 0.5;
+
+ctx.drawImage(
+    nightOverlayImage,
+    0,
+    0,
+    mapWidth,
+    mapHeight
+);
+
+ctx.globalAlpha = 1.0;
+
+    ctx.restore();
+}
 function drawGame() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.imageSmoothingEnabled = true;
@@ -1538,10 +1590,18 @@ ctx.translate(
   ctx.restore();
 
   if (!playerCar && !player.isArrestPassenger) {
-    player.draw(ctx, isInsideDealership ? 0 : camera.angle);
-  }
-  if (!isInsideHouse && !isInsideDealership && typeof drawNightOverlay === 'function') drawNightOverlay();
-    if (!isInsideHouse && !isInsideDealership) {
+  player.draw(ctx, isInsideDealership ? 0 : camera.angle);
+}
+
+if (!isInsideHouse && !isInsideDealership && typeof drawNightOverlay === 'function') {
+    drawNightOverlay();
+}
+
+if (!isInsideHouse && !isInsideDealership) {
+    drawNightMapImage();
+}
+
+if (!isInsideHouse && !isInsideDealership) {
     ctx.save();
 
     ctx.translate(canvas.width / 2, canvas.height / 2);
