@@ -104,7 +104,7 @@ const restaurantZone = {
 
 
 // ===== NIGHT MAP OVERLAY IMAGE 
-const NIGHT_OVERLAY_IMAGE_URL = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/Lights.png";
+const NIGHT_OVERLAY_IMAGE_URL = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/Lights.webp";
 
 const nightOverlayImage = new Image();
 nightOverlayImage.crossOrigin = "Anonymous";
