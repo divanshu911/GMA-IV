@@ -1,4 +1,4 @@
-console.log("hop");
+console.log("1");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1347,8 +1347,8 @@ function drawNightMapImage() {
 
 ctx.drawImage(
     nightOverlayImage,
-    0,
-    0,
+    -45,
+    -45,
     mapWidth,
     mapHeight
 );
