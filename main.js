@@ -1,4 +1,4 @@
-console.log("kgghop");
+console.log("hop");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1343,7 +1343,7 @@ function drawNightMapImage() {
     );
 
     // The overlay has the same dimensions/aspect ratio as the map.
-    ctx.globalAlpha = 0.5;
+    ctx.globalAlpha = 0.9;
 
 ctx.drawImage(
     nightOverlayImage,
