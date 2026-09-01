@@ -1,4 +1,4 @@
-console.log("kkk")
+console.log("cake")
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -1888,12 +1888,12 @@ arrestTransportCar.hasArrestPassenger = true;
 
         } else {
             moveArrestPoliceCar(
-                arrestTransportCar,
-                player.x,
-                player.y,
-                dt,
-                arrestTransportCar.baseSpeed || 2.3
-            );
+    arrestTransportCar,
+    player.x,
+    player.y,
+    dt,
+    3.2
+);
         }
     }
 
@@ -1932,12 +1932,12 @@ arrestTransportCar.hasArrestPassenger = true;
 
         } else {
             moveArrestPoliceCar(
-                arrestTransportCar,
-                ARREST_STATION_X,
-                ARREST_STATION_Y,
-                dt,
-                arrestTransportCar.baseSpeed || 2.3
-            );
+    arrestTransportCar,
+    ARREST_STATION_X,
+    ARREST_STATION_Y,
+    dt,
+    3.2
+);
 
             // Keep player attached after movement.
             player.x = arrestTransportCar.x;
@@ -1992,12 +1992,12 @@ arrestTransportCar.hasArrestPassenger = true;
                 45;
 
             moveArrestPoliceCar(
-                escort,
-                targetX,
-                targetY,
-                dt,
-                escort.baseSpeed || 2.3
-            );
+    escort,
+    targetX,
+    targetY,
+    dt,
+    3.2
+);
 
             if (typeof escort.playSiren === 'function') {
                 escort.playSiren(2);
@@ -2467,11 +2467,11 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
         unit.angle = moveAngle + Math.PI / 2;
 
         // Position Updates & Collision Handling
-        if (isCar) {
-            const policeChaseSpeed = unit.baseSpeed || 2.3;
-            unit.speed = policeChaseSpeed;
-            const nextX = unit.x + Math.cos(moveAngle) * policeChaseSpeed * dt;
-            const nextY = unit.y + Math.sin(moveAngle) * policeChaseSpeed * dt;
+       if (isCar) {
+    const policeChaseSpeed = 3.2;
+    unit.speed = policeChaseSpeed;
+    const nextX = unit.x + Math.cos(moveAngle) * policeChaseSpeed * dt;
+    const nextY = unit.y + Math.sin(moveAngle) * policeChaseSpeed * dt; 
 
             if (isGrassOrRoad(nextX, nextY)) {
                 unit.x = nextX;
