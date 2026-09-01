@@ -1500,8 +1500,8 @@ function spawnArrestTransportCar() {
     // Keep police-car characteristics.
     policeCar.width = 16;
     policeCar.length = 28;
-    policeCar.baseSpeed = 2.3;
-    policeCar.speed = policeCar.baseSpeed;
+    policeCar.baseSpeed = 3.2;
+    policeCar.speed = 3.2;
 
     policeCar.isParked = false;
     policeCar.hasDriver = true;
@@ -2179,7 +2179,7 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
             unit.policeStopTimer = 0;
             unit.policeStartTimer = 0;
             unit.policeCoastAngle = unit.angle - Math.PI / 2;
-            unit.policeCoastSpeed = unit.baseSpeed || 2.3;
+            unit.policeCoastSpeed = 3.2;
         }
     }
     // Destroyed police cars must never continue the chase.
@@ -2250,7 +2250,7 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
                 unit.policeCoastSpeed =
                     Math.abs(unit.speed) > 0.05
                         ? Math.abs(unit.speed)
-                        : (unit.baseSpeed || 2.3);
+                        : 3.2;
             }
 
             // Player stopped while the 0.8 sec start timer was running.
