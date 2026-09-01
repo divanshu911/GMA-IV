@@ -1,4 +1,4 @@
-console.log("3");
+console.log("pizza");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -108,6 +108,54 @@ const NIGHT_OVERLAY_IMAGE_URL = "https://raw.githubusercontent.com/divanshu911/M
 
 const nightOverlayImage = new Image();
 nightOverlayImage.crossOrigin = "Anonymous";
+
+let nightOverlayCanvas = null;
+let nightOverlayCtx = null;
+
+nightOverlayImage.onload = () => {
+    nightOverlayCanvas = document.createElement("canvas");
+    nightOverlayCanvas.width = nightOverlayImage.naturalWidth;
+    nightOverlayCanvas.height = nightOverlayImage.naturalHeight;
+
+    nightOverlayCtx = nightOverlayCanvas.getContext("2d", {
+        willReadFrequently: true
+    });
+
+    nightOverlayCtx.drawImage(
+        nightOverlayImage,
+        0,
+        0,
+        nightOverlayCanvas.width,
+        nightOverlayCanvas.height
+    );
+
+    const imageData = nightOverlayCtx.getImageData(
+        0,
+        0,
+        nightOverlayCanvas.width,
+        nightOverlayCanvas.height
+    );
+
+    const data = imageData.data;
+
+    // Color that should become transparent.
+    const transparentR = 76;
+    const transparentG = 76;
+    const transparentB = 76;
+
+    for (let i = 0; i < data.length; i += 4) {
+        if (
+            data[i] === transparentR &&
+            data[i + 1] === transparentG &&
+            data[i + 2] === transparentB
+        ) {
+            data[i + 3] = 0;
+        }
+    }
+
+    nightOverlayCtx.putImageData(imageData, 0, 0);
+};
+
 nightOverlayImage.src = NIGHT_OVERLAY_IMAGE_URL;
 // ===== 1. VISUAL MAP (Renders the world & mini-map) =====
 mapImage.addEventListener('load', () => {
@@ -1315,8 +1363,8 @@ function drawNightMapImage() {
         return;
     }
 
-    if (!nightOverlayImage.complete || nightOverlayImage.naturalWidth === 0) {
-        return;
+    if (!nightOverlayCanvas) {
+    return;
     }
 
     if (isInsideHouse || isInsideDealership) {
@@ -1346,7 +1394,7 @@ function drawNightMapImage() {
     ctx.globalAlpha = 0.9;
 
 ctx.drawImage(
-    nightOverlayImage,
+    nightOverlayCanvas,
     0,
     0,
     mapWidth,
