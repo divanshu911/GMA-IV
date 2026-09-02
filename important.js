@@ -5,7 +5,7 @@ const ctx = canvas.getContext('2d');
 let gameActive = false;
 let showFullMap = false;
 let desktopControlsOpen = false;
-console.log("lights!");
+console.log("aaa!");
 
 
 // ===== DAY / NIGHT SYSTEM =====
@@ -179,11 +179,25 @@ function drawNightOverlay() {
         return;
     }
 
-    const maxDistance =
-        Math.max(canvas.width, canvas.height) * 0.65 + 100;
+    function isLightInViewport(light) {
+        const startScreen = worldToScreen(light.x, light.y);
+        const endScreen = worldToScreen(
+            light.x + light.nx * light.length * 0.82,
+            light.y + light.ny * light.length * 0.82
+        );
+        const glowMargin = Math.max(35, light.baseWidth * 1.8) + 12;
+        const minX = Math.min(startScreen.x, endScreen.x) - glowMargin;
+        const maxX = Math.max(startScreen.x, endScreen.x) + glowMargin;
+        const minY = Math.min(startScreen.y, endScreen.y) - glowMargin;
+        const maxY = Math.max(startScreen.y, endScreen.y) + glowMargin;
 
-    const maxDistanceSq =
-        maxDistance * maxDistance;
+        return !(
+            maxX < 0 ||
+            minX > canvas.width ||
+            maxY < 0 ||
+            minY > canvas.height
+        );
+    }
 
      function drawLightBeam(light) {
     const length = light.length * 0.82;
@@ -236,11 +250,13 @@ function drawNightOverlay() {
     ctx.closePath();
     ctx.clip();
 
+    // The overlay is rendered in screen space, so the gradient must use the
+    // transformed screen endpoints rather than fixed world coordinates.
     const gradient = ctx.createLinearGradient(
-        startX,
-        startY,
-        endX,
-        endY
+        startLeft.x,
+        startLeft.y,
+        endLeft.x,
+        endLeft.y
     );
 
     // High brightness near the origin point
@@ -304,16 +320,7 @@ function drawNightOverlay() {
 
         const light = lights[i];
 
-        const dx =
-            light.x - cameraX;
-
-        const dy =
-            light.y - cameraY;
-
-        if (
-            dx * dx + dy * dy >
-            maxDistanceSq
-        ) {
+        if (!isLightInViewport(light)) {
             continue;
         }
 
