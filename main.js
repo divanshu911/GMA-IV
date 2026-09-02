@@ -493,13 +493,21 @@ function generateBuildingLightShapes() {
             const p = pixelIndex / 4;
             const collisionY = Math.floor(p / cw);
             const collisionX = p - collisionY * cw;
+          
 
-            const normal = getOutwardNormal(pixelIndex);
+      const normal = getOutwardNormal(pixelIndex);
 
-            if (!normal) {
-                continue;
-            }
+if (!normal) {
+    continue;
+}
 
+const isCornerNormal =
+    Math.abs(normal.x) > 0.70 &&
+    Math.abs(normal.y) > 0.70;
+
+if (isCornerNormal) {
+    continue;
+}      
             // Convert the outermost yellow pixel to world coordinates.
             const originX =
                 (collisionX + 0.5) * scaleX;

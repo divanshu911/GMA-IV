@@ -116,7 +116,7 @@ function updateDayNight(dt){
    }
 } 
 
- function drawNightOverlay() {
+function drawNightOverlay() {
     if (ambientBrightness >= 0.999) return;
 
     ctx.save();
@@ -149,15 +149,11 @@ function updateDayNight(dt){
 
     /*
      * ---------------------------------------------------------
-     * NIGHT OVERLAY
+     * FULL NIGHT OVERLAY
      * ---------------------------------------------------------
      *
-     * IMPORTANT:
-     * The night overlay is now drawn completely.
-     * Lights do NOT cut holes in it.
-     *
-     * This keeps the night darkness visible even inside
-     * the light beams.
+     * The darkness is ALWAYS drawn first.
+     * Building lights never remove/cancel the overlay.
      */
     ctx.fillStyle = skyColor;
     ctx.fillRect(
@@ -177,10 +173,6 @@ function updateDayNight(dt){
         canvas.height
     );
 
-    /*
-     * During brighter evening conditions, do not add
-     * the building light effect yet.
-     */
     if (lights.length === 0 || ambientBrightness >= 0.75) {
         ctx.restore();
         return;
@@ -194,22 +186,21 @@ function updateDayNight(dt){
 
     /*
      * ---------------------------------------------------------
-     * BUILDING LIGHT BEAM
+     * ONE CONTINUOUS BUILDING LIGHT
      * ---------------------------------------------------------
      *
-     * Same overall light dimensions as before:
+     * Same overall size as the previous OUTER light:
      *
-     * OUTER   = 0.82 length / 1.15 width
-     * MIDDLE  = 0.62 length / 0.92 width
-     * INNER   = 0.38 length / 0.68 width
+     * Length = 0.82
+     * Width  = 1.15
      *
-     * No curved sides.
-     * The sides are straight.
+     * There are NO middle/inner beams anymore.
+     * Therefore the fade is completely continuous.
      */
-    function drawLightBeam(light, lengthFactor, brightnessWidth, alpha) {
+    function drawLightBeam(light) {
 
         const length =
-            light.length * lengthFactor;
+            light.length * 0.82;
 
         const px = -light.ny;
         const py = light.nx;
@@ -218,14 +209,8 @@ function updateDayNight(dt){
             light.baseWidth * 0.38;
 
         const endWidth =
-            light.baseWidth * brightnessWidth;
+            light.baseWidth * 1.15;
 
-        /*
-         * Straight-sided beam.
-         *
-         * Only two points on each side are used,
-         * so there is no curved/segmented edge.
-         */
         const startHalf =
             startWidth * 0.5;
 
@@ -268,11 +253,11 @@ function updateDayNight(dt){
                 endY - py * endHalf
             );
 
-        /*
-         * Clip precisely to the beam.
-         */
         ctx.save();
 
+        /*
+         * Straight-sided beam.
+         */
         ctx.beginPath();
 
         ctx.moveTo(
@@ -301,14 +286,14 @@ function updateDayNight(dt){
 
         /*
          * -----------------------------------------------------
-         * FADE ALONG THE LIGHT
+         * CONTINUOUS FADE
          * -----------------------------------------------------
          *
-         * Bright near the building.
-         * Progressively fainter toward the forward end.
+         * No separate light sections.
          *
-         * Most importantly, the night overlay underneath
-         * remains intact.
+         * Strong near the building.
+         * Gradually becomes fainter.
+         * Completely disappears at the end.
          */
         const gradient =
             ctx.createLinearGradient(
@@ -320,22 +305,42 @@ function updateDayNight(dt){
 
         gradient.addColorStop(
             0,
-            `rgba(255,225,105,${alpha})`
+            "rgba(255,225,105,0.105)"
         );
 
         gradient.addColorStop(
-            0.30,
-            `rgba(255,230,120,${alpha * 0.72})`
+            0.12,
+            "rgba(255,227,110,0.095)"
         );
 
         gradient.addColorStop(
-            0.65,
-            `rgba(255,235,135,${alpha * 0.38})`
+            0.28,
+            "rgba(255,230,120,0.078)"
+        );
+
+        gradient.addColorStop(
+            0.46,
+            "rgba(255,233,130,0.060)"
+        );
+
+        gradient.addColorStop(
+            0.64,
+            "rgba(255,236,140,0.043)"
+        );
+
+        gradient.addColorStop(
+            0.80,
+            "rgba(255,239,150,0.025)"
+        );
+
+        gradient.addColorStop(
+            0.92,
+            "rgba(255,242,160,0.010)"
         );
 
         gradient.addColorStop(
             1,
-            `rgba(255,240,155,0)`
+            "rgba(255,245,170,0)"
         );
 
         ctx.fillStyle = gradient;
@@ -352,7 +357,7 @@ function updateDayNight(dt){
 
     /*
      * ---------------------------------------------------------
-     * DRAW ALL BUILDING LIGHTS
+     * DRAW VALID BUILDING LIGHTS
      * ---------------------------------------------------------
      */
     for (let i = 0; i < lights.length; i++) {
@@ -372,44 +377,12 @@ function updateDayNight(dt){
             continue;
         }
 
-        /*
-         * OUTER
-         * Same size as current version.
-         * Very faint, long-range glow.
-         */
-        drawLightBeam(
-            light,
-            0.82,
-            1.15,
-            0.055
-        );
-
-        /*
-         * MIDDLE
-         * Same size as current version.
-         */
-        drawLightBeam(
-            light,
-            0.62,
-            0.92,
-            0.075
-        );
-
-        /*
-         * INNER
-         * Same size as current version.
-         */
-        drawLightBeam(
-            light,
-            0.38,
-            0.68,
-            0.105
-        );
+        drawLightBeam(light);
     }
 
     ctx.restore();
-}    
-
+          
+}
 function drawClock(){
     const totalMinutes=Math.floor(gameSeconds/DAY_LENGTH*24*60);
     const h=Math.floor(totalMinutes/60);
