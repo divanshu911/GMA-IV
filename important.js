@@ -5,6 +5,7 @@ const ctx = canvas.getContext('2d');
 let gameActive = false;
 let showFullMap = false;
 let desktopControlsOpen = false;
+console.log("night!");
 
 
 // ===== DAY / NIGHT SYSTEM =====
@@ -115,18 +116,14 @@ function updateDayNight(dt){
    }
 } 
 
-function drawNightOverlay() {
+ function drawNightOverlay() {
     if (ambientBrightness >= 0.999) return;
 
     ctx.save();
 
     const lights = window.buildingLightShapes || [];
 
-    const useBuildingLights =
-        ambientBrightness < 0.75 &&
-        lights.length > 0;
-
-    if (!useBuildingLights) {
+    if (lights.length === 0 || ambientBrightness >= 0.75) {
         ctx.fillStyle = skyColor;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -152,7 +149,7 @@ function drawNightOverlay() {
     const screenCenterY = canvas.height * 0.5;
 
     const maxDistance =
-        Math.max(canvas.width, canvas.height) * 0.75 + 120;
+        Math.max(canvas.width, canvas.height) * 0.65 + 100;
 
     const maxDistanceSq = maxDistance * maxDistance;
 
@@ -166,68 +163,94 @@ function drawNightOverlay() {
         };
     }
 
-    
-    function addLightShape(path, light, lengthFactor, startWidthFactor, endWidthFactor) {
+    function addLightBeam(path, light, lengthFactor, brightnessWidth) {
+
         const length = light.length * lengthFactor;
 
-        // Perpendicular direction to the building wall.
         const px = -light.ny;
         const py = light.nx;
 
-        // IMPORTANT:
-        // The origin is NOT a point.
-        // It starts with a moderate width.
-        const startHalfWidth =
-            light.baseWidth * startWidthFactor * 0.5;
+        const startWidth =
+            light.baseWidth * 0.38;
 
-        // The outside is considerably wider.
-        const endHalfWidth =
-            light.baseWidth * endWidthFactor * 0.5;
+        /*
+         * Outer width is wider, but the whole beam
+         * is smaller than the previous version.
+         */
+        const endWidth =
+            light.baseWidth * brightnessWidth;
 
-        // Tiny offset keeps the light just outside the building.
-        const startX =
-            light.x + light.nx * 3;
+        
+        const segments = 5;
 
-        const startY =
-            light.y + light.ny * 3;
+        const left = [];
+        const right = [];
 
-        const endX =
-            light.x + light.nx * length;
+        for (let i = 0; i <= segments; i++) {
 
-        const endY =
-            light.y + light.ny * length;
+            const t = i / segments;
 
-        const start1 = worldToScreen(
-            startX + px * startHalfWidth,
-            startY + py * startHalfWidth
-        );
+            /*
+             * Smooth width expansion.
+             * Starts relatively narrow and progressively
+             * spreads outward.
+             */
+            const spread =
+                t * t * (3 - 2 * t);
 
-        const start2 = worldToScreen(
-            startX - px * startHalfWidth,
-            startY - py * startHalfWidth
-        );
+            const width =
+                startWidth +
+                (endWidth - startWidth) * spread;
 
-        const end1 = worldToScreen(
-            endX + px * endHalfWidth,
-            endY + py * endHalfWidth
-        );
+            /*
+             * Slightly curved forward path.
+             * Very subtle so it still follows the wall.
+             */
+            const forward =
+                length * t;
 
-        const end2 = worldToScreen(
-            endX - px * endHalfWidth,
-            endY - py * endHalfWidth
-        );
+            const curve =
+                Math.sin(t * Math.PI) *
+                light.baseWidth * 0.08;
 
-        path.moveTo(start1.x, start1.y);
-        path.lineTo(end1.x, end1.y);
-        path.lineTo(end2.x, end2.y);
-        path.lineTo(start2.x, start2.y);
+            const centerX =
+                light.x +
+                light.nx * (forward + curve);
+
+            const centerY =
+                light.y +
+                light.ny * (forward + curve);
+
+            const halfWidth = width * 0.5;
+
+            const leftPoint = worldToScreen(
+                centerX + px * halfWidth,
+                centerY + py * halfWidth
+            );
+
+            const rightPoint = worldToScreen(
+                centerX - px * halfWidth,
+                centerY - py * halfWidth
+            );
+
+            left.push(leftPoint);
+            right.push(rightPoint);
+        }
+
+        path.moveTo(left[0].x, left[0].y);
+
+        for (let i = 1; i < left.length; i++) {
+            path.lineTo(left[i].x, left[i].y);
+        }
+
+        for (let i = right.length - 1; i >= 0; i--) {
+            path.lineTo(right[i].x, right[i].y);
+        }
+
         path.closePath();
     }
 
-    /*
-     * Build the actual night mask.
-     * The building lights punch holes through the darkness.
-     */
+
     const nightPath = new Path2D();
 
     nightPath.rect(
@@ -238,6 +261,7 @@ function drawNightOverlay() {
     );
 
     for (let i = 0; i < lights.length; i++) {
+
         const light = lights[i];
 
         const dx = light.x - cameraX;
@@ -247,16 +271,17 @@ function drawNightOverlay() {
             continue;
         }
 
-        addLightShape(
+        /*
+         * Smaller overall beam.
+         */
+        addLightBeam(
             nightPath,
             light,
-            1.0,
-            0.55,
-            1.55
+            0.82,
+            1.15
         );
     }
 
-    
     ctx.fillStyle = skyColor;
     ctx.fill(nightPath, "evenodd");
 
@@ -267,12 +292,12 @@ function drawNightOverlay() {
 
 
 
-
-    const outerLightPath = new Path2D();
-    const middleLightPath = new Path2D();
-    const innerLightPath = new Path2D();
+    const outerPath = new Path2D();
+    const middlePath = new Path2D();
+    const innerPath = new Path2D();
 
     for (let i = 0; i < lights.length; i++) {
+
         const light = lights[i];
 
         const dx = light.x - cameraX;
@@ -282,60 +307,58 @@ function drawNightOverlay() {
             continue;
         }
 
-        // OUTER:
-        // widest + faintest
-        addLightShape(
-            outerLightPath,
+        /*
+         * OUTER:
+         * widest and extremely faint.
+         */
+        addLightBeam(
+            outerPath,
             light,
-            1.00,
-            0.55,
-            1.55
+            0.82,
+            1.15
         );
 
-        // MIDDLE:
-        // medium width + brightness
-        addLightShape(
-            middleLightPath,
+        /*
+         * MIDDLE:
+         * shorter and slightly stronger.
+         */
+        addLightBeam(
+            middlePath,
             light,
-            0.72,
-            0.50,
-            1.20
+            0.62,
+            0.92
         );
 
-        // INNER:
-        // strongest + closest to building
-        addLightShape(
-            innerLightPath,
+        
+        addLightBeam(
+            innerPath,
             light,
-            0.42,
-            0.45,
-            0.85
+            0.38,
+            0.68
         );
     }
 
-    /*
-     * Very faint outer spill.
-     */
     ctx.fillStyle =
-        "rgba(255, 232, 125, 0.018)";
+        "rgba(255, 225, 100, 0.010)";
 
-    ctx.fill(outerLightPath);
+    ctx.fill(outerPath);
 
-    ctx.fillStyle =
-        "rgba(255, 235, 145, 0.028)";
-
-    ctx.fill(middleLightPath);
 
     /*
-     * Strongest part near the building.
+     * Soft middle colour.
      */
     ctx.fillStyle =
-        "rgba(255, 245, 190, 0.042)";
+        "rgba(255, 235, 135, 0.018)";
 
-    ctx.fill(innerLightPath);
+    ctx.fill(middlePath);
+
+    ctx.fillStyle =
+        "rgba(255, 245, 185, 0.030)";
+
+    ctx.fill(innerPath);
 
     ctx.restore();
-}
+ }        
 
 function drawClock(){
     const totalMinutes=Math.floor(gameSeconds/DAY_LENGTH*24*60);
