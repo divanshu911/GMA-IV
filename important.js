@@ -5,7 +5,7 @@ const ctx = canvas.getContext('2d');
 let gameActive = false;
 let showFullMap = false;
 let desktopControlsOpen = false;
-console.log("no!");
+console.log("lights!");
 
 
 // ===== DAY / NIGHT SYSTEM =====
