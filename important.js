@@ -5,7 +5,7 @@ const ctx = canvas.getContext('2d');
 let gameActive = false;
 let showFullMap = false;
 let desktopControlsOpen = false;
-console.log("night!");
+console.log("n!");
 
 
 // ===== DAY / NIGHT SYSTEM =====
@@ -123,17 +123,6 @@ function updateDayNight(dt){
 
     const lights = window.buildingLightShapes || [];
 
-    if (lights.length === 0 || ambientBrightness >= 0.75) {
-        ctx.fillStyle = skyColor;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        ctx.fillStyle = `rgba(0,0,20,${1 - ambientBrightness})`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        ctx.restore();
-        return;
-    }
-
     const cameraTarget =
         player.isArrestPassenger && arrestTransportCar
             ? arrestTransportCar
@@ -148,11 +137,6 @@ function updateDayNight(dt){
     const screenCenterX = canvas.width * 0.5;
     const screenCenterY = canvas.height * 0.5;
 
-    const maxDistance =
-        Math.max(canvas.width, canvas.height) * 0.65 + 100;
-
-    const maxDistanceSq = maxDistance * maxDistance;
-
     function worldToScreen(x, y) {
         const dx = x - cameraX;
         const dy = y - cameraY;
@@ -163,9 +147,69 @@ function updateDayNight(dt){
         };
     }
 
-    function addLightBeam(path, light, lengthFactor, brightnessWidth) {
+    /*
+     * ---------------------------------------------------------
+     * NIGHT OVERLAY
+     * ---------------------------------------------------------
+     *
+     * IMPORTANT:
+     * The night overlay is now drawn completely.
+     * Lights do NOT cut holes in it.
+     *
+     * This keeps the night darkness visible even inside
+     * the light beams.
+     */
+    ctx.fillStyle = skyColor;
+    ctx.fillRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
 
-        const length = light.length * lengthFactor;
+    ctx.fillStyle =
+        `rgba(0,0,20,${1 - ambientBrightness})`;
+
+    ctx.fillRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+    /*
+     * During brighter evening conditions, do not add
+     * the building light effect yet.
+     */
+    if (lights.length === 0 || ambientBrightness >= 0.75) {
+        ctx.restore();
+        return;
+    }
+
+    const maxDistance =
+        Math.max(canvas.width, canvas.height) * 0.65 + 100;
+
+    const maxDistanceSq =
+        maxDistance * maxDistance;
+
+    /*
+     * ---------------------------------------------------------
+     * BUILDING LIGHT BEAM
+     * ---------------------------------------------------------
+     *
+     * Same overall light dimensions as before:
+     *
+     * OUTER   = 0.82 length / 1.15 width
+     * MIDDLE  = 0.62 length / 0.92 width
+     * INNER   = 0.38 length / 0.68 width
+     *
+     * No curved sides.
+     * The sides are straight.
+     */
+    function drawLightBeam(light, lengthFactor, brightnessWidth, alpha) {
+
+        const length =
+            light.length * lengthFactor;
 
         const px = -light.ny;
         const py = light.nx;
@@ -173,192 +217,198 @@ function updateDayNight(dt){
         const startWidth =
             light.baseWidth * 0.38;
 
-        /*
-         * Outer width is wider, but the whole beam
-         * is smaller than the previous version.
-         */
         const endWidth =
             light.baseWidth * brightnessWidth;
 
-        
-        const segments = 5;
+        /*
+         * Straight-sided beam.
+         *
+         * Only two points on each side are used,
+         * so there is no curved/segmented edge.
+         */
+        const startHalf =
+            startWidth * 0.5;
 
-        const left = [];
-        const right = [];
+        const endHalf =
+            endWidth * 0.5;
 
-        for (let i = 0; i <= segments; i++) {
+        const startX =
+            light.x;
 
-            const t = i / segments;
+        const startY =
+            light.y;
 
-            /*
-             * Smooth width expansion.
-             * Starts relatively narrow and progressively
-             * spreads outward.
-             */
-            const spread =
-                t * t * (3 - 2 * t);
+        const endX =
+            light.x + light.nx * length;
 
-            const width =
-                startWidth +
-                (endWidth - startWidth) * spread;
+        const endY =
+            light.y + light.ny * length;
 
-            /*
-             * Slightly curved forward path.
-             * Very subtle so it still follows the wall.
-             */
-            const forward =
-                length * t;
-
-            const curve =
-                Math.sin(t * Math.PI) *
-                light.baseWidth * 0.08;
-
-            const centerX =
-                light.x +
-                light.nx * (forward + curve);
-
-            const centerY =
-                light.y +
-                light.ny * (forward + curve);
-
-            const halfWidth = width * 0.5;
-
-            const leftPoint = worldToScreen(
-                centerX + px * halfWidth,
-                centerY + py * halfWidth
+        const startLeft =
+            worldToScreen(
+                startX + px * startHalf,
+                startY + py * startHalf
             );
 
-            const rightPoint = worldToScreen(
-                centerX - px * halfWidth,
-                centerY - py * halfWidth
+        const startRight =
+            worldToScreen(
+                startX - px * startHalf,
+                startY - py * startHalf
             );
 
-            left.push(leftPoint);
-            right.push(rightPoint);
-        }
+        const endLeft =
+            worldToScreen(
+                endX + px * endHalf,
+                endY + py * endHalf
+            );
 
-        path.moveTo(left[0].x, left[0].y);
-
-        for (let i = 1; i < left.length; i++) {
-            path.lineTo(left[i].x, left[i].y);
-        }
-
-        for (let i = right.length - 1; i >= 0; i--) {
-            path.lineTo(right[i].x, right[i].y);
-        }
-
-        path.closePath();
-    }
-
-
-    const nightPath = new Path2D();
-
-    nightPath.rect(
-        0,
-        0,
-        canvas.width,
-        canvas.height
-    );
-
-    for (let i = 0; i < lights.length; i++) {
-
-        const light = lights[i];
-
-        const dx = light.x - cameraX;
-        const dy = light.y - cameraY;
-
-        if (dx * dx + dy * dy > maxDistanceSq) {
-            continue;
-        }
+        const endRight =
+            worldToScreen(
+                endX - px * endHalf,
+                endY - py * endHalf
+            );
 
         /*
-         * Smaller overall beam.
+         * Clip precisely to the beam.
          */
-        addLightBeam(
-            nightPath,
-            light,
-            0.82,
-            1.15
+        ctx.save();
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            startLeft.x,
+            startLeft.y
         );
-    }
 
-    ctx.fillStyle = skyColor;
-    ctx.fill(nightPath, "evenodd");
+        ctx.lineTo(
+            endLeft.x,
+            endLeft.y
+        );
 
-    ctx.fillStyle =
-        `rgba(0,0,20,${1 - ambientBrightness})`;
+        ctx.lineTo(
+            endRight.x,
+            endRight.y
+        );
 
-    ctx.fill(nightPath, "evenodd");
+        ctx.lineTo(
+            startRight.x,
+            startRight.y
+        );
 
+        ctx.closePath();
 
-
-    const outerPath = new Path2D();
-    const middlePath = new Path2D();
-    const innerPath = new Path2D();
-
-    for (let i = 0; i < lights.length; i++) {
-
-        const light = lights[i];
-
-        const dx = light.x - cameraX;
-        const dy = light.y - cameraY;
-
-        if (dx * dx + dy * dy > maxDistanceSq) {
-            continue;
-        }
+        ctx.clip();
 
         /*
-         * OUTER:
-         * widest and extremely faint.
+         * -----------------------------------------------------
+         * FADE ALONG THE LIGHT
+         * -----------------------------------------------------
+         *
+         * Bright near the building.
+         * Progressively fainter toward the forward end.
+         *
+         * Most importantly, the night overlay underneath
+         * remains intact.
          */
-        addLightBeam(
-            outerPath,
-            light,
-            0.82,
-            1.15
+        const gradient =
+            ctx.createLinearGradient(
+                startX,
+                startY,
+                endX,
+                endY
+            );
+
+        gradient.addColorStop(
+            0,
+            `rgba(255,225,105,${alpha})`
         );
 
-        /*
-         * MIDDLE:
-         * shorter and slightly stronger.
-         */
-        addLightBeam(
-            middlePath,
-            light,
-            0.62,
-            0.92
+        gradient.addColorStop(
+            0.30,
+            `rgba(255,230,120,${alpha * 0.72})`
         );
 
-        
-        addLightBeam(
-            innerPath,
-            light,
-            0.38,
-            0.68
+        gradient.addColorStop(
+            0.65,
+            `rgba(255,235,135,${alpha * 0.38})`
         );
+
+        gradient.addColorStop(
+            1,
+            `rgba(255,240,155,0)`
+        );
+
+        ctx.fillStyle = gradient;
+
+        ctx.fillRect(
+            0,
+            0,
+            canvas.width,
+            canvas.height
+        );
+
+        ctx.restore();
     }
-
-    ctx.fillStyle =
-        "rgba(255, 225, 100, 0.010)";
-
-    ctx.fill(outerPath);
-
 
     /*
-     * Soft middle colour.
+     * ---------------------------------------------------------
+     * DRAW ALL BUILDING LIGHTS
+     * ---------------------------------------------------------
      */
-    ctx.fillStyle =
-        "rgba(255, 235, 135, 0.018)";
+    for (let i = 0; i < lights.length; i++) {
 
-    ctx.fill(middlePath);
+        const light = lights[i];
 
-    ctx.fillStyle =
-        "rgba(255, 245, 185, 0.030)";
+        const dx =
+            light.x - cameraX;
 
-    ctx.fill(innerPath);
+        const dy =
+            light.y - cameraY;
+
+        if (
+            dx * dx + dy * dy >
+            maxDistanceSq
+        ) {
+            continue;
+        }
+
+        /*
+         * OUTER
+         * Same size as current version.
+         * Very faint, long-range glow.
+         */
+        drawLightBeam(
+            light,
+            0.82,
+            1.15,
+            0.055
+        );
+
+        /*
+         * MIDDLE
+         * Same size as current version.
+         */
+        drawLightBeam(
+            light,
+            0.62,
+            0.92,
+            0.075
+        );
+
+        /*
+         * INNER
+         * Same size as current version.
+         */
+        drawLightBeam(
+            light,
+            0.38,
+            0.68,
+            0.105
+        );
+    }
 
     ctx.restore();
- }        
+}    
 
 function drawClock(){
     const totalMinutes=Math.floor(gameSeconds/DAY_LENGTH*24*60);
