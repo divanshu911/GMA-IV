@@ -5,7 +5,7 @@ const ctx = canvas.getContext('2d');
 let gameActive = false;
 let showFullMap = false;
 let desktopControlsOpen = false;
-console.log("n!");
+console.log("no!");
 
 
 // ===== DAY / NIGHT SYSTEM =====
@@ -152,10 +152,11 @@ function drawNightOverlay() {
      * FULL NIGHT OVERLAY
      * ---------------------------------------------------------
      *
-     * The darkness is ALWAYS drawn first.
-     * Building lights never remove/cancel the overlay.
+     * The darkness is always drawn first.
+     * Lights are added on top.
      */
     ctx.fillStyle = skyColor;
+
     ctx.fillRect(
         0,
         0,
@@ -186,16 +187,17 @@ function drawNightOverlay() {
 
     /*
      * ---------------------------------------------------------
-     * ONE CONTINUOUS BUILDING LIGHT
+     * BUILDING LIGHT
      * ---------------------------------------------------------
      *
-     * Same overall size as the previous OUTER light:
+     * One single continuous beam.
      *
-     * Length = 0.82
-     * Width  = 1.15
+     * Overall size remains:
      *
-     * There are NO middle/inner beams anymore.
-     * Therefore the fade is completely continuous.
+     * length = 0.82
+     * width  = 1.15
+     *
+     * No inner/middle/outer brightness sections.
      */
     function drawLightBeam(light) {
 
@@ -253,11 +255,18 @@ function drawNightOverlay() {
                 endY - py * endHalf
             );
 
+        /*
+         * -----------------------------------------------------
+         * MAIN BEAM
+         * -----------------------------------------------------
+         *
+         * One continuous alpha gradient.
+         *
+         * Notice that the brightness does NOT jump between
+         * separate sections.
+         */
         ctx.save();
 
-        /*
-         * Straight-sided beam.
-         */
         ctx.beginPath();
 
         ctx.moveTo(
@@ -284,17 +293,6 @@ function drawNightOverlay() {
 
         ctx.clip();
 
-        /*
-         * -----------------------------------------------------
-         * CONTINUOUS FADE
-         * -----------------------------------------------------
-         *
-         * No separate light sections.
-         *
-         * Strong near the building.
-         * Gradually becomes fainter.
-         * Completely disappears at the end.
-         */
         const gradient =
             ctx.createLinearGradient(
                 startX,
@@ -303,39 +301,50 @@ function drawNightOverlay() {
                 endY
             );
 
+        /*
+         * Strong light at the building.
+         */
         gradient.addColorStop(
             0,
-            "rgba(255,225,105,0.105)"
+            "rgba(255,220,80,0.20)"
+        );
+
+        /*
+         * Smooth continuous fade.
+         */
+        gradient.addColorStop(
+            0.15,
+            "rgba(255,222,85,0.18)"
         );
 
         gradient.addColorStop(
-            0.12,
-            "rgba(255,227,110,0.095)"
+            0.30,
+            "rgba(255,225,95,0.15)"
         );
 
         gradient.addColorStop(
-            0.28,
-            "rgba(255,230,120,0.078)"
+            0.45,
+            "rgba(255,230,110,0.115)"
         );
 
         gradient.addColorStop(
-            0.46,
-            "rgba(255,233,130,0.060)"
+            0.60,
+            "rgba(255,234,125,0.080)"
         );
 
         gradient.addColorStop(
-            0.64,
-            "rgba(255,236,140,0.043)"
+            0.73,
+            "rgba(255,238,140,0.050)"
         );
 
         gradient.addColorStop(
-            0.80,
-            "rgba(255,239,150,0.025)"
+            0.84,
+            "rgba(255,241,150,0.028)"
         );
 
         gradient.addColorStop(
-            0.92,
-            "rgba(255,242,160,0.010)"
+            0.93,
+            "rgba(255,244,160,0.010)"
         );
 
         gradient.addColorStop(
@@ -353,11 +362,81 @@ function drawNightOverlay() {
         );
 
         ctx.restore();
+
+        /*
+         * -----------------------------------------------------
+         * SOFT BLENDED END
+         * -----------------------------------------------------
+         *
+         * This does NOT create another brightness section.
+         *
+         * It simply softens the last part of the beam so the
+         * light appears to dissolve naturally into the night.
+         */
+        ctx.save();
+
+        const endScreen =
+            worldToScreen(
+                endX,
+                endY
+            );
+
+        const blurRadius =
+            Math.max(
+                18,
+                light.baseWidth * 0.85
+            );
+
+        const endGlow =
+            ctx.createRadialGradient(
+                endScreen.x,
+                endScreen.y,
+                0,
+                endScreen.x,
+                endScreen.y,
+                blurRadius
+            );
+
+        endGlow.addColorStop(
+            0,
+            "rgba(255,235,130,0.035)"
+        );
+
+        endGlow.addColorStop(
+            0.35,
+            "rgba(255,235,130,0.022)"
+        );
+
+        endGlow.addColorStop(
+            0.70,
+            "rgba(255,235,130,0.008)"
+        );
+
+        endGlow.addColorStop(
+            1,
+            "rgba(255,235,130,0)"
+        );
+
+        ctx.fillStyle = endGlow;
+
+        ctx.beginPath();
+
+        ctx.arc(
+            endScreen.x,
+            endScreen.y,
+            blurRadius,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fill();
+
+        ctx.restore();
     }
 
     /*
      * ---------------------------------------------------------
-     * DRAW VALID BUILDING LIGHTS
+     * DRAW LIGHTS
      * ---------------------------------------------------------
      */
     for (let i = 0; i < lights.length; i++) {
@@ -381,8 +460,8 @@ function drawNightOverlay() {
     }
 
     ctx.restore();
-          
 }
+                     
 function drawClock(){
     const totalMinutes=Math.floor(gameSeconds/DAY_LENGTH*24*60);
     const h=Math.floor(totalMinutes/60);
