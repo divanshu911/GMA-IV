@@ -115,12 +115,225 @@ function updateDayNight(dt){
    }
 } 
 
-function drawNightOverlay(){
+function drawNightOverlay() {
+    if (ambientBrightness >= 0.999) return;
+
     ctx.save();
-    ctx.fillStyle=skyColor;
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-    ctx.fillStyle=`rgba(0,0,20,${1-ambientBrightness})`;
-    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    const lights = window.buildingLightShapes || [];
+
+    const useBuildingLights =
+        ambientBrightness < 0.75 &&
+        lights.length > 0;
+
+    if (!useBuildingLights) {
+        ctx.fillStyle = skyColor;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = `rgba(0,0,20,${1 - ambientBrightness})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.restore();
+        return;
+    }
+
+    const cameraTarget =
+        player.isArrestPassenger && arrestTransportCar
+            ? arrestTransportCar
+            : player;
+
+    const cameraX = cameraTarget.x;
+    const cameraY = cameraTarget.y;
+
+    const cosA = Math.cos(camera.angle);
+    const sinA = Math.sin(camera.angle);
+
+    const screenCenterX = canvas.width * 0.5;
+    const screenCenterY = canvas.height * 0.5;
+
+    const maxDistance =
+        Math.max(canvas.width, canvas.height) * 0.75 + 120;
+
+    const maxDistanceSq = maxDistance * maxDistance;
+
+    function worldToScreen(x, y) {
+        const dx = x - cameraX;
+        const dy = y - cameraY;
+
+        return {
+            x: screenCenterX + dx * cosA + dy * sinA,
+            y: screenCenterY - dx * sinA + dy * cosA
+        };
+    }
+
+    
+    function addLightShape(path, light, lengthFactor, startWidthFactor, endWidthFactor) {
+        const length = light.length * lengthFactor;
+
+        // Perpendicular direction to the building wall.
+        const px = -light.ny;
+        const py = light.nx;
+
+        // IMPORTANT:
+        // The origin is NOT a point.
+        // It starts with a moderate width.
+        const startHalfWidth =
+            light.baseWidth * startWidthFactor * 0.5;
+
+        // The outside is considerably wider.
+        const endHalfWidth =
+            light.baseWidth * endWidthFactor * 0.5;
+
+        // Tiny offset keeps the light just outside the building.
+        const startX =
+            light.x + light.nx * 3;
+
+        const startY =
+            light.y + light.ny * 3;
+
+        const endX =
+            light.x + light.nx * length;
+
+        const endY =
+            light.y + light.ny * length;
+
+        const start1 = worldToScreen(
+            startX + px * startHalfWidth,
+            startY + py * startHalfWidth
+        );
+
+        const start2 = worldToScreen(
+            startX - px * startHalfWidth,
+            startY - py * startHalfWidth
+        );
+
+        const end1 = worldToScreen(
+            endX + px * endHalfWidth,
+            endY + py * endHalfWidth
+        );
+
+        const end2 = worldToScreen(
+            endX - px * endHalfWidth,
+            endY - py * endHalfWidth
+        );
+
+        path.moveTo(start1.x, start1.y);
+        path.lineTo(end1.x, end1.y);
+        path.lineTo(end2.x, end2.y);
+        path.lineTo(start2.x, start2.y);
+        path.closePath();
+    }
+
+    /*
+     * Build the actual night mask.
+     * The building lights punch holes through the darkness.
+     */
+    const nightPath = new Path2D();
+
+    nightPath.rect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+    for (let i = 0; i < lights.length; i++) {
+        const light = lights[i];
+
+        const dx = light.x - cameraX;
+        const dy = light.y - cameraY;
+
+        if (dx * dx + dy * dy > maxDistanceSq) {
+            continue;
+        }
+
+        addLightShape(
+            nightPath,
+            light,
+            1.0,
+            0.55,
+            1.55
+        );
+    }
+
+    
+    ctx.fillStyle = skyColor;
+    ctx.fill(nightPath, "evenodd");
+
+    ctx.fillStyle =
+        `rgba(0,0,20,${1 - ambientBrightness})`;
+
+    ctx.fill(nightPath, "evenodd");
+
+
+
+
+    const outerLightPath = new Path2D();
+    const middleLightPath = new Path2D();
+    const innerLightPath = new Path2D();
+
+    for (let i = 0; i < lights.length; i++) {
+        const light = lights[i];
+
+        const dx = light.x - cameraX;
+        const dy = light.y - cameraY;
+
+        if (dx * dx + dy * dy > maxDistanceSq) {
+            continue;
+        }
+
+        // OUTER:
+        // widest + faintest
+        addLightShape(
+            outerLightPath,
+            light,
+            1.00,
+            0.55,
+            1.55
+        );
+
+        // MIDDLE:
+        // medium width + brightness
+        addLightShape(
+            middleLightPath,
+            light,
+            0.72,
+            0.50,
+            1.20
+        );
+
+        // INNER:
+        // strongest + closest to building
+        addLightShape(
+            innerLightPath,
+            light,
+            0.42,
+            0.45,
+            0.85
+        );
+    }
+
+    /*
+     * Very faint outer spill.
+     */
+    ctx.fillStyle =
+        "rgba(255, 232, 125, 0.018)";
+
+    ctx.fill(outerLightPath);
+
+    ctx.fillStyle =
+        "rgba(255, 235, 145, 0.028)";
+
+    ctx.fill(middleLightPath);
+
+    /*
+     * Strongest part near the building.
+     */
+    ctx.fillStyle =
+        "rgba(255, 245, 190, 0.042)";
+
+    ctx.fill(innerLightPath);
+
     ctx.restore();
 }
 

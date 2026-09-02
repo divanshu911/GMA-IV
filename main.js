@@ -103,60 +103,7 @@ const restaurantZone = {
 };
 
 
-// ===== NIGHT MAP OVERLAY IMAGE 
-const NIGHT_OVERLAY_IMAGE_URL = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/Lights.webp";
-
-const nightOverlayImage = new Image();
-nightOverlayImage.crossOrigin = "Anonymous";
-
-let nightOverlayCanvas = null;
-let nightOverlayCtx = null;
-
-nightOverlayImage.onload = () => {
-    nightOverlayCanvas = document.createElement("canvas");
-    nightOverlayCanvas.width = nightOverlayImage.naturalWidth;
-    nightOverlayCanvas.height = nightOverlayImage.naturalHeight;
-
-    nightOverlayCtx = nightOverlayCanvas.getContext("2d", {
-        willReadFrequently: true
-    });
-
-    nightOverlayCtx.drawImage(
-        nightOverlayImage,
-        0,
-        0,
-        nightOverlayCanvas.width,
-        nightOverlayCanvas.height
-    );
-
-    const imageData = nightOverlayCtx.getImageData(
-        0,
-        0,
-        nightOverlayCanvas.width,
-        nightOverlayCanvas.height
-    );
-
-    const data = imageData.data;
-
-    // Color that should become transparent.
-    const transparentR = 76;
-    const transparentG = 76;
-    const transparentB = 76;
-
-    for (let i = 0; i < data.length; i += 4) {
-        if (
-            data[i] === transparentR &&
-            data[i + 1] === transparentG &&
-            data[i + 2] === transparentB
-        ) {
-            data[i + 3] = 0;
-        }
-    }
-
-    nightOverlayCtx.putImageData(imageData, 0, 0);
-};
-
-nightOverlayImage.src = NIGHT_OVERLAY_IMAGE_URL;
+    
 // ===== 1. VISUAL MAP (Renders the world & mini-map) =====
 mapImage.addEventListener('load', () => {
     mapWidth = mapImage.width;
@@ -175,25 +122,471 @@ const COLLISION_MAP_URL = "YOUR_COLLISION_MAP_URL_HERE";
 
 const collisionMapImage = new Image();
 collisionMapImage.crossOrigin = "Anonymous";
+// ============================================================
+// PROCEDURAL BUILDING LIGHTS
+// Detected once from CollisionMap2 when it loads.
+// ============================================================
+
+window.buildingLightShapes = [];
+
+const BUILDING_LIGHT_MIN_PIXELS = 12;
+
+// CollisionMap2's main building color is approximately:
+// RGB(249, 212, 19).
+// Use a range so antialiased/shaded yellow pixels remain connected.
+function isBuildingLightPixel(index) {
+    const r = collisionData[index];
+    const g = collisionData[index + 1];
+    const b = collisionData[index + 2];
+
+    return (
+        r >= 220 &&
+        g >= 175 &&
+        b <= 85 &&
+        r - b >= 135 &&
+        g - b >= 90
+    );
+}
+
+function generateBuildingLightShapes() {
+    window.buildingLightShapes.length = 0;
+
+    if (!collisionData || !collisionMapImage.width || !collisionMapImage.height) {
+        return;
+    }
+
+    const cw = collisionMapImage.width;
+    const ch = collisionMapImage.height;
+    const totalPixels = cw * ch;
+
+    // CollisionMap2 is lower resolution than the actual world map.
+    // Convert collision-map coordinates into world/map coordinates.
+    const worldW = mapImage.naturalWidth || 4096;
+    const worldH = mapImage.naturalHeight || 2286;
+
+    const scaleX = worldW / cw;
+    const scaleY = worldH / ch;
+
+    const visited = new Uint8Array(totalPixels);
+    const queue = new Int32Array(totalPixels);
+
+    const getIndex = (x, y) => (y * cw + x) * 4;
+
+    const isBuildingXY = (x, y) => {
+        if (x < 0 || y < 0 || x >= cw || y >= ch) {
+            return false;
+        }
+
+        return isBuildingLightPixel((y * cw + x) * 4);
+    };
+
+    // Check whether the proposed light would hit another yellow
+    // building region before reaching its end.
+    function lightIntersectsBuilding(
+        originX,
+        originY,
+        normalX,
+        normalY,
+        length,
+        baseWidth
+    ) {
+        const perpendicularX = -normalY;
+        const perpendicularY = normalX;
+
+        // Start slightly outside the building itself.
+        for (let t = 0.12; t <= 0.94; t += 0.10) {
+            const centerX = originX + normalX * length * t;
+            const centerY = originY + normalY * length * t;
+
+            // Broad at the building, narrow farther away.
+            const halfWidth =
+                (baseWidth * (1 - t)) * 0.5;
+
+            // Only 5 samples across the triangle.
+            // This is much cheaper than testing every pixel.
+            for (let s = -1; s <= 1; s++) {
+                const sideX =
+                    centerX +
+                    perpendicularX *
+                    halfWidth *
+                    s;
+
+                const sideY =
+                    centerY +
+                    perpendicularY *
+                    halfWidth *
+                    s;
+
+                const collisionX =
+                    Math.floor(sideX / scaleX);
+                const collisionY =
+                    Math.floor(sideY / scaleY);
+
+                if (isBuildingXY(collisionX, collisionY)) {
+                    return true;
+                }
+            }
+
+            // Also test the center between the three main samples.
+            const collisionX = Math.floor(centerX / scaleX);
+            const collisionY = Math.floor(centerY / scaleY);
+
+            if (isBuildingXY(collisionX, collisionY)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Find an outward-facing normal from an outer yellow pixel.
+    function getOutwardNormal(pixelIndex) {
+        const p = pixelIndex / 4;
+        const py = Math.floor(p / cw);
+        const px = p - py * cw;
+
+        let nx = 0;
+        let ny = 0;
+
+        // Examine the 8 surrounding pixels.
+        for (let oy = -1; oy <= 1; oy++) {
+            for (let ox = -1; ox <= 1; ox++) {
+                if (ox === 0 && oy === 0) continue;
+
+                const xx = px + ox;
+                const yy = py + oy;
+
+                if (
+                    xx < 0 ||
+                    yy < 0 ||
+                    xx >= cw ||
+                    yy >= ch
+                ) {
+                    continue;
+                }
+
+                if (!isBuildingXY(xx, yy)) {
+                    nx += ox;
+                    ny += oy;
+                }
+            }
+        }
+
+        const length = Math.hypot(nx, ny);
+
+        if (length < 0.001) {
+            return null;
+        }
+
+        nx /= length;
+        ny /= length;
+
+        // Convert the normal correctly if collision/world
+        // scaling is not identical on both axes.
+        nx *= scaleX;
+        ny *= scaleY;
+
+        const worldLength = Math.hypot(nx, ny);
+
+        return {
+            x: nx / worldLength,
+            y: ny / worldLength
+        };
+    }
+
+    // Choose spatially separated points instead of putting all
+    // lights beside each other.
+    function chooseBoundaryPoints(boundary, count, minX, maxX, minY, maxY) {
+        if (!boundary.length) {
+            return [];
+        }
+
+        const selected = [];
+
+        const centerX = (minX + maxX) * 0.5;
+        const centerY = (minY + maxY) * 0.5;
+
+        // First point: boundary point closest to building center.
+        let first = boundary[0];
+        let bestDist = Infinity;
+
+        for (let i = 0; i < boundary.length; i++) {
+            const p = boundary[i] / 4;
+            const y = Math.floor(p / cw);
+            const x = p - y * cw;
+
+            const dx = x - centerX;
+            const dy = y - centerY;
+            const dist = dx * dx + dy * dy;
+
+            if (dist < bestDist) {
+                bestDist = dist;
+                first = boundary[i];
+            }
+        }
+
+        selected.push(first);
+
+        // Farthest-point selection gives separated lights.
+        while (selected.length < count) {
+            let bestCandidate = null;
+            let bestMinDistance = -1;
+
+            for (let i = 0; i < boundary.length; i++) {
+                const candidate = boundary[i];
+
+                let p = candidate / 4;
+                let cy = Math.floor(p / cw);
+                let cx = p - cy * cw;
+
+                let nearestDistance = Infinity;
+
+                for (let j = 0; j < selected.length; j++) {
+                    p = selected[j] / 4;
+                    const sy = Math.floor(p / cw);
+                    const sx = p - sy * cw;
+
+                    const dx = cx - sx;
+                    const dy = cy - sy;
+                    const d = dx * dx + dy * dy;
+
+                    if (d < nearestDistance) {
+                        nearestDistance = d;
+                    }
+                }
+
+                if (nearestDistance > bestMinDistance) {
+                    bestMinDistance = nearestDistance;
+                    bestCandidate = candidate;
+                }
+            }
+
+            if (bestCandidate === null) {
+                break;
+            }
+
+            selected.push(bestCandidate);
+        }
+
+        return selected;
+    }
+
+    let buildingCount = 0;
+    let lightCount = 0;
+
+    for (let startPixel = 0; startPixel < totalPixels; startPixel++) {
+        const startIndex = startPixel * 4;
+
+        if (visited[startPixel]) {
+            continue;
+        }
+
+        if (!isBuildingLightPixel(startIndex)) {
+            visited[startPixel] = 1;
+            continue;
+        }
+
+        // --------------------------------------------------------
+        // Flood-fill one connected yellow region.
+        // One connected yellow region = ONE building.
+        // --------------------------------------------------------
+
+        let queueHead = 0;
+        let queueTail = 0;
+
+        queue[queueTail++] = startPixel;
+        visited[startPixel] = 1;
+
+        const boundary = [];
+
+        let area = 0;
+
+        let minX = cw;
+        let minY = ch;
+        let maxX = 0;
+        let maxY = 0;
+
+        while (queueHead < queueTail) {
+            const pixel = queue[queueHead++];
+
+            const y = Math.floor(pixel / cw);
+            const x = pixel - y * cw;
+
+            area++;
+
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+
+            let isBoundary = false;
+
+            // 4-neighbor connected-component detection.
+            const neighbors = [
+                [x + 1, y],
+                [x - 1, y],
+                [x, y + 1],
+                [x, y - 1]
+            ];
+
+            for (let n = 0; n < 4; n++) {
+                const nx = neighbors[n][0];
+                const ny = neighbors[n][1];
+
+                if (
+                    nx < 0 ||
+                    ny < 0 ||
+                    nx >= cw ||
+                    ny >= ch
+                ) {
+                    isBoundary = true;
+                    continue;
+                }
+
+                const neighborPixel = ny * cw + nx;
+
+                if (!isBuildingXY(nx, ny)) {
+                    isBoundary = true;
+                    continue;
+                }
+
+                if (!visited[neighborPixel]) {
+                    visited[neighborPixel] = 1;
+                    queue[queueTail++] = neighborPixel;
+                }
+            }
+
+            if (isBoundary) {
+                boundary.push(pixel * 4);
+            }
+        }
+
+        if (
+            area < BUILDING_LIGHT_MIN_PIXELS ||
+            boundary.length === 0
+        ) {
+            continue;
+        }
+
+        buildingCount++;
+
+        let desiredLights = 1;
+
+        if (area >= 2000) {
+            desiredLights = 3;
+        } else if (area >= 200) {
+            desiredLights = 2;
+        }
+
+        const candidates = chooseBoundaryPoints(
+            boundary,
+            desiredLights,
+            minX,
+            maxX,
+            minY,
+            maxY
+        );
+
+        for (let i = 0; i < candidates.length; i++) {
+            const pixelIndex = candidates[i];
+
+            const p = pixelIndex / 4;
+            const collisionY = Math.floor(p / cw);
+            const collisionX = p - collisionY * cw;
+
+            const normal = getOutwardNormal(pixelIndex);
+
+            if (!normal) {
+                continue;
+            }
+
+            // Convert the outermost yellow pixel to world coordinates.
+            const originX =
+                (collisionX + 0.5) * scaleX;
+            const originY =
+                (collisionY + 0.5) * scaleY;
+
+            // Large enough to look like light spilling from a building,
+            // but deliberately not huge.
+            const length =
+                area >= 2000 ? 82 :
+                area >= 200 ? 68 :
+                54;
+
+            const baseWidth =
+                area >= 2000 ? 42 :
+                area >= 200 ? 36 :
+                30;
+
+            // Never allow a light to shine into another building.
+            if (
+                lightIntersectsBuilding(
+                    originX,
+                    originY,
+                    normal.x,
+                    normal.y,
+                    length,
+                    baseWidth
+                )
+            ) {
+                continue;
+            }
+
+            window.buildingLightShapes.push({
+                x: originX,
+                y: originY,
+
+                nx: normal.x,
+                ny: normal.y,
+
+                length,
+                baseWidth
+            });
+
+            lightCount++;
+        }
+    }
+
+    console.log(
+        `Building lights: detected ${buildingCount} buildings, ` +
+        `created ${lightCount} valid lights.`
+    );
+}
 
 collisionMapImage.addEventListener('load', () => {
     const collisionCanvas = document.createElement("canvas");
+
     collisionCanvas.width = collisionMapImage.width;
     collisionCanvas.height = collisionMapImage.height;
 
     const collisionCtx = collisionCanvas.getContext("2d");
-    collisionCtx.drawImage(collisionMapImage, 0, 0);
 
-    // Update map dimensions and collision data using the separate collision image
+    collisionCtx.drawImage(
+        collisionMapImage,
+        0,
+        0
+    );
+
+    // Collision map dimensions are intentionally kept here.
+    // They are separate from the visual map's world dimensions.
     mapWidth = collisionMapImage.width;
     mapHeight = collisionMapImage.height;
-    collisionData = collisionCtx.getImageData(0, 0, mapWidth, mapHeight).data;
+
+    collisionData = collisionCtx.getImageData(
+        0,
+        0,
+        mapWidth,
+        mapHeight
+    ).data;
 
     //do not touch
     navigationSystem.buildGrid();
     //end of do not touch
 
-    // Tell the loading screen that the collision map is ready.
+    // Detect buildings and calculate their light positions
+    // exactly once when CollisionMap2 is loaded.
+    generateBuildingLightShapes();
+
     collisionMapAssetLoaded = true;
     tryEnableStartButton();
 });
@@ -1357,54 +1750,7 @@ if (playerCar.health <= 0) {
       });
   }
 }
-function drawNightMapImage() {
-    // Use the EXACT same threshold as car headlights.
-    if (typeof ambientBrightness === 'undefined' || ambientBrightness >= 0.75) {
-        return;
-    }
 
-    if (!nightOverlayCanvas) {
-    return;
-    }
-
-    if (isInsideHouse || isInsideDealership) {
-        return;
-    }
-
-    ctx.save();
-
-    // Same camera transform used for the world/map.
-    ctx.translate(canvas.width / 2, canvas.height / 2);
-    ctx.rotate(-camera.angle);
-
-    const overlayCameraTarget =
-        player.isArrestPassenger &&
-        arrestTransportCar
-            ? arrestTransportCar
-            : player;
-
-    ctx.translate(
-        -overlayCameraTarget.x -
-            (overlayCameraTarget.size || player.size) / 2,
-        -overlayCameraTarget.y -
-            (overlayCameraTarget.size || player.size) / 2
-    );
-
-    // The overlay has the same dimensions/aspect ratio as the map.
-    ctx.globalAlpha = 0.9;
-
-ctx.drawImage(
-    nightOverlayCanvas,
-    0,
-    0,
-    mapWidth,
-    mapHeight
-);
-
-ctx.globalAlpha = 1.0;
-
-    ctx.restore();
-}
 function drawGame() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.imageSmoothingEnabled = true;
@@ -1645,9 +1991,7 @@ if (!isInsideHouse && !isInsideDealership && typeof drawNightOverlay === 'functi
     drawNightOverlay();
 }
 
-if (!isInsideHouse && !isInsideDealership) {
-    drawNightMapImage();
-}
+
 
 if (!isInsideHouse && !isInsideDealership) {
     ctx.save();
