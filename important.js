@@ -185,254 +185,115 @@ function drawNightOverlay() {
     const maxDistanceSq =
         maxDistance * maxDistance;
 
+     function drawLightBeam(light) {
+    const length = light.length * 0.82;
+    const px = -light.ny;
+    const py = light.nx;
+
+    const startWidth = light.baseWidth * 0.38;
+    const endWidth = light.baseWidth * 1.15;
+
+    const startHalf = startWidth * 0.5;
+    const endHalf = endWidth * 0.5;
+
+    const startX = light.x;
+    const startY = light.y;
+
+    const endX = light.x + light.nx * length;
+    const endY = light.y + light.ny * length;
+
+    const startLeft = worldToScreen(
+        startX + px * startHalf,
+        startY + py * startHalf
+    );
+
+    const startRight = worldToScreen(
+        startX - px * startHalf,
+        startY - py * startHalf
+    );
+
+    const endLeft = worldToScreen(
+        endX + px * endHalf,
+        endY + py * endHalf
+    );
+
+    const endRight = worldToScreen(
+        endX - px * endHalf,
+        endY - py * endHalf
+    );
+
     /*
-     * ---------------------------------------------------------
-     * BUILDING LIGHT
-     * ---------------------------------------------------------
-     *
-     * One single continuous beam.
-     *
-     * Overall size remains:
-     *
-     * length = 0.82
-     * width  = 1.15
-     *
-     * No inner/middle/outer brightness sections.
+     * -----------------------------------------------------
+     * MAIN BEAM (High origin brightness fading outward)
+     * -----------------------------------------------------
      */
-    function drawLightBeam(light) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(startLeft.x, startLeft.y);
+    ctx.lineTo(endLeft.x, endLeft.y);
+    ctx.lineTo(endRight.x, endRight.y);
+    ctx.lineTo(startRight.x, startRight.y);
+    ctx.closePath();
+    ctx.clip();
 
-        const length =
-            light.length * 0.82;
+    const gradient = ctx.createLinearGradient(
+        startX,
+        startY,
+        endX,
+        endY
+    );
 
-        const px = -light.ny;
-        const py = light.nx;
+    // High brightness near the origin point
+    gradient.addColorStop(0, "rgba(255, 230, 110, 0.75)");
+    gradient.addColorStop(0.15, "rgba(255, 230, 110, 0.55)");
+    gradient.addColorStop(0.30, "rgba(255, 232, 125, 0.35)");
+    gradient.addColorStop(0.50, "rgba(255, 235, 140, 0.20)");
+    gradient.addColorStop(0.70, "rgba(255, 238, 155, 0.10)");
+    gradient.addColorStop(0.85, "rgba(255, 240, 165, 0.04)");
+    gradient.addColorStop(1, "rgba(255, 245, 170, 0)");
 
-        const startWidth =
-            light.baseWidth * 0.38;
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
 
-        const endWidth =
-            light.baseWidth * 1.15;
+    /*
+     * -----------------------------------------------------
+     * EXPANDED SOFT END BLUR
+     * -----------------------------------------------------
+     */
+    ctx.save();
+    const endScreen = worldToScreen(endX, endY);
+    
+    // Increased blur radius and opacity for stronger end diffusion
+    const blurRadius = Math.max(35, light.baseWidth * 1.8);
 
-        const startHalf =
-            startWidth * 0.5;
+    const endGlow = ctx.createRadialGradient(
+        endScreen.x,
+        endScreen.y,
+        0,
+        endScreen.x,
+        endScreen.y,
+        blurRadius
+    );
 
-        const endHalf =
-            endWidth * 0.5;
+    endGlow.addColorStop(0, "rgba(255, 235, 140, 0.35)");
+    endGlow.addColorStop(0.40, "rgba(255, 235, 140, 0.18)");
+    endGlow.addColorStop(0.75, "rgba(255, 235, 140, 0.05)");
+    endGlow.addColorStop(1, "rgba(255, 235, 140, 0)");
 
-        const startX =
-            light.x;
+    ctx.fillStyle = endGlow;
+    ctx.beginPath();
+    ctx.arc(
+        endScreen.x,
+        endScreen.y,
+        blurRadius,
+        0,
+        Math.PI * 2
+    );
+    ctx.fill();
+    ctx.restore();
+}
 
-        const startY =
-            light.y;
-
-        const endX =
-            light.x + light.nx * length;
-
-        const endY =
-            light.y + light.ny * length;
-
-        const startLeft =
-            worldToScreen(
-                startX + px * startHalf,
-                startY + py * startHalf
-            );
-
-        const startRight =
-            worldToScreen(
-                startX - px * startHalf,
-                startY - py * startHalf
-            );
-
-        const endLeft =
-            worldToScreen(
-                endX + px * endHalf,
-                endY + py * endHalf
-            );
-
-        const endRight =
-            worldToScreen(
-                endX - px * endHalf,
-                endY - py * endHalf
-            );
-
-        /*
-         * -----------------------------------------------------
-         * MAIN BEAM
-         * -----------------------------------------------------
-         *
-         * One continuous alpha gradient.
-         *
-         * Notice that the brightness does NOT jump between
-         * separate sections.
-         */
-        ctx.save();
-
-        ctx.beginPath();
-
-        ctx.moveTo(
-            startLeft.x,
-            startLeft.y
-        );
-
-        ctx.lineTo(
-            endLeft.x,
-            endLeft.y
-        );
-
-        ctx.lineTo(
-            endRight.x,
-            endRight.y
-        );
-
-        ctx.lineTo(
-            startRight.x,
-            startRight.y
-        );
-
-        ctx.closePath();
-
-        ctx.clip();
-
-        const gradient =
-            ctx.createLinearGradient(
-                startX,
-                startY,
-                endX,
-                endY
-            );
-
-        /*
-         * Strong light at the building.
-         */
-        gradient.addColorStop(
-            0,
-            "rgba(255,220,80,0.20)"
-        );
-
-        /*
-         * Smooth continuous fade.
-         */
-        gradient.addColorStop(
-            0.15,
-            "rgba(255,222,85,0.18)"
-        );
-
-        gradient.addColorStop(
-            0.30,
-            "rgba(255,225,95,0.15)"
-        );
-
-        gradient.addColorStop(
-            0.45,
-            "rgba(255,230,110,0.115)"
-        );
-
-        gradient.addColorStop(
-            0.60,
-            "rgba(255,234,125,0.080)"
-        );
-
-        gradient.addColorStop(
-            0.73,
-            "rgba(255,238,140,0.050)"
-        );
-
-        gradient.addColorStop(
-            0.84,
-            "rgba(255,241,150,0.028)"
-        );
-
-        gradient.addColorStop(
-            0.93,
-            "rgba(255,244,160,0.010)"
-        );
-
-        gradient.addColorStop(
-            1,
-            "rgba(255,245,170,0)"
-        );
-
-        ctx.fillStyle = gradient;
-
-        ctx.fillRect(
-            0,
-            0,
-            canvas.width,
-            canvas.height
-        );
-
-        ctx.restore();
-
-        /*
-         * -----------------------------------------------------
-         * SOFT BLENDED END
-         * -----------------------------------------------------
-         *
-         * This does NOT create another brightness section.
-         *
-         * It simply softens the last part of the beam so the
-         * light appears to dissolve naturally into the night.
-         */
-        ctx.save();
-
-        const endScreen =
-            worldToScreen(
-                endX,
-                endY
-            );
-
-        const blurRadius =
-            Math.max(
-                18,
-                light.baseWidth * 0.85
-            );
-
-        const endGlow =
-            ctx.createRadialGradient(
-                endScreen.x,
-                endScreen.y,
-                0,
-                endScreen.x,
-                endScreen.y,
-                blurRadius
-            );
-
-        endGlow.addColorStop(
-            0,
-            "rgba(255,235,130,0.035)"
-        );
-
-        endGlow.addColorStop(
-            0.35,
-            "rgba(255,235,130,0.022)"
-        );
-
-        endGlow.addColorStop(
-            0.70,
-            "rgba(255,235,130,0.008)"
-        );
-
-        endGlow.addColorStop(
-            1,
-            "rgba(255,235,130,0)"
-        );
-
-        ctx.fillStyle = endGlow;
-
-        ctx.beginPath();
-
-        ctx.arc(
-            endScreen.x,
-            endScreen.y,
-            blurRadius,
-            0,
-            Math.PI * 2
-        );
-
-        ctx.fill();
-
-        ctx.restore();
-    }
 
     /*
      * ---------------------------------------------------------

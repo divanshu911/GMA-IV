@@ -501,13 +501,15 @@ if (!normal) {
     continue;
 }
 
+// FIXED CODE
 const isCornerNormal =
-    Math.abs(normal.x) > 0.70 &&
-    Math.abs(normal.y) > 0.70;
+    Math.abs(normal.x) > 0.60 &&
+    Math.abs(normal.y) > 0.60;
 
 if (isCornerNormal) {
     continue;
-}      
+}
+
             // Convert the outermost yellow pixel to world coordinates.
             const originX =
                 (collisionX + 0.5) * scaleX;
