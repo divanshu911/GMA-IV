@@ -1,4 +1,4 @@
-console.log("burger");
+console.log("pizza");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -2221,46 +2221,9 @@ if (restaurantBtn) {
     });
 }
 
-// SPAWN PLAYERS OWNED CARS ON GAME LOAD ONLY IF THEY ACTUALLY OWN ONE
+// gameplay.js owns player-car persistence and spawning. Keep the game-loop
+// startup here without duplicating that dealership state.
 window.addEventListener('load', () => {
-    if (localStorage.getItem("gma_player_evicted") === "true") {
-        player.isEvicted = true;
-    }
-
-    let savedCarData = localStorage.getItem("gma_player_owned_car");
-    if (savedCarData) {
-        let pCarData = JSON.parse(savedCarData);
-
-        // ONLY spawn if pCarData exists and has a valid car type saved
-        if (pCarData && pCarData.type) {
-            let carX = (pCarData.x !== undefined) ? pCarData.x : homeZone.x;
-            let carY = (pCarData.y !== undefined) ? pCarData.y : homeZone.y;
-
-            let homeOwnedCar = new Car(9999, carX, carY, pCarData.color, false, pCarData.type);
-            applyCarStats(homeOwnedCar, pCarData.type);
-            homeOwnedCar.isParked = true;
-            homeOwnedCar.hasDriver = false;
-            homeOwnedCar.ownerType = "playerOwned";
-            homeOwnedCar.isFirstCar = true;
-            cars.push(homeOwnedCar);
-        }
-    }
-
-    let savedSecondCarData = localStorage.getItem("gma_player_second_car");
-    if (savedSecondCarData) {
-        let sCarData = JSON.parse(savedSecondCarData);
-
-        // ONLY spawn second car if it also has a valid car type saved
-        if (sCarData && sCarData.type) {
-            let secondCar = new Car(9998, sCarData.x || (dealershipZone.x + 80), sCarData.y || (dealershipZone.y + 40), sCarData.color, false, sCarData.type);
-            applyCarStats(secondCar, sCarData.type);
-            secondCar.isParked = true;
-            secondCar.hasDriver = false;
-            secondCar.ownerType = "playerOwned";
-            secondCar.isSecondCar = true;
-            cars.push(secondCar);
-        }
-    }
     requestAnimationFrame(gameLoop);
 });
 

@@ -718,6 +718,111 @@ function applyCarStats(car, type) {
     car.speed = car.baseSpeed;
 }
 
+// PLAYER-OWNED CARS
+// Keep all owned vehicles in one collection so dealerships, persistence, and
+// world spawning use the same source of truth.
+const PLAYER_CARS_STORAGE_KEY = "gma_player_cars";
+let playerCars = [];
+
+function normalizePlayerCarData(data, index) {
+    if (!data || !data.type) return null;
+
+    const fallbackX = dealershipZone.x + 80 + (index * 45);
+    const fallbackY = dealershipZone.y + 40;
+    return {
+        id: data.id !== undefined ? data.id : 100000 + index,
+        type: data.type,
+        color: data.color || "#ffffff",
+        x: Number.isFinite(Number(data.x)) ? Number(data.x) : fallbackX,
+        y: Number.isFinite(Number(data.y)) ? Number(data.y) : fallbackY,
+        angle: Number.isFinite(Number(data.angle)) ? Number(data.angle) : 0
+    };
+}
+
+function savePlayerCars() {
+    localStorage.setItem(PLAYER_CARS_STORAGE_KEY, JSON.stringify(playerCars));
+    // Prevent an older loader from recreating slot-based cars.
+    localStorage.removeItem("gma_player_owned_car");
+    localStorage.removeItem("gma_player_second_car");
+}
+
+function loadPlayerCars() {
+    let savedCars = null;
+    const arrayData = localStorage.getItem(PLAYER_CARS_STORAGE_KEY);
+
+    if (arrayData) {
+        try {
+            savedCars = JSON.parse(arrayData);
+        } catch (error) {
+            console.warn("Invalid player car array; starting with no owned cars.");
+        }
+    }
+
+    // Migrate the two old slots once, preserving existing player vehicles.
+    if (!Array.isArray(savedCars)) {
+        savedCars = [];
+        for (const legacyKey of ["gma_player_owned_car", "gma_player_second_car"]) {
+            const legacyData = localStorage.getItem(legacyKey);
+            if (!legacyData) continue;
+            try {
+                const normalized = normalizePlayerCarData(JSON.parse(legacyData), savedCars.length);
+                if (normalized) savedCars.push(normalized);
+            } catch (error) {
+                console.warn(`Could not migrate ${legacyKey}.`);
+            }
+        }
+    }
+
+    playerCars = savedCars
+        .map((data, index) => normalizePlayerCarData(data, index))
+        .filter(Boolean);
+    savePlayerCars();
+}
+
+function nextPlayerCarId() {
+    const numericIds = playerCars
+        .map(car => Number(car.id))
+        .filter(Number.isFinite);
+    return Math.max(99999, ...numericIds) + 1;
+}
+
+function createPlayerOwnedCar(data, index = 0) {
+    const car = new Car(
+        data.id,
+        data.x,
+        data.y,
+        data.color,
+        false,
+        data.type
+    );
+    applyCarStats(car, data.type);
+    car.angle = data.angle || 0;
+    car.isParked = true;
+    car.hasDriver = false;
+    car.ownerType = "playerOwned";
+    car.playerCarId = data.id;
+    return car;
+}
+
+function syncPlayerCarsStorage() {
+    if (typeof cars === "undefined") return;
+
+    playerCars.forEach(savedCar => {
+        const worldCar = cars.find(car =>
+            car.ownerType === "playerOwned" &&
+            car.playerCarId === savedCar.id
+        );
+        if (!worldCar) return;
+
+        savedCar.x = worldCar.x;
+        savedCar.y = worldCar.y;
+        savedCar.angle = worldCar.angle;
+    });
+    savePlayerCars();
+}
+
+loadPlayerCars();
+
 const enterDealerBtn = document.getElementById('enterDealerBtn');
 const exitDealerBtn = document.getElementById('exitDealerBtn');
 const dealershipPanel = document.getElementById('dealershipPanel');
@@ -725,8 +830,6 @@ const buyCarBtn = document.getElementById('buyCarBtn');
 
 if (enterDealerBtn) {
     enterDealerBtn.addEventListener('click', () => {
-        let ownsCar = localStorage.getItem("gma_player_owned_car");
-
         isInsideDealership = true;
         outsideX = player.x;
         outsideY = player.y;
@@ -782,44 +885,22 @@ if (buyCarBtn) {
             let spawnX = dealershipZone.x + 80;
             let spawnY = dealershipZone.y + 40;
 
-            let hasFirstCar = localStorage.getItem("gma_player_owned_car") !== null;
+            const purchasedCar = {
+                id: nextPlayerCarId(),
+                type: viewingCar.type,
+                color: pickedColor,
+                x: spawnX,
+                y: spawnY,
+                angle: 0
+            };
+            playerCars.push(purchasedCar);
+            savePlayerCars();
 
-            if (!hasFirstCar) {
-                let firstCarData = { type: viewingCar.type, color: pickedColor };
-                if (player.isEvicted) {
-                    firstCarData.x = spawnX;
-                    firstCarData.y = spawnY;
-                }
-                localStorage.setItem("gma_player_owned_car", JSON.stringify(firstCarData));
-
-                let boughtCar = new Car(cars.length + 9000, spawnX, spawnY, pickedColor, false, viewingCar.type);
-                applyCarStats(boughtCar, viewingCar.type);
-                boughtCar.isParked = true;
-                boughtCar.hasDriver = false;
-                boughtCar.ownerType = "playerOwned";
-                boughtCar.isFirstCar = true;
-                cars.push(boughtCar);
-
-                taxiManager.setMessage(`Bought ${viewingCar.type}, parked outside!`, 240);
-            } else {
-                let secondCarData = {
-                    type: viewingCar.type,
-                    color: pickedColor,
-                    x: spawnX,
-                    y: spawnY
-                };
-                localStorage.setItem("gma_player_second_car", JSON.stringify(secondCarData));
-
-                let boughtCar = new Car(cars.length + 9050, spawnX, spawnY, pickedColor, false, viewingCar.type);
-                applyCarStats(boughtCar, viewingCar.type);
-                boughtCar.isParked = true;
-                boughtCar.hasDriver = false;
-                boughtCar.ownerType = "playerOwned";
-                boughtCar.isSecondCar = true;
-                cars.push(boughtCar);
-
-                taxiManager.setMessage(`Bought second ${viewingCar.type}! Parked outside.`, 240);
-            }
+            cars.push(createPlayerOwnedCar(purchasedCar));
+            taxiManager.setMessage(
+                `Bought ${viewingCar.type}, parked outside!`,
+                240
+            );
 
             if (dealershipPanel) dealershipPanel.style.display = 'none';
         } else {
@@ -937,15 +1018,6 @@ if (leaveHomeBtn) {
         player.isEvicted = true;
         localStorage.setItem("gma_player_evicted", "true");
 
-        cars.forEach(car => {
-            if (car.isFirstCar) {
-                let firstData = JSON.parse(localStorage.getItem("gma_player_owned_car") || "{}");
-                firstData.x = car.x;
-                firstData.y = car.y;
-                localStorage.setItem("gma_player_owned_car", JSON.stringify(firstData));
-            }
-        });
-
         taxiManager.setMessage("You left your home and stopped paying rent. You are now evicted!", 240);
         leaveHomeBtn.style.display = 'none';
         if (enterHomeBtn) enterHomeBtn.style.display = 'none';
@@ -960,9 +1032,6 @@ if (enterHomeBtn) {
             player.isEvicted = false;
             player.rentDebtActive = false;
             localStorage.setItem("gma_player_evicted", "false");
-
-            let firstData = JSON.parse(localStorage.getItem("gma_player_owned_car") || "{}");
-            localStorage.setItem("gma_player_owned_car", JSON.stringify(firstData));
 
             taxiManager.setMessage("House rented again! Welcome back.", 240);
             return;
@@ -1020,21 +1089,8 @@ setInterval(() => {
         localStorage.setItem("gma_player_x", player.x.toFixed(2));
         localStorage.setItem("gma_player_y", player.y.toFixed(2));
 
-        cars.forEach(c => {
-            if (c.isSecondCar) {
-                let secondData = JSON.parse(localStorage.getItem("gma_player_second_car") || "{}");
-                secondData.x = c.x;
-                secondData.y = c.y;
-                localStorage.setItem("gma_player_second_car", JSON.stringify(secondData));
-            }
-            if (c.isFirstCar) {
-                let firstData = JSON.parse(localStorage.getItem("gma_player_owned_car") || "{}");
-                firstData.x = c.x;
-                firstData.y = c.y;
-                localStorage.setItem("gma_player_owned_car", JSON.stringify(firstData));
-            }
-        });
     }
+    syncPlayerCarsStorage();
 }, 3000); 
 
 let lastRespawnCheckX = 0;
@@ -1153,30 +1209,25 @@ function updateRespawnButtonUI() {
 
 updateRespawnButtonUI();
 
-// SPAWN PLAYER'S OWNED CARS ON GAME LOAD ONLY IF THEY ACTUALLY OWN ONE
+function spawnPlayerOwnedCars() {
+    if (typeof cars === "undefined") return;
+
+    playerCars.forEach((savedCar, index) => {
+        const alreadySpawned = cars.some(car =>
+            car.ownerType === "playerOwned" &&
+            car.playerCarId === savedCar.id
+        );
+        if (!alreadySpawned) {
+            cars.push(createPlayerOwnedCar(savedCar, index));
+        }
+    });
+}
+
 window.addEventListener('load', () => {
     if (localStorage.getItem("gma_player_evicted") === "true") {
         player.isEvicted = true;
     }
-
-    let savedCarData = localStorage.getItem("gma_player_owned_car");
-    if (savedCarData) {
-        let pCarData = JSON.parse(savedCarData);
-
-        // ONLY spawn if pCarData exists and has a valid car type saved
-        if (pCarData && pCarData.type) {
-            let carX = (pCarData.x !== undefined) ? pCarData.x : homeZone.x;
-            let carY = (pCarData.y !== undefined) ? pCarData.y : homeZone.y;
-
-            let homeOwnedCar = new Car(9999, carX, carY, pCarData.color, false, pCarData.type);
-            applyCarStats(homeOwnedCar, pCarData.type);
-            homeOwnedCar.isParked = true;
-            homeOwnedCar.hasDriver = false;
-            homeOwnedCar.ownerType = "playerOwned";
-            homeOwnedCar.isFirstCar = true;
-            cars.push(homeOwnedCar);
-        }
-    }
+    spawnPlayerOwnedCars();
 });
 // Dynamic positioning helper
 function repositionSirenButton() {
