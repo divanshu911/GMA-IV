@@ -509,8 +509,15 @@ const isCornerNormal =
 if (isCornerNormal) {
     continue;
 }
+// Ensures light only shines straight North, South, East, or West
+const isStrictCardinal = 
+    Math.abs(normal.x) < 0.35 || Math.abs(normal.y) < 0.35;
 
-            // Convert the outermost yellow pixel to world coordinates.
+if (!isStrictCardinal) {
+    continue; // Skip diagonal/corner light placements
+}
+            
+
             const originX =
                 (collisionX + 0.5) * scaleX;
             const originY =
