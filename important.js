@@ -5,7 +5,55 @@ const ctx = canvas.getContext('2d');
 let gameActive = false;
 let showFullMap = false;
 let desktopControlsOpen = false;
+let playerPhoneOpen = false;
 console.log("aaa!");
+
+// ============================================================
+// PLAYER PHONE
+// ============================================================
+
+const playerPhone = document.getElementById("playerPhone");
+
+function canOpenPlayerPhone() {
+    if (!playerPhone) return false;
+
+    // Phone must never open over the full map.
+    if (showFullMap) return false;
+
+    // Phone must not open while the player is being transported
+    // after arrest.
+    if (player && player.isArrestPassenger) return false;
+
+    return true;
+}
+
+function openPlayerPhone() {
+    if (!canOpenPlayerPhone()) return false;
+
+    playerPhoneOpen = true;
+    playerPhone.style.display = "block";
+    playerPhone.setAttribute("aria-hidden", "false");
+
+    return true;
+}
+
+function closePlayerPhone() {
+    playerPhoneOpen = false;
+
+    if (playerPhone) {
+        playerPhone.style.display = "none";
+        playerPhone.setAttribute("aria-hidden", "true");
+    }
+}
+
+function togglePlayerPhone() {
+    if (playerPhoneOpen) {
+        closePlayerPhone();
+        return;
+    }
+
+    openPlayerPhone();
+}
 
 
 // ===== DAY / NIGHT SYSTEM =====
@@ -676,15 +724,32 @@ window.addEventListener('keydown', e => {
         e.preventDefault();
 
         if (showFullMap) {
-            showFullMap = false;
-            gameActive = true;
-        } else {
-            showFullMap = true;
-            gameActive = false;
+    showFullMap = false;
+    gameActive = true;
+} else {
+    if (playerPhoneOpen) {
+        closePlayerPhone();
+    }
+
+    showFullMap = true;
+    gameActive = false;
         }
 
         return;
     }
+    // P = Open / close player phone
+if (e.key === 'p' || e.key === 'P') {
+    e.preventDefault();
+
+    // Never open the phone while the full map is displayed
+    // or while the player is an arrest-transport passenger.
+    if (!playerPhoneOpen && !canOpenPlayerPhone()) {
+        return;
+    }
+
+    togglePlayerPhone();
+    return;
+}
 
     // F = Main interaction buttons only
     if (e.key === 'f' || e.key === 'F') {
@@ -843,13 +908,85 @@ if (joystickZone) {
     joystickZone.addEventListener('touchcancel', endJoystick);
 }
 // ============================================================
-// A* NAVIGATION SYSTEM
-// Standalone system - entities do NOT use this yet.
+// PLAYER PHONE SWIPE CONTROL
+// Swipe down from the top of the screen = OPEN
+// Swipe back upward toward the top = CLOSE
+// ========================================
+
+let phoneSwipeStartX = 0;
+let phoneSwipeStartY = 0;
+let phoneSwipeTracking = false;
+
+canvas.addEventListener("touchstart", (e) => {
+    if (!gameActive) return;
+    if (!e.touches || e.touches.length !== 1) return;
+
+    const touch = e.touches[0];
+
+    phoneSwipeStartX = touch.clientX;
+    phoneSwipeStartY = touch.clientY;
+
+    phoneSwipeTracking = true;
+}, { passive: true });
+
+canvas.addEventListener("touchend", (e) => {
+    if (!phoneSwipeTracking) return;
+    if (!e.changedTouches || e.changedTouches.length === 0) {
+        phoneSwipeTracking = false;
+        return;
+    }
+
+    const touch = e.changedTouches[0];
+
+    const deltaX = touch.clientX - phoneSwipeStartX;
+    const deltaY = touch.clientY - phoneSwipeStartY;
+
+    phoneSwipeTracking = false;
+
+    // Ignore mostly-horizontal gestures.
+    if (Math.abs(deltaY) < Math.abs(deltaX) * 1.35) {
+        return;
+    }
+
+    const swipeDistance = Math.abs(deltaY);
+
+    // Ignore small finger movements.
+    if (swipeDistance < 70) {
+        return;
+    }
+
+    // OPEN:
+    // Swipe DOWN starting near the top edge of the screen.
+    if (
+        !playerPhoneOpen &&
+        deltaY > 0 &&
+        phoneSwipeStartY < 120
+    ) {
+        openPlayerPhone();
+        return;
+    }
+
+    // CLOSE:
+    // Swipe UP toward the top while the phone is open.
+    if (
+        playerPhoneOpen &&
+        deltaY < 0 &&
+        touch.clientY < 150
+    ) {
+        closePlayerPhone();
+    }
+}, { passive: true });
+
+canvas.addEventListener("touchcancel", () => {
+    phoneSwipeTracking = false;
+}, { passive: true });
 // ============================================================
+// A* NAVIGATION SYSTEM
+//==================================================
 
 class NavigationSystem {
     constructor() {
-        // Size of one navigation cell in world/map pixels.
+        
         // Start with 32 and adjust later if necessary.
         this.cellSize = 32;
 

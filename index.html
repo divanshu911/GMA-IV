@@ -5,13 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>StreetBound</title>
   <link rel="stylesheet" href="./style.css">
-</head><script src="https://cdn.jsdelivr.net/npm/eruda"></script><script>eruda.init();</script>
-  
+</head>
   
   
 <body>
 
   <div id="gameContainer">
+    <!-- PLAYER PHONE -->
+<div id="playerPhone" aria-hidden="true">
+    <div id="phoneSideButtonTop"></div>
+    <div id="phoneSideButtonMiddle"></div>
+    <div id="phoneSideButtonBottom"></div>
+
+    <div id="phoneFrame">
+        <div id="phoneFrontCamera"></div>
+        <div id="phoneScreen"></div>
+        <div id="phoneHomeButton"></div>
+    </div>
+</div>
     <div id="rotateMessageOverlay">ROTATE DEVICE TO PLAY!                 
   </div>
     <div id="startScreen">
@@ -47,6 +58,11 @@
     <div class="control-row">
       <span>H</span>
       <span>Open / Close Map</span>
+    </div>
+
+    <div class="control-row">
+    <span>P</span>
+    <span>Open / Close Phone</span>
     </div>
 
     <div class="control-row">

@@ -691,7 +691,7 @@ let viewingCar = null;
 const carPrices = {
     "Commuter, Sedan": 4200,
     "Sprint, Hatchback": 3000,
-    "Ranger, SUV": -6300,
+    "Ranger, SUV": 6300,
     "Porter, Van": 5500,
     "Falcon, Sports": 8900
 };
@@ -1331,6 +1331,7 @@ function executeArrestProcess() {
 
     player.isBeingArrested = true;
     player.isArrestPassenger = false;
+    player.ispassenger = false;
 player.arrestTransportCar = null;
     player.beingChased = false;
 
@@ -1857,7 +1858,8 @@ function startArrestTransition() {
             setTimeout(() => {
  player.isBeingArrested = false;
 player.isArrestPassenger = false;
-camera.arrestFollowAngle = null;  player.arrestTransportCar = null; 
+ player.ispassenger = false;
+ camera.passengerFollowAngle = null;  player.arrestTransportCar = null; 
 arrestTransportState = "NONE";                       arrestTransitionStarted = false;                 arrestTransportPath = null;
                 arrestTransportRepathTimer = 0;
 
@@ -1928,8 +1930,8 @@ player.speed = 0;
      arrestTransportState = "CARRYING";
 
 player.isArrestPassenger = true;
+player.ispassenger = true;
 player.arrestTransportCar = arrestTransportCar;
-camera.arrestFollowAngle = camera.angle;            
 
 arrestTransportCar.speed = 0;
 arrestTransportCar.hasArrestPassenger = true;       

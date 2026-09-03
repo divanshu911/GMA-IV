@@ -1,4 +1,4 @@
-console.log("za");
+console.log("pizza");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -615,7 +615,7 @@ let camera = {
     targetAngle: 0,
     moveTimer: 0,
     lastAngle: 0,
-    arrestFollowAngle: null
+    passengerFollowAngle: null
 };
 
 const jackBtn = document.getElementById('jackBtn');
@@ -1230,6 +1230,9 @@ function updateStolenCarsStorage() {
 function updateGame(dt) {
   if (typeof gameActive !== 'undefined' && !gameActive) return;
   if (typeof updateDayNight === 'function') updateDayNight(dt);
+        if (playerPhoneOpen && player.isArrestPassenger) {
+        closePlayerPhone();
+        }
     
     // --- REFINED STOLEN CAR & POLICE SYSTEM LOGIC ---
     let stolenCars = cars.filter(c => c.isStolen);
@@ -1745,10 +1748,16 @@ if (playerCar.health <= 0) {
     }
   }
 
-  if (player.isArrestPassenger && camera.arrestFollowAngle !== null) {
-    camera.angle = camera.arrestFollowAngle;
-    camera.targetAngle = camera.arrestFollowAngle;
+  if (player.ispassenger) {
+    // Lock the camera's current heading while an AI controls the vehicle.
+    // The passenger state is general and is not tied to police transport.
+    if (camera.passengerFollowAngle === null) {
+      camera.passengerFollowAngle = camera.angle;
+    }
+    camera.angle = camera.passengerFollowAngle;
+    camera.targetAngle = camera.passengerFollowAngle;
 } else {
+    camera.passengerFollowAngle = null;
     let camDiff = camera.targetAngle - camera.angle;
     while (camDiff < -Math.PI) camDiff += Math.PI * 2;
     while (camDiff > Math.PI) camDiff -= Math.PI * 2;

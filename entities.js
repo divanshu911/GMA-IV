@@ -117,6 +117,9 @@ class Player extends Pedestrian {
     let savedWanted = localStorage.getItem("gma_player_wanted");
     this.wanted = savedWanted === "true";
     this.beingChased = false;
+    // General passenger state: true when an AI controls the vehicle carrying
+    // the player. This is intentionally independent from police arrest state.
+    this.ispassenger = false;
 
     // --- LOAD SAVED DATA ---
     let savedMoney = localStorage.getItem("gma_player_money");

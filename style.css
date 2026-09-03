@@ -320,3 +320,107 @@ canvas {
   font-size: 14px;
   color: #bbbbbb;
 }
+/* PLAYER PHONE*/
+#playerPhone {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    width: min(56.25vh, 42vw);
+    aspect-ratio: 9 / 16;
+    transform: translate(-50%, -50%);
+    display: none;
+    z-index: 4500;
+    opacity: 0.75;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* Main phone body */
+#phoneFrame {
+    position: absolute;
+    inset: 0;
+    background: #111;
+    border: 5px solid #2b2b2b;
+    border-radius: 28px;
+    box-shadow:
+        0 10px 35px rgba(0, 0, 0, 0.75),
+        inset 0 0 0 2px rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+}
+
+/* Empty phone display */
+#phoneScreen {
+    position: absolute;
+    left: 6%;
+    right: 6%;
+    top: 8%;
+    bottom: 9%;
+    background: #050505;
+    border-radius: 17px;
+    border: 2px solid #1f1f1f;
+}
+
+/* Front camera */
+#phoneFrontCamera {
+    position: absolute;
+    top: 3.2%;
+    left: 50%;
+    width: 10px;
+    height: 10px;
+    transform: translateX(-50%);
+    background: #050505;
+    border: 2px solid #292929;
+    border-radius: 50%;
+    z-index: 3;
+    box-shadow: 0 0 3px rgba(255, 255, 255, 0.15);
+}
+
+/* Bottom home button */
+#phoneHomeButton {
+    position: absolute;
+    left: 50%;
+    bottom: 2.5%;
+    width: 18px;
+    height: 18px;
+    transform: translateX(-50%);
+    border: 2px solid #444;
+    border-radius: 50%;
+    background: #171717;
+}
+
+/* Physical side buttons */
+#phoneSideButtonTop,
+#phoneSideButtonMiddle,
+#phoneSideButtonBottom {
+    position: absolute;
+    left: -5px;
+    width: 5px;
+    background: #3a3a3a;
+    border-radius: 3px 0 0 3px;
+}
+
+#phoneSideButtonTop {
+    top: 24%;
+    height: 7%;
+}
+
+#phoneSideButtonMiddle {
+    top: 33%;
+    height: 11%;
+}
+
+#phoneSideButtonBottom {
+    top: 47%;
+    height: 11%;
+}
+
+/* Slight highlight around phone edge */
+#phoneFrame::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 23px;
+    pointer-events: none;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
