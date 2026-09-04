@@ -2291,10 +2291,10 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
     if (!playerIsMoving && policeCarIsNearPlayer) {
 
             // Player just stopped during a normal chase.
-            // Start the 1.4 second forward-coast period.
+            // Start the 0.6 second forward-coast period.
             if (unit.policeChaseTimerState === "CHASING") {
                 unit.policeChaseTimerState = "STOPPING";
-                unit.policeStopTimer = 1.4 * 60;
+                unit.policeStopTimer = 0.6 * 60;
 
                 // Lock the direction the police car was already facing.
                 unit.policeCoastAngle = unit.angle - Math.PI / 2;
@@ -2321,7 +2321,7 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
             }
 
             // -----------------------------------------------------
-            // 1.4 SECOND FORWARD COAST
+            // 0.6 SECOND FORWARD COAST
             // -----------------------------------------------------
             if (unit.policeChaseTimerState === "STOPPING") {
                 unit.policeStopTimer -= dt;
@@ -2373,7 +2373,7 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
                 return;
             }
 
-            // Police has completed the 1.4 sec coast.
+            // Police has completed the 0.6 sec coast.
             // Stay exactly where it stopped.
             if (unit.policeChaseTimerState === "STOPPED") {
                 unit.speed = 0;
@@ -2386,9 +2386,7 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
         // ---------------------------------------------------------
         else {
 
-            // Player started moving while police was still in the
-            // 1.4 sec coast. Cancel the coast and begin the 0.8 sec
-            // stationary delay.
+            // Player started moving while police was still in the0.6 sec coast. Cancel the coast and begin the 0.5 sec stationary delay.
             if (unit.policeChaseTimerState === "STOPPING") {
                 unit.policeStopTimer = 0;
                 unit.policeStartTimer = 0.5 * 60;
@@ -2404,11 +2402,11 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
                 unit.speed = 0;
                 return;
             }
-           // Resume a previously paused 0.8 sec timer.
+           // Resume a previously paused 0.5 sec timer.
             if (unit.policeChaseTimerState === "STARTING_PAUSED") {
                 unit.policeChaseTimerState = "STARTING";
             }
-            // -------------------------------------------            // 0.8 SECOND START DELAY           // -----------------------------------------------------
+            // -------------------------------------------            // 0.5 SECOND START DELAY           // -----------------------------------------------------
             if (unit.policeChaseTimerState === "STARTING") {
                 unit.speed = 0;
 
@@ -2577,8 +2575,32 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
 
 // --- STAGE 4A: REVISED POLICE RECOGNITION, WARNING, ARREST & CHASE SYSTEM ---
 function updatePoliceStage4A(dt, player, cars, npcs) {
-    if (!player) return;
+        if (!player) return;
     if (player.beingChased === undefined) player.beingChased = false;
+
+    cars.forEach(c => {
+        if (
+            c &&
+            c.isPolice &&
+            (c.health <= 0 || c.exploded) &&
+            (c.policeState === "WARNING" || c.policeState === "CHASE" || c.policeState === "ARRESTING")
+        ) {
+            c.speed = 0;
+            c.isParked = true;
+            c.policeState = "PATROL";
+
+            if (typeof c.stopSiren === 'function') {
+                c.stopSiren();
+            } else {
+                c.sirenState = 0;
+            }
+
+            c.warningTimer = 0;
+            c.graceTimer = 0;
+            c.arrestStage = 0;
+            c.arrestTimer = 0;
+        }
+    });
 
     if (player.isBeingArrested) {
         updateArrestTransport(dt);
@@ -2726,7 +2748,15 @@ if (!player.wanted && !player.beingChased) {
         let minDistance = 110;
 
         cars.forEach(c => {
-            if (c.isPolice && c !== playerCar && c.hasDriver && !c.isStolen && (!c.policeState || c.policeState === "PATROL")) {
+            if (
+    c.isPolice &&
+    c !== playerCar &&
+    c.hasDriver &&
+    !c.isStolen &&
+    !c.exploded &&
+    c.health > 0 &&
+    (!c.policeState || c.policeState === "PATROL")
+) {
                 let dist = Math.hypot(player.x - c.x, player.y - c.y);
                 if (dist < minDistance) {
                     minDistance = dist;
@@ -2838,8 +2868,17 @@ if (surrenderBtn) {
 
         // Check nearby police cars
         if (activeChasingCars < 3) {
-            cars.forEach(c => {
-                if (activeChasingCars < 3 && c.isPolice && c !== playerCar && c.hasDriver && !c.isStolen && (!c.policeState || c.policeState === "PATROL")) {
+    cars.forEach(c => {
+        if (
+            activeChasingCars < 3 &&
+            c.isPolice &&
+            c !== playerCar &&
+            c.hasDriver &&
+            !c.isStolen &&
+            !c.exploded &&
+            c.health > 0 &&
+            (!c.policeState || c.policeState === "PATROL")
+        ) {
                     if (Math.hypot(player.x - c.x, player.y - c.y) <= 240) {
                         c.policeState = "CHASE";
                         c.isParked = false;

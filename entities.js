@@ -1389,10 +1389,26 @@ function initSpawns() {
         carData.type || null
       );
       stolenCar.angle = carData.angle || 0;
-      stolenCar.isStolen = true;
-      stolenCar.hasDriver = false;
-      stolenCar.isParked = true;
-      cars.push(stolenCar);
+stolenCar.isStolen = true;
+stolenCar.hasDriver = false;
+stolenCar.isParked = true;
+
+// Restore the car's damage state from the previous session.
+if (typeof carData.health === "number") {
+    stolenCar.health = carData.health;
+}
+
+stolenCar.exploded = Boolean(carData.exploded);
+
+// A destroyed stolen car must remain completely stationary.
+if (stolenCar.health <= 0 || stolenCar.exploded) {
+    stolenCar.health = 0;
+    stolenCar.speed = 0;
+    stolenCar.isParked = true;
+    stolenCar.hasDriver = false;
+}
+
+cars.push(stolenCar);
     });
   } catch (e) {
     console.error("Failed to parse saved stolen car data:", e);

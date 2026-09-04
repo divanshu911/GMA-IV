@@ -1094,7 +1094,9 @@ car.isParked = true;
     !playerCar &&
     !player.isArrestPassenger &&
     !player.isInvulnerable &&
-    (() => {
+car.health > 0 &&
+!car.exploded &&
+(() => {
     const previous = previousCarPositions.get(car.id);
     return previous &&
         Math.hypot(car.x - previous.x, car.y - previous.y) > 1.5;
@@ -1212,6 +1214,8 @@ function updateStolenCarsStorage() {
             color: c.color,
             type: c.type,
             angle: c.angle,
+            health: typeof c.health === "number" ? c.health : 100,
+    exploded: Boolean(c.exploded),
             isPolice: Boolean(c.isPolice)
         }));
         localStorage.setItem("stolen_cars", JSON.stringify(stolenDataList));
@@ -1512,21 +1516,35 @@ cars.forEach(car => {
           }
 
           if (car.exploded) {
-              let dist = Math.sqrt(Math.pow(player.x - car.x, 2) + Math.pow(player.y - car.y, 2));
-              if (dist < 350) {
-                  if (!car.fireAudio) {
-                      car.fireAudio = new Audio(fireUrl);
-                      car.fireAudio.loop = true;
-                      car.fireAudio.volume = Math.max(0, 1 - (dist / 350));
-                      car.fireAudio.play().catch(() => {});
-                  } else {
-                      car.fireAudio.volume = Math.max(0, 1 - (dist / 350));
-                  }
-              } else if (car.fireAudio) {
-                  car.fireAudio.pause(); car.fireAudio = null;
-              }
-          } else if (car.fireAudio) {
-              car.fireAudio.pause(); car.fireAudio = null;
+    const dist = Math.hypot(
+        player.x - car.x,
+        player.y - car.y
+    );
+
+    if (dist < 350) {
+        const volume = Math.max(0, 1 - (dist / 350));
+
+        if (!car.fireAudio) {
+            car.fireAudio = new Audio(fireUrl);
+            car.fireAudio.loop = true;
+
+            // Set the correct distance volume BEFORE starting playback.
+            car.fireAudio.volume = volume;
+
+            car.fireAudio.play().catch(() => {});
+        } else {
+            // Continuously update volume as the player moves.
+            car.fireAudio.volume = volume;
+        }
+    } else if (car.fireAudio) {
+        car.fireAudio.pause();
+        car.fireAudio.currentTime = 0;
+        car.fireAudio = null;
+    }
+} else if (car.fireAudio) {
+    car.fireAudio.pause();
+    car.fireAudio.currentTime = 0;
+    car.fireAudio = null;
           }
       });
   } else {
