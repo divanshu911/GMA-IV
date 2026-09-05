@@ -1,4 +1,4 @@
-console.log("banana");
+console.log("apple");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1309,14 +1309,11 @@ function updateStolenCarsStorage() {
         }));
         localStorage.setItem("stolen_cars", JSON.stringify(stolenDataList));
     } else {
-        // No stolen cars left in world -> Remove from storage & clear wanted state
+        // No stolen cars left in world. Hit-and-run cases are tracked
+        // separately, so this branch must not clear wanted status.
         localStorage.removeItem("stolen_cars");
         localStorage.removeItem("stolen car"); // clean up legacy single key
-     if (!player.beingChased) {   player.wanted = false;
-        player.beingChased = false;
-    
-        localStorage.setItem("gma_player_wanted", "false");
-    }}
+    }
 }
 
 
@@ -1355,13 +1352,11 @@ function updateGame(dt) {
         // Sync updated positions/list to local storage
         updateStolenCarsStorage();
     } else {
-    // No stolen cars remain.
-    // Only clear wanted status if the player is NOT currently being chased.
-    if (player.wanted && !player.beingChased) {
-        player.wanted = false;
-        updateStolenCarsStorage();
+    // A hit-and-run case can keep the player wanted without a stolen car.
     }
-}
+
+  // Wanted status is cleared only when neither crime source remains.
+  clearWantedIfNoCrimeCases();
  // --- 3. Handle AngryDriver logic in updateGame ---
 if (!isInsideHouse && angryDrivers.length > 0) {
     angryDrivers = angryDrivers.filter(driver => {

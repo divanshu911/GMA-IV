@@ -6,7 +6,7 @@ let gameActive = false;
 let showFullMap = false;
 let desktopControlsOpen = false;
 let playerPhoneOpen = false;
-console.log("!!!");
+console.log(".");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -35,6 +35,31 @@ function saveCrimeCaseCounts() {
         "gma_car_steal_cases",
         String(playerCarStealCases)
     );
+}
+
+function hasActiveCrimeCases() {
+    const hasStolenCarCrime =
+        typeof cars !== "undefined" &&
+        Array.isArray(cars) &&
+        cars.some(car => car && car.isStolen);
+
+    const hasCarStealCrime = playerCarStealCases > 0;
+    const hasHitRunCrime = playerHitRunCases > 0;
+
+    return hasStolenCarCrime || hasCarStealCrime || hasHitRunCrime;
+}
+
+function clearWantedIfNoCrimeCases() {
+    if (!player || player.beingChased || hasActiveCrimeCases()) {
+        return false;
+    }
+
+    if (player.wanted) {
+        player.wanted = false;
+        localStorage.setItem("gma_player_wanted", "false");
+    }
+
+    return true;
 }
 
 function registerHitRunIncident(type, x, y, entityId = null) {
