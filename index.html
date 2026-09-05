@@ -5,9 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>StreetBound</title>
   <link rel="stylesheet" href="./style.css">
-</head><script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-<script>eruda.init();</script>
-  
+</head>
   
   
 <body>
@@ -35,12 +33,12 @@
             <div class="phone-app-grid">
 
                 <button
-                    id="ambulancePhoneApp"
+                    id="phoneCallApp"
                     class="phone-app"
                     type="button"
                 >
-                    <span class="phone-app-icon">🚑</span>
-                    <span class="phone-app-name">Ambulance</span>
+                    <span class="phone-app-icon">📞</span>
+                    <span class="phone-app-name">Call</span>
                 </button>
 
             </div>
@@ -60,17 +58,26 @@
             </button>
 
             <div class="phone-call-content">
-                <div class="phone-call-icon">🚑</div>
+                <div class="phone-call-icon">📇</div>
 
                 <div class="phone-call-name">
-                    Ambulance
+                    Contacts
                 </div>
+
+                <button
+                    id="ambulanceContactButton"
+                    class="phone-contact"
+                    type="button"
+                >
+                    <span class="phone-contact-icon">🚑</span>
+                    <span>Ambulance</span>
+                </button>
 
                 <div
                     id="phoneCallStatus"
                     class="phone-call-status"
                 >
-                    Calling ambulance...
+                    Select a contact
                 </div>
             </div>
         </div>

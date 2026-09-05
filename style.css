@@ -555,6 +555,32 @@ canvas {
     margin-bottom: 8px;
 }
 
+.phone-contact {
+    min-width: 150px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    margin: 8px 0 14px;
+    padding: 10px 16px;
+    border: 1px solid rgba(255,255,255,0.28);
+    border-radius: 10px;
+    background: rgba(192, 57, 43, 0.9);
+    color: #ffffff;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+.phone-contact:active {
+    transform: scale(0.95);
+}
+
+.phone-contact-icon {
+    font-size: 18px;
+}
+
 .phone-call-status {
     font-size: 10px;
     color: #aaaaaa;

@@ -236,8 +236,17 @@ function openAmbulanceCallScreen() {
     const callStatus = document.getElementById("phoneCallStatus");
 
     if (callStatus) {
-        callStatus.textContent = "Calling ambulance...";
+        callStatus.textContent = "Select a contact";
     }
+}
+
+function callAmbulance() {
+    const callScreen = document.getElementById("phoneCallScreen");
+    const callStatus = document.getElementById("phoneCallStatus");
+
+    if (!callScreen) return;
+
+    callScreen.style.display = "flex";
 
     // The call takes exactly 5 seconds.
     window.ambulanceCallTimer = setTimeout(() => {
@@ -284,19 +293,32 @@ function cancelAmbulanceCall() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-    const ambulanceApp =
-        document.getElementById("ambulancePhoneApp");
+    const callApp =
+        document.getElementById("phoneCallApp");
+
+    const ambulanceContact =
+        document.getElementById("ambulanceContactButton");
 
     const phoneBackButton =
         document.getElementById("phoneBackButton");
 
-    if (ambulanceApp) {
-        ambulanceApp.addEventListener("pointerdown", e => {
+    if (callApp) {
+        callApp.addEventListener("pointerdown", e => {
             e.preventDefault();
 
             if (!playerPhoneOpen) return;
 
             openAmbulanceCallScreen();
+        });
+    }
+
+    if (ambulanceContact) {
+        ambulanceContact.addEventListener("pointerdown", e => {
+            e.preventDefault();
+
+            if (!playerPhoneOpen) return;
+
+            callAmbulance();
         });
     }
 
