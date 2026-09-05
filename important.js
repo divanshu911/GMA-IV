@@ -6,7 +6,7 @@ let gameActive = false;
 let showFullMap = false;
 let desktopControlsOpen = false;
 let playerPhoneOpen = false;
-console.log("!");
+console.log("!!!");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -227,26 +227,40 @@ function togglePlayerPhone() {
 function openAmbulanceCallScreen() {
     const homeScreen = document.getElementById("phoneHomeScreen");
     const callScreen = document.getElementById("phoneCallScreen");
+    const callIcon = document.querySelector(".phone-call-icon");
+    const callName = document.querySelector(".phone-call-name");
+    const ambulanceContact = document.getElementById("ambulanceContactButton");
+    const callStatus = document.getElementById("phoneCallStatus");
 
     if (!homeScreen || !callScreen) return;
 
     homeScreen.style.display = "none";
     callScreen.style.display = "flex";
 
-    const callStatus = document.getElementById("phoneCallStatus");
-
+    if (callIcon) callIcon.textContent = "📇";
+    if (callName) callName.textContent = "Contacts";
+    if (ambulanceContact) ambulanceContact.style.display = "flex";
     if (callStatus) {
         callStatus.textContent = "Select a contact";
     }
 }
 
 function callAmbulance() {
+    const homeScreen = document.getElementById("phoneHomeScreen");
     const callScreen = document.getElementById("phoneCallScreen");
+    const callIcon = document.querySelector(".phone-call-icon");
+    const callName = document.querySelector(".phone-call-name");
+    const ambulanceContact = document.getElementById("ambulanceContactButton");
     const callStatus = document.getElementById("phoneCallStatus");
 
-    if (!callScreen) return;
+    if (!homeScreen || !callScreen) return;
 
+    homeScreen.style.display = "none";
     callScreen.style.display = "flex";
+    if (callIcon) callIcon.textContent = "🚑";
+    if (callName) callName.textContent = "Ambulance";
+    if (ambulanceContact) ambulanceContact.style.display = "none";
+    if (callStatus) callStatus.textContent = "Calling ambulance...";
 
     // The call takes exactly 5 seconds.
     window.ambulanceCallTimer = setTimeout(() => {
@@ -260,15 +274,9 @@ function callAmbulance() {
                 : "No reportable accident nearby";
         }
 
-        // Return to the phone home screen shortly after the call.
+        // Return to the opened Contacts app shortly after the call.
         setTimeout(() => {
-            if (callScreen) {
-                callScreen.style.display = "none";
-            }
-
-            if (homeScreen) {
-                homeScreen.style.display = "flex";
-            }
+            openAmbulanceCallScreen();
         }, 350);
 
     }, 5000);
