@@ -6,11 +6,181 @@ let gameActive = false;
 let showFullMap = false;
 let desktopControlsOpen = false;
 let playerPhoneOpen = false;
-console.log("aaa!");
+console.log("!");
+// ============================================================
+// HIT & RUN / CRIME CASE SYSTEM
+// ============================================================
+
+const HIT_RUN_ESCAPE_DISTANCE = 300;
+
+let pendingHitRunIncidents = [];
+
+let playerHitRunCases = parseInt(
+    localStorage.getItem("gma_hit_run_cases") || "0",
+    10
+);
+
+let playerCarStealCases = parseInt(
+    localStorage.getItem("gma_car_steal_cases") || "0",
+    10
+);
+
+function saveCrimeCaseCounts() {
+    localStorage.setItem(
+        "gma_hit_run_cases",
+        String(playerHitRunCases)
+    );
+
+    localStorage.setItem(
+        "gma_car_steal_cases",
+        String(playerCarStealCases)
+    );
+}
+
+function registerHitRunIncident(type, x, y, entityId = null) {
+    // Prevent the same victim/car from being registered twice.
+    const alreadyRegistered = pendingHitRunIncidents.some(
+        incident =>
+            incident.entityId !== null &&
+            entityId !== null &&
+            incident.entityId === entityId
+    );
+
+    if (alreadyRegistered) return;
+
+    pendingHitRunIncidents.push({
+        type,
+        x,
+        y,
+        entityId,
+        reported: false
+    });
+
+    // Persist the pending incident locations.
+    localStorage.setItem(
+        "gma_pending_hit_run_incidents",
+        JSON.stringify(
+            pendingHitRunIncidents.map(incident => ({
+                type: incident.type,
+                x: incident.x,
+                y: incident.y,
+                entityId: incident.entityId,
+                reported: incident.reported
+            }))
+        )
+    );
+}
+
+function savePendingHitRunIncidents() {
+    localStorage.setItem(
+        "gma_pending_hit_run_incidents",
+        JSON.stringify(
+            pendingHitRunIncidents.map(incident => ({
+                type: incident.type,
+                x: incident.x,
+                y: incident.y,
+                entityId: incident.entityId,
+                reported: incident.reported
+            }))
+        )
+    );
+}
+
+function resolveNearbyHitRunIncidents() {
+    let resolvedAny = false;
+
+    pendingHitRunIncidents = pendingHitRunIncidents.filter(incident => {
+        const distance = Math.hypot(
+            player.x - incident.x,
+            player.y - incident.y
+        );
+
+        if (distance <= HIT_RUN_ESCAPE_DISTANCE) {
+            incident.reported = true;
+            resolvedAny = true;
+            return false;
+        }
+
+        return true;
+    });
+
+    savePendingHitRunIncidents();
+
+    if (resolvedAny && typeof taxiManager !== 'undefined') {
+        taxiManager.setMessage(
+            "Ambulance called. Hit & run avoided.",
+            180
+        );
+    }
+
+    return resolvedAny;
+}
+
+function updateHitRunIncidents() {
+    if (!player || pendingHitRunIncidents.length === 0) return;
+
+    for (let i = pendingHitRunIncidents.length - 1; i >= 0; i--) {
+        const incident = pendingHitRunIncidents[i];
+
+        const distance = Math.hypot(
+            player.x - incident.x,
+            player.y - incident.y
+        );
+
+        // Once the player reaches 300 units, the opportunity to
+        // report the accident is gone permanently.
+        if (distance >= HIT_RUN_ESCAPE_DISTANCE) {
+            pendingHitRunIncidents.splice(i, 1);
+
+            playerHitRunCases++;
+            saveCrimeCaseCounts();
+
+            player.wanted = true;
+            localStorage.setItem(
+                "gma_player_wanted",
+                "true"
+            );
+
+            if (typeof taxiManager !== 'undefined') {
+                taxiManager.setMessage(
+                    "HIT & RUN! You left the scene.",
+                    240
+                );
+            }
+        }
+    }
+
+    savePendingHitRunIncidents();
+}
+
+// Load pending incidents from the previous session.
+try {
+    const savedIncidents = localStorage.getItem(
+        "gma_pending_hit_run_incidents"
+    );
+
+    if (savedIncidents) {
+        const parsedIncidents = JSON.parse(savedIncidents);
+
+        if (Array.isArray(parsedIncidents)) {
+            pendingHitRunIncidents = parsedIncidents.filter(
+                incident =>
+                    incident &&
+                    Number.isFinite(Number(incident.x)) &&
+                    Number.isFinite(Number(incident.y))
+            );
+        }
+    }
+} catch (error) {
+    console.warn(
+        "Could not load pending hit-run incidents.",
+        error
+    );
+}
 
 // ============================================================
 // PLAYER PHONE
-// ============================================================
+
 
 const playerPhone = document.getElementById("playerPhone");
 
@@ -54,6 +224,90 @@ function togglePlayerPhone() {
 
     openPlayerPhone();
 }
+function openAmbulanceCallScreen() {
+    const homeScreen = document.getElementById("phoneHomeScreen");
+    const callScreen = document.getElementById("phoneCallScreen");
+
+    if (!homeScreen || !callScreen) return;
+
+    homeScreen.style.display = "none";
+    callScreen.style.display = "flex";
+
+    const callStatus = document.getElementById("phoneCallStatus");
+
+    if (callStatus) {
+        callStatus.textContent = "Calling ambulance...";
+    }
+
+    // The call takes exactly 5 seconds.
+    window.ambulanceCallTimer = setTimeout(() => {
+        window.ambulanceCallTimer = null;
+
+        const resolved = resolveNearbyHitRunIncidents();
+
+        if (callStatus) {
+            callStatus.textContent = resolved
+                ? "Ambulance notified"
+                : "No reportable accident nearby";
+        }
+
+        // Return to the phone home screen shortly after the call.
+        setTimeout(() => {
+            if (callScreen) {
+                callScreen.style.display = "none";
+            }
+
+            if (homeScreen) {
+                homeScreen.style.display = "flex";
+            }
+        }, 350);
+
+    }, 5000);
+}
+
+function cancelAmbulanceCall() {
+    if (window.ambulanceCallTimer) {
+        clearTimeout(window.ambulanceCallTimer);
+        window.ambulanceCallTimer = null;
+    }
+
+    const homeScreen = document.getElementById("phoneHomeScreen");
+    const callScreen = document.getElementById("phoneCallScreen");
+
+    if (callScreen) {
+        callScreen.style.display = "none";
+    }
+
+    if (homeScreen) {
+        homeScreen.style.display = "flex";
+    }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    const ambulanceApp =
+        document.getElementById("ambulancePhoneApp");
+
+    const phoneBackButton =
+        document.getElementById("phoneBackButton");
+
+    if (ambulanceApp) {
+        ambulanceApp.addEventListener("pointerdown", e => {
+            e.preventDefault();
+
+            if (!playerPhoneOpen) return;
+
+            openAmbulanceCallScreen();
+        });
+    }
+
+    if (phoneBackButton) {
+        phoneBackButton.addEventListener("pointerdown", e => {
+            e.preventDefault();
+
+            cancelAmbulanceCall();
+        });
+    }
+});
 
 
 // ===== DAY / NIGHT SYSTEM =====

@@ -1,4 +1,4 @@
-console.log("pizza");
+console.log("banana");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -975,12 +975,24 @@ function handlePhysicsAndCollisions(dt) {
           }
 
           let tryExplode = (car, strikingCar, speed) => {
-            if (
-              speed > 2.8 &&
-              strikingCar.weightMultiplier >= 2.5 &&
-              Math.random() < (speed * 0.12) &&
-              !car.exploded
-            ) {
+
+    // Remember whether this car had a driver BEFORE
+    // the explosion removes the driver.
+    const hadDriverBeforeExplosion =
+        Boolean(car.hasDriver);
+
+    const wasPlayerAttack =
+        typeof playerCar !== 'undefined' &&
+        playerCar &&
+        strikingCar &&
+        strikingCar.id === playerCar.id;
+
+    if (
+        speed > 2.8 &&
+        strikingCar.weightMultiplier >= 2.5 &&
+        Math.random() < (speed * 0.12) &&
+        !car.exploded
+    ) {
               playSpatialSound(
                 explosionPool,
                 car.x,
@@ -991,6 +1003,22 @@ function handlePhysicsAndCollisions(dt) {
 
               car.health = 0;
               car.exploded = true;
+        // ------------------------------------------------------------
+// PLAYER BLASTED A CAR WITH A DRIVER
+
+
+if (
+    wasPlayerAttack &&
+    hadDriverBeforeExplosion &&
+    car.id !== playerCar.id
+) {
+    registerHitRunIncident(
+        "CAR",
+        car.x,
+        car.y,
+        car.id
+    );
+}
 
               if (car.humAudio) {
                 car.humAudio.pause();
@@ -1150,20 +1178,81 @@ for (const entry of nearby) {
             }
           }
       });
+      
+// NPC VS PLAYER CAR
+ 
 
-      // NPC vs Player Car collision
-      cars.forEach(car => {
-          if (playerCar && car.id === playerCar.id) {
-              npcs.forEach(npc => {
-                  let dx = npc.x - car.x, dy = npc.y - car.y, dist = Math.sqrt(dx * dx + dy * dy);
-                  if (dist < 28 && Math.random() < 0.3 && !npc.speechText) {
-                      const lines = ["Are you blind!", "Idiot!", "Watch out!", "Crazy driver!"];
-                      npc.say(lines[Math.floor(Math.random() * lines.length)], 90);
-                  }
-              });
-          }
-      });
+cars.forEach(car => {
+    if (!playerCar || car.id !== playerCar.id) return;
 
+    npcs.forEach(npc => {
+        if (!npc) return;
+
+        let dx = npc.x - car.x;
+        let dy = npc.y - car.y;
+        let dist = Math.hypot(dx, dy);
+
+        if (dist >= 28) return;
+
+        
+
+        if (
+            !npc.isInjured &&
+            car.health > 0 &&
+            !car.exploded &&
+            Math.abs(car.speed) > 2.5
+        ) {
+            npc.isInjured = true;
+            npc.speed = 0;
+            npc.inConversation = false;
+            npc.speechText = null;
+            npc.speechTimer = 0;
+
+            // Stop all normal pedestrian movement.
+            npc.changeDirTimer = 999999;
+            npc.fleeTimer = 0;
+
+            registerHitRunIncident(
+                "NPC",
+                npc.x,
+                npc.y,
+                npc.id
+            );
+
+            playSpatialSound(
+                npcHitPool,
+                npc.x,
+                npc.y,
+                1.0
+            );
+
+            return;
+        }
+
+        // ----------------------------------------------------
+        // NORMAL SMALL BUMP
+        // Existing reaction remains unchanged.
+        // ----------------------------------------------------
+
+        if (
+            !npc.isInjured &&
+            Math.random() < 0.3 &&
+            !npc.speechText
+        ) {
+            const lines = [
+                "Are you blind!",
+                "Idiot!",
+                "Watch out!",
+                "Crazy driver!"
+            ];
+
+            npc.say(
+                lines[Math.floor(Math.random() * lines.length)],
+                90
+            );
+        }
+    });
+});
             // --- NPC VS NPC COLLISIONS ---
       for (let i = 0; i < npcs.length; i++) {
         const npc1 = npcs[i];
@@ -1234,6 +1323,7 @@ function updateStolenCarsStorage() {
 function updateGame(dt) {
   if (typeof gameActive !== 'undefined' && !gameActive) return;
   if (typeof updateDayNight === 'function') updateDayNight(dt);
+    updateHitRunIncidents();
         if (playerPhoneOpen && player.isArrestPassenger) {
         closePlayerPhone();
         }
@@ -1328,6 +1418,8 @@ if (!isInsideHouse && angryDrivers.length > 0) {
             if (driver.targetCar) {
                 driver.targetCar.isStolen = true;
             }
+            playerCarStealCases++;
+    saveCrimeCaseCounts();
             player.wanted = true;
             localStorage.setItem("gma_player_wanted", "true");
             updateStolenCarsStorage();
@@ -2027,7 +2119,7 @@ ctx.translate(
 
   ctx.restore();
 
-  if (!playerCar && !player.isArrestPassenger) {
+  if (!playerCar && !player.ispassenger) {
   player.draw(ctx, isInsideDealership ? 0 : camera.angle);
 }
 

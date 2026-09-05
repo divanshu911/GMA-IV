@@ -1,4 +1,4 @@
-console.log("cake")
+console.log("chair")
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -1876,10 +1876,24 @@ arrestTransportState = "NONE";                       arrestTransitionStarted = f
                 }
 
                 if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
-                    taxiManager.setMessage(
-                        "You were arrested. Stolen vehicles impounded.",
-                        240
-                    );
+                    const hitRunCharges = playerHitRunCases;
+const carStealCharges = playerCarStealCases;
+
+if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
+    taxiManager.setMessage(
+        `Charged with ${hitRunCharges} hit-run and ${carStealCharges} car steal cases.`,
+        300
+    );
+}
+
+// The current wanted streak is now finished.
+playerHitRunCases = 0;
+playerCarStealCases = 0;
+saveCrimeCaseCounts();
+
+// All pending hit-run incidents are cleared with the arrest.
+pendingHitRunIncidents = [];
+savePendingHitRunIncidents();
                 }
             }, 450);
 

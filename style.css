@@ -330,7 +330,7 @@ canvas {
     transform: translate(-50%, -50%);
     display: none;
     z-index: 4500;
-    opacity: 0.75;
+    opacity: 0.82;
     pointer-events: none;
     user-select: none;
     -webkit-user-select: none;
@@ -423,4 +423,136 @@ canvas {
     border-radius: 23px;
     pointer-events: none;
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+/* ============================================================
+   STREETBOUND PHONE APPS
+   ============================================================ */
+
+#phoneScreen {
+    position: relative;
+    overflow: hidden;
+    background: #101010;
+    color: #ffffff;
+    font-family: Arial, sans-serif;
+    touch-action: manipulation;
+}
+
+#phoneHomeScreen,
+#phoneCallScreen {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+#phoneHomeScreen {
+    display: flex;
+    flex-direction: column;
+    background:
+        linear-gradient(
+            rgba(20, 20, 20, 0.9),
+            rgba(5, 5, 5, 0.96)
+        );
+}
+
+.phone-status-bar {
+    height: 38px;
+    padding: 0 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-sizing: border-box;
+    font-size: 11px;
+    color: #cccccc;
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+}
+
+.phone-app-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    padding: 18px;
+}
+
+.phone-app {
+    border: 0;
+    background: transparent;
+    color: white;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+.phone-app:active {
+    transform: scale(0.92);
+}
+
+.phone-app-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: #c0392b;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 25px;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.45);
+}
+
+.phone-app-name {
+    font-size: 9px;
+    color: #eeeeee;
+}
+
+#phoneCallScreen {
+    flex-direction: column;
+    background: #080808;
+}
+
+#phoneBackButton {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    border: 1px solid rgba(255,255,255,0.35);
+    border-radius: 6px;
+    background: rgba(255,255,255,0.08);
+    color: white;
+    padding: 7px 10px;
+    font-size: 10px;
+    z-index: 5;
+    cursor: pointer;
+}
+
+#phoneBackButton:active {
+    transform: scale(0.94);
+}
+
+.phone-call-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+.phone-call-icon {
+    font-size: 42px;
+    margin-bottom: 12px;
+}
+
+.phone-call-name {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 8px;
+}
+
+.phone-call-status {
+    font-size: 10px;
+    color: #aaaaaa;
 }

@@ -1,4 +1,4 @@
-console.log("pp9v")
+console.log("shoe")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -196,6 +196,8 @@ class NPC extends Pedestrian {
     this.changeDirTimer = Math.random() * 120;
     this.isPassenger = false;
     this.isPolice = isPolice;
+    // Hit & run injury state
+this.isInjured = false;
 
     // Conversation & Reaction properties
     this.inConversation = false;
@@ -210,6 +212,14 @@ class NPC extends Pedestrian {
 
   update(dt) {
     if (this.isPassenger) return;
+    // Injured pedestrians stay exactly where they were hit.
+if (this.isInjured) {
+    this.speed = 0;
+    this.speechText = null;
+    this.speechTimer = 0;
+    this.inConversation = false;
+    return;
+}
 // Police officers in an active police interaction are controlled
 // by updatePoliceStage4A(), not by normal NPC movement.
 if (
@@ -333,8 +343,70 @@ if (
 
   draw(ctx) {
     if (this.isPassenger) return;
+
     ctx.save();
     ctx.translate(this.x, this.y);
+
+    // Injured pedestrian lying flat on the ground.
+    if (this.isInjured) {
+        ctx.rotate(Math.PI / 2);
+
+        // Legs
+        ctx.strokeStyle = this.skinColor;
+        ctx.lineWidth = 3;
+
+        ctx.beginPath();
+        ctx.moveTo(-4, 2);
+        ctx.lineTo(-13, 9);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(4, 2);
+        ctx.lineTo(13, 9);
+        ctx.stroke();
+
+        // Body
+        ctx.fillStyle = this.shirtColor;
+        ctx.beginPath();
+        ctx.ellipse(
+            0,
+            0,
+            this.size * 0.45,
+            this.size * 0.25,
+            0,
+            0,
+            Math.PI * 2
+        );
+        ctx.fill();
+
+        // Head
+        ctx.fillStyle = this.skinColor;
+        ctx.beginPath();
+        ctx.arc(
+            0,
+            -this.size * 0.32,
+            this.size * 0.16,
+            0,
+            Math.PI * 2
+        );
+        ctx.fill();
+
+        // Hair
+        ctx.fillStyle = this.hairColor;
+        ctx.beginPath();
+        ctx.arc(
+            0,
+            -this.size * 0.36,
+            this.size * 0.11,
+            0,
+            Math.PI * 2
+        );
+        ctx.fill();
+
+        ctx.restore();
+        return;
+    }
+
     ctx.rotate(this.angle);
 
     let swingOffset = Math.sin(this.walkTimer) * (this.size * 0.18);

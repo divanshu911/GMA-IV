@@ -5,9 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>StreetBound</title>
   <link rel="stylesheet" href="./style.css">
-</head><script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-<script>eruda.init();</script>
-  
+</head>
   
   
 <body>
@@ -20,9 +18,64 @@
     <div id="phoneSideButtonBottom"></div>
 
     <div id="phoneFrame">
-        <div id="phoneFrontCamera"></div>
-        <div id="phoneScreen"></div>
-        <div id="phoneHomeButton"></div>
+    <div id="phoneFrontCamera"></div>
+
+    <div id="phoneScreen">
+
+        <!-- PHONE HOME -->
+        <div id="phoneHomeScreen">
+
+            <div class="phone-status-bar">
+                <span>StreetBound</span>
+                <span>15:42</span>
+            </div>
+
+            <div class="phone-app-grid">
+
+                <button
+                    id="ambulancePhoneApp"
+                    class="phone-app"
+                    type="button"
+                >
+                    <span class="phone-app-icon">🚑</span>
+                    <span class="phone-app-name">Ambulance</span>
+                </button>
+
+            </div>
+
+        </div>
+
+        <!-- AMBULANCE CALL SCREEN -->
+        <div
+            id="phoneCallScreen"
+            style="display:none;"
+        >
+            <button
+                id="phoneBackButton"
+                type="button"
+            >
+                ← Back
+            </button>
+
+            <div class="phone-call-content">
+                <div class="phone-call-icon">🚑</div>
+
+                <div class="phone-call-name">
+                    Ambulance
+                </div>
+
+                <div
+                    id="phoneCallStatus"
+                    class="phone-call-status"
+                >
+                    Calling ambulance...
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div id="phoneHomeButton"></div>
     </div>
 </div>
     <div id="rotateMessageOverlay">ROTATE DEVICE TO PLAY!                 
