@@ -331,7 +331,7 @@ canvas {
     display: none;
     z-index: 4500;
     opacity: 0.82;
-    pointer-events: none;
+    pointer-events: auto;
     user-select: none;
     -webkit-user-select: none;
 }
