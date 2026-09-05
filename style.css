@@ -429,7 +429,6 @@ canvas {
    ============================================================ */
 
 #phoneScreen {
-    position: relative;
     overflow: hidden;
     background: #101010;
     color: #ffffff;
@@ -449,6 +448,7 @@ canvas {
 #phoneHomeScreen {
     display: flex;
     flex-direction: column;
+    z-index: 1;
     background:
         linear-gradient(
             rgba(20, 20, 20, 0.9),
@@ -476,6 +476,7 @@ canvas {
 }
 
 .phone-app {
+    appearance: none;
     border: 0;
     background: transparent;
     color: white;
@@ -486,6 +487,8 @@ canvas {
     gap: 5px;
     cursor: pointer;
     touch-action: manipulation;
+    visibility: visible;
+    opacity: 1;
 }
 
 .phone-app:active {
