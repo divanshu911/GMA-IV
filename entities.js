@@ -1,4 +1,4 @@
-console.log("shoe")
+console.log("npc")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -348,64 +348,147 @@ if (
     ctx.translate(this.x, this.y);
 
     // Injured pedestrian lying flat on the ground.
-    if (this.isInjured) {
-        ctx.rotate(Math.PI / 2);
+if (this.isInjured) {
+    ctx.rotate(Math.PI / 2);
 
-        // Legs
-        ctx.strokeStyle = this.skinColor;
-        ctx.lineWidth = 3;
+    const s = this.size;
 
-        ctx.beginPath();
-        ctx.moveTo(-4, 2);
-        ctx.lineTo(-13, 9);
-        ctx.stroke();
+    // Subtle ground shadow
+    ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
+    ctx.beginPath();
+    ctx.ellipse(
+        0,
+        4,
+        s * 0.62,
+        s * 0.25,
+        0,
+        0,
+        Math.PI * 2
+    );
+    ctx.fill();
 
-        ctx.beginPath();
-        ctx.moveTo(4, 2);
-        ctx.lineTo(13, 9);
-        ctx.stroke();
+    // Legs
+    ctx.strokeStyle = this.skinColor;
+    ctx.lineWidth = Math.max(2, s * 0.09);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
 
-        // Body
-        ctx.fillStyle = this.shirtColor;
-        ctx.beginPath();
-        ctx.ellipse(
-            0,
-            0,
-            this.size * 0.45,
-            this.size * 0.25,
-            0,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
+    // Left leg, slightly bent
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.18, s * 0.18);
+    ctx.lineTo(-s * 0.42, s * 0.38);
+    ctx.lineTo(-s * 0.58, s * 0.28);
+    ctx.stroke();
 
-        // Head
-        ctx.fillStyle = this.skinColor;
-        ctx.beginPath();
-        ctx.arc(
-            0,
-            -this.size * 0.32,
-            this.size * 0.16,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
+    // Right leg
+    ctx.beginPath();
+    ctx.moveTo(s * 0.18, s * 0.18);
+    ctx.lineTo(s * 0.43, s * 0.40);
+    ctx.lineTo(s * 0.58, s * 0.34);
+    ctx.stroke();
 
-        // Hair
-        ctx.fillStyle = this.hairColor;
-        ctx.beginPath();
-        ctx.arc(
-            0,
-            -this.size * 0.36,
-            this.size * 0.11,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
+    // Shoes
+    ctx.fillStyle = "#252525";
 
-        ctx.restore();
-        return;
-    }
+    ctx.beginPath();
+    ctx.ellipse(
+        -s * 0.62,
+        s * 0.27,
+        s * 0.13,
+        s * 0.07,
+        -0.25,
+        0,
+        Math.PI * 2
+    );
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.ellipse(
+        s * 0.61,
+        s * 0.34,
+        s * 0.13,
+        s * 0.07,
+        0.15,
+        0,
+        Math.PI * 2
+    );
+    ctx.fill();
+
+    // Body
+    ctx.fillStyle = this.shirtColor;
+    ctx.beginPath();
+    ctx.ellipse(
+        0,
+        0,
+        s * 0.43,
+        s * 0.25,
+        0,
+        0,
+        Math.PI * 2
+    );
+    ctx.fill();
+
+    // Shirt outline
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.22)";
+    ctx.lineWidth = Math.max(1, s * 0.035);
+    ctx.stroke();
+
+    // One arm resting beside the body
+    ctx.strokeStyle = this.skinColor;
+    ctx.lineWidth = Math.max(2, s * 0.085);
+
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.20, -s * 0.08);
+    ctx.lineTo(-s * 0.48, -s * 0.28);
+    ctx.lineTo(-s * 0.57, -s * 0.18);
+    ctx.stroke();
+
+    // Other arm
+    ctx.beginPath();
+    ctx.moveTo(s * 0.20, -s * 0.08);
+    ctx.lineTo(s * 0.43, -s * 0.30);
+    ctx.lineTo(s * 0.50, -s * 0.18);
+    ctx.stroke();
+
+    // Head
+    ctx.fillStyle = this.skinColor;
+    ctx.beginPath();
+    ctx.arc(
+        0,
+        -s * 0.36,
+        s * 0.17,
+        0,
+        Math.PI * 2
+    );
+    ctx.fill();
+
+    // Hair
+    ctx.fillStyle = this.hairColor;
+    ctx.beginPath();
+    ctx.arc(
+        0,
+        -s * 0.42,
+        s * 0.13,
+        Math.PI,
+        Math.PI * 2
+    );
+    ctx.fill();
+
+    // Small face indication
+    ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+    ctx.beginPath();
+    ctx.arc(
+        -s * 0.055,
+        -s * 0.36,
+        Math.max(1, s * 0.018),
+        0,
+        Math.PI * 2
+    );
+    ctx.fill();
+
+    ctx.restore();
+    return;
+}
 
     ctx.rotate(this.angle);
 
