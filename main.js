@@ -1,4 +1,4 @@
-console.log("apple");
+console.log("wtre");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1293,30 +1293,51 @@ cars.forEach(car => {
 }
 // --- HELPER TO SYNC ALL STOLEN CARS & WANTED STATUS ---
 function updateStolenCarsStorage() {
-    let stolenCars = cars.filter(c => c && c.isStolen);
+    const stolenCars = cars.filter(c => c && c.isStolen);
 
     if (stolenCars.length > 0) {
-        let stolenDataList = stolenCars.map(c => ({
+        const stolenDataList = stolenCars.map(c => ({
             id: c.id,
             x: c.x,
             y: c.y,
             color: c.color,
             type: c.type,
             angle: c.angle,
-            health: typeof c.health === "number" ? c.health : 100,
-    exploded: Boolean(c.exploded),
             isPolice: Boolean(c.isPolice)
         }));
-        localStorage.setItem("stolen_cars", JSON.stringify(stolenDataList));
-    } else {
-        // No stolen cars left in world. Hit-and-run cases are tracked
-        // separately, so this branch must not clear wanted status.
-        localStorage.removeItem("stolen_cars");
-        localStorage.removeItem("stolen car"); // clean up legacy single key
+
+        localStorage.setItem(
+            "stolen_cars",
+            JSON.stringify(stolenDataList)
+        );
+
+        return;
+    }
+
+    // No stolen cars remain.
+    localStorage.removeItem("stolen_cars");
+    localStorage.removeItem("stolen car");
+
+    // A stolen-car crime is now gone.
+    // Keep the player wanted only if another crime still exists
+    // or police are actively chasing the player.
+    const hasHitRunCase =
+        typeof playerHitRunCases !== "undefined" &&
+        playerHitRunCases > 0;
+
+    if (!player.beingChased && !hasHitRunCase) {
+        player.wanted = false;
+        player.beingChased = false;
+
+        localStorage.setItem(
+            "gma_player_wanted",
+            "false"
+        );
     }
 }
 
 
+updateStolenCarsStorage();
 function updateGame(dt) {
   if (typeof gameActive !== 'undefined' && !gameActive) return;
   if (typeof updateDayNight === 'function') updateDayNight(dt);
@@ -1325,38 +1346,42 @@ function updateGame(dt) {
         closePlayerPhone();
         }
     
-    // --- REFINED STOLEN CAR & POLICE SYSTEM LOGIC ---
-    let stolenCars = cars.filter(c => c.isStolen);
+ // --- REFINED STOLEN CAR & POLICE SYSTEM LOGIC ---
+let stolenCars = cars.filter(c => c && c.isStolen);
 
-    if (stolenCars.length > 0) {
-        for (let i = stolenCars.length - 1; i >= 0; i--) {
-            let stolenCar = stolenCars[i];
+if (stolenCars.length > 0) {
+    for (let i = stolenCars.length - 1; i >= 0; i--) {
+        let stolenCar = stolenCars[i];
 
-            // If player is NOT driving this specific stolen car, check abandon distance
-            if (!playerCar || playerCar.id !== stolenCar.id) {
-                let dx = player.x - stolenCar.x;
-                let dy = player.y - stolenCar.y;
-                let dist = Math.sqrt(dx * dx + dy * dy);
+        // If player is NOT driving this specific stolen car,
+        // check whether it has been abandoned.
+        if (!playerCar || playerCar.id !== stolenCar.id) {
+            let dx = player.x - stolenCar.x;
+            let dy = player.y - stolenCar.y;
+            let dist = Math.sqrt(dx * dx + dy * dy);
 
-                if (dist >= 1050) {
-                    // Remove only this abandoned stolen car from world
-                    cars = cars.filter(c => c.id !== stolenCar.id);
+            if (dist >= 1050) {
+                // Remove only this abandoned stolen car from the world.
+                cars = cars.filter(c => c.id !== stolenCar.id);
 
-                    if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
-                        taxiManager.setMessage("A stolen car was found by police!", 180);
-                    }
+                if (
+                    typeof taxiManager !== 'undefined' &&
+                    taxiManager.setMessage
+                ) {
+                    taxiManager.setMessage(
+                        "A stolen car was found by police!",
+                        180
+                    );
                 }
             }
         }
-
-        // Sync updated positions/list to local storage
-        updateStolenCarsStorage();
-    } else {
-    // A hit-and-run case can keep the player wanted without a stolen car.
     }
+}
 
-  // Wanted status is cleared only when neither crime source remains.
-  clearWantedIfNoCrimeCases();
+// Always sync the current stolen-car list.
+// If no stolen cars remain, updateStolenCarsStorage()
+// will remove their storage and clear wanted when appropriate.
+    updateStolenCarsStorage();
  // --- 3. Handle AngryDriver logic in updateGame ---
 if (!isInsideHouse && angryDrivers.length > 0) {
     angryDrivers = angryDrivers.filter(driver => {
