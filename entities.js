@@ -1,4 +1,4 @@
-console.log("npc")
+console.log("npccc")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -353,137 +353,78 @@ if (this.isInjured) {
 
     const s = this.size;
 
-    // Subtle ground shadow
-    ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
+    // 1. Ground Shadow
+    ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
     ctx.beginPath();
-    ctx.ellipse(
-        0,
-        4,
-        s * 0.62,
-        s * 0.25,
-        0,
-        0,
-        Math.PI * 2
-    );
+    ctx.ellipse(0, s * 0.05, s * 0.4, s * 0.7, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Legs
+    // Line styles for limbs
     ctx.strokeStyle = this.skinColor;
-    ctx.lineWidth = Math.max(2, s * 0.09);
+    ctx.lineWidth = Math.max(2, s * 0.12);
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
-    // Left leg, slightly bent
+    // 2. Legs (extending DOWN along the body axis)
+    // Left leg: slightly bent outward at knee
     ctx.beginPath();
-    ctx.moveTo(-s * 0.18, s * 0.18);
-    ctx.lineTo(-s * 0.42, s * 0.38);
-    ctx.lineTo(-s * 0.58, s * 0.28);
+    ctx.moveTo(-s * 0.12, s * 0.25);
+    ctx.lineTo(-s * 0.22, s * 0.50);
+    ctx.lineTo(-s * 0.18, s * 0.72);
     ctx.stroke();
 
-    // Right leg
+    // Right leg: mostly straight down
     ctx.beginPath();
-    ctx.moveTo(s * 0.18, s * 0.18);
-    ctx.lineTo(s * 0.43, s * 0.40);
-    ctx.lineTo(s * 0.58, s * 0.34);
+    ctx.moveTo(s * 0.12, s * 0.25);
+    ctx.lineTo(s * 0.16, s * 0.52);
+    ctx.lineTo(s * 0.22, s * 0.75);
     ctx.stroke();
 
     // Shoes
     ctx.fillStyle = "#252525";
-
     ctx.beginPath();
-    ctx.ellipse(
-        -s * 0.62,
-        s * 0.27,
-        s * 0.13,
-        s * 0.07,
-        -0.25,
-        0,
-        Math.PI * 2
-    );
+    ctx.ellipse(-s * 0.18, s * 0.75, s * 0.06, s * 0.09, 0.1, 0, Math.PI * 2);
+    ctx.ellipse(s * 0.24, s * 0.78, s * 0.06, s * 0.09, -0.2, 0, Math.PI * 2);
     ctx.fill();
 
+    // 3. Arms (splayed/sprawled naturally near shoulders)
+    // Left arm: sprawling upward/outward
     ctx.beginPath();
-    ctx.ellipse(
-        s * 0.61,
-        s * 0.34,
-        s * 0.13,
-        s * 0.07,
-        0.15,
-        0,
-        Math.PI * 2
-    );
-    ctx.fill();
+    ctx.moveTo(-s * 0.22, -s * 0.18);
+    ctx.lineTo(-s * 0.38, -s * 0.28);
+    ctx.lineTo(-s * 0.42, -s * 0.42);
+    ctx.stroke();
 
-    // Body
+    // Right arm: resting alongside upper body
+    ctx.beginPath();
+    ctx.moveTo(s * 0.22, -s * 0.18);
+    ctx.lineTo(s * 0.35, -s * 0.05);
+    ctx.lineTo(s * 0.32, s * 0.18);
+    ctx.stroke();
+
+    // 4. Torso (oriented vertically to match spine)
     ctx.fillStyle = this.shirtColor;
     ctx.beginPath();
-    ctx.ellipse(
-        0,
-        0,
-        s * 0.43,
-        s * 0.25,
-        0,
-        0,
-        Math.PI * 2
-    );
+    ctx.ellipse(0, 0, s * 0.26, s * 0.32, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Shirt outline
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.22)";
-    ctx.lineWidth = Math.max(1, s * 0.035);
+    // Torso outline
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.2)";
+    ctx.lineWidth = Math.max(1, s * 0.03);
     ctx.stroke();
 
-    // One arm resting beside the body
-    ctx.strokeStyle = this.skinColor;
-    ctx.lineWidth = Math.max(2, s * 0.085);
+    // 5. Head & Hair (slanted slightly for an unconscious look)
+    const headX = -s * 0.04;
+    const headY = -s * 0.42;
 
-    ctx.beginPath();
-    ctx.moveTo(-s * 0.20, -s * 0.08);
-    ctx.lineTo(-s * 0.48, -s * 0.28);
-    ctx.lineTo(-s * 0.57, -s * 0.18);
-    ctx.stroke();
-
-    // Other arm
-    ctx.beginPath();
-    ctx.moveTo(s * 0.20, -s * 0.08);
-    ctx.lineTo(s * 0.43, -s * 0.30);
-    ctx.lineTo(s * 0.50, -s * 0.18);
-    ctx.stroke();
-
-    // Head
     ctx.fillStyle = this.skinColor;
     ctx.beginPath();
-    ctx.arc(
-        0,
-        -s * 0.36,
-        s * 0.17,
-        0,
-        Math.PI * 2
-    );
+    ctx.arc(headX, headY, s * 0.16, 0, Math.PI * 2);
     ctx.fill();
 
-    // Hair
     ctx.fillStyle = this.hairColor;
     ctx.beginPath();
-    ctx.arc(
-        0,
-        -s * 0.42,
-        s * 0.13,
-        Math.PI,
-        Math.PI * 2
-    );
-    ctx.fill();
-
-    // Small face indication
-    ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
-    ctx.beginPath();
-    ctx.arc(
-        -s * 0.055,
-        -s * 0.36,
-        Math.max(1, s * 0.018),
-        0,
-        Math.PI * 2
-    );
+    ctx.arc(headX, headY - s * 0.03, s * 0.16, Math.PI * 0.8, Math.PI * 2.2);
     ctx.fill();
 
     ctx.restore();
