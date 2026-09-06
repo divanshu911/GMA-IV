@@ -1,4 +1,4 @@
-console.log("c")
+console.log("hjc")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -83,31 +83,43 @@ class Pedestrian {
     ctx.restore();
   }
 
-  drawBaseBody(ctx, swingOffset) {
-    ctx.fillStyle = this.skinColor;
-    ctx.beginPath();
-    ctx.arc(-this.size * 0.42, -this.size * 0.1 + swingOffset, this.size * 0.12, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(this.size * 0.42, -this.size * 0.1 - swingOffset, this.size * 0.12, 0, Math.PI * 2);
-    ctx.fill();
+  drawBaseBody(ctx, swingOffset, isFiring = false) {
+  ctx.fillStyle = this.skinColor;
 
-    ctx.fillStyle = this.shirtColor;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, this.size * 0.46, this.size * 0.26, 0, 0, Math.PI * 2);
-    ctx.fill();
+  // Left arm.
+  ctx.beginPath();
+  ctx.arc(
+    -this.size * 0.42,
+    -this.size * 0.1 + swingOffset,
+    this.size * 0.12,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
 
-    ctx.fillStyle = this.hairColor;
-    ctx.beginPath();
-    ctx.arc(0, 0, this.size * 0.24, 0, Math.PI * 2);
-    ctx.fill();
+  // Right arm.
+  // When firing, use the SAME existing arm and move it ahead
+  // instead of drawing a second arm.
+  const rightArmX = isFiring
+    ? this.size * 0.28
+    : this.size * 0.42;
 
-    ctx.fillStyle = this.skinColor;
-    ctx.beginPath();
-    ctx.arc(0, -this.size * 0.22, this.size * 0.08, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
+  const rightArmY = isFiring
+    ? -this.size * 0.48
+    : -this.size * 0.1 - swingOffset;
+
+  ctx.beginPath();
+  ctx.arc(
+    rightArmX,
+    rightArmY,
+    this.size * 0.12,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+
+  ctx.fillStyle = this.shirtColor;
+}}
 
 class Player extends Pedestrian {
   constructor(x, y) {
@@ -434,44 +446,44 @@ if (this.isInjured) {
     ctx.rotate(this.angle);
 
     let swingOffset = Math.sin(this.walkTimer) * (this.size * 0.18);
-this.drawBaseBody(ctx, swingOffset);
 
-// Police firing pose: one arm extended with a gun.
-if (
+const isFiring =
     this.isPolice &&
     this.policeFiringTimer > 0 &&
-    !this.isInjured
-) {
+    !this.isInjured;
+
+this.drawBaseBody(
+    ctx,
+    swingOffset,
+    isFiring
+);
+
+// Draw the gun from the existing arm.
+if (isFiring) {
     const s = this.size;
 
-    ctx.strokeStyle = this.skinColor;
-    ctx.lineWidth = Math.max(2, s * 0.11);
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-
-    // Extended arm.
-    ctx.beginPath();
-    ctx.moveTo(s * 0.22, -s * 0.05);
-    ctx.lineTo(s * 0.38, -s * 0.28);
-    ctx.lineTo(s * 0.28, -s * 0.58);
-    ctx.stroke();
-
-    // Small handgun.
     ctx.strokeStyle = "#222222";
     ctx.lineWidth = Math.max(2, s * 0.10);
+    ctx.lineCap = "round";
 
     ctx.beginPath();
-    ctx.moveTo(s * 0.28, -s * 0.58);
-    ctx.lineTo(s * 0.28, -s * 0.82);
+    ctx.moveTo(
+        s * 0.28,
+        -s * 0.48
+    );
+    ctx.lineTo(
+        s * 0.28,
+        -s * 0.78
+    );
     ctx.stroke();
 
-    // Tiny muzzle flash while firing.
+    // Small muzzle flash.
     if (this.policeFiringTimer > 5) {
         ctx.fillStyle = "rgba(255, 220, 80, 0.9)";
         ctx.beginPath();
         ctx.arc(
             s * 0.28,
-            -s * 0.88,
+            -s * 0.84,
             s * 0.08,
             0,
             Math.PI * 2
@@ -479,7 +491,6 @@ if (
         ctx.fill();
     }
 }
-
 
     this.drawSpeechBubble(ctx);
 ctx.restore();
