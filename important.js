@@ -6,7 +6,7 @@ let gameActive = false;
 let showFullMap = false;
 let desktopControlsOpen = false;
 let playerPhoneOpen = false;
-console.log("fixes");
+console.log("umm");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -711,78 +711,108 @@ function drawClock(){
 }
 
 // --- 2. START BUTTON LOGIC ---
+
 const startBtn = document.getElementById('startButton');
 const startScreen = document.getElementById('startScreen');
-const hasPlayedBefore = localStorage.getItem("gma_has_played") === "true";
-const loadingDelay = hasPlayedBefore ? 4000 : 8690;
 
-// Loading state
+// Loading requirements
 let mapAssetLoaded = false;
 let collisionMapAssetLoaded = false;
-let minimumLoadingTimeElapsed = false;
-let startButtonReady = false;
+let loadingDelayFinished = false;
+
+const hasPlayedBefore =
+    localStorage.getItem("gma_has_played") === "true";
+
+const loadingDelay = hasPlayedBefore ? 4000 : 8690;
 
 startBtn.disabled = true;
 startBtn.textContent = "Loading...";
 
-
+// ----------------------------------------------------
+// Enable START only when EVERYTHING is ready
+// ----------------------------------------------------
 function tryEnableStartButton() {
+
     if (
-        minimumLoadingTimeElapsed &&
         mapAssetLoaded &&
         collisionMapAssetLoaded &&
-        !startButtonReady
+        loadingDelayFinished
     ) {
-        startButtonReady = true;
         startBtn.disabled = false;
         startBtn.textContent = "START GAME";
+
+        console.log("Loading complete: map + collision + timer ready.");
     }
 }
 
-// First-time player: 8.690 seconds.
-// Returning player: 4 seconds.
-  startBtn.addEventListener('click', () => {
-  if (startBtn.disabled) return;
-  startScreen.style.display = 'none';
+// Minimum loading time
+setTimeout(() => {
 
-  const taxiBtn = document.getElementById('taxiBtn');
-  const restaurantBtn = document.getElementById('restaurantBtn');
+    loadingDelayFinished = true;
 
-  const docEl = document.documentElement;
-  if (docEl.requestFullscreen) docEl.requestFullscreen().catch(err => {});
-  else if (docEl.webkitRequestFullscreen) docEl.webkitRequestFullscreen();
+    tryEnableStartButton();
 
-  if (screen.orientation && screen.orientation.lock) {
-    screen.orientation.lock('landscape').catch(err => {
-      console.warn("Landscape lock request denied or not supported on this device.");
-    });
-  }
+}, loadingDelay);
 
-  resizeCanvas();
 
-  gameActive = true;
-  showFullMap = false;
+// ----------------------------------------------------
+// START GAME
+// ----------------------------------------------------
+startBtn.addEventListener('click', () => {
 
-  if (typeof taxiManager !== 'undefined') {
-    taxiManager.setMessage("Tap SPACE for desktop controls", 300);
-  }
+    if (startBtn.disabled) return;
 
-  // Show phone tip 10 seconds after starting the game.
-  setTimeout(() => {
-    if (typeof taxiManager !== 'undefined') {
-      taxiManager.setMessage(
-        "Tip: swipe down from the top to use phone",
-        300
-      );
+    startScreen.style.display = 'none';
+
+    const taxiBtn = document.getElementById('taxiBtn');
+    const restaurantBtn = document.getElementById('restaurantBtn');
+
+    const docEl = document.documentElement;
+
+    if (docEl.requestFullscreen) {
+        docEl.requestFullscreen().catch(err => {});
+    } else if (docEl.webkitRequestFullscreen) {
+        docEl.webkitRequestFullscreen();
     }
-  }, 10000);
 
-  localStorage.setItem("gma_has_played", "true");
+    if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('landscape').catch(err => {
+            console.warn(
+                "Landscape lock request denied or not supported on this device."
+            );
+        });
+    }
 
-  if (typeof gameLoop !== 'undefined') {
-    requestAnimationFrame(gameLoop);
-  
-  } });
+    resizeCanvas();
+
+    gameActive = true;
+    showFullMap = false;
+
+    if (typeof taxiManager !== 'undefined') {
+        taxiManager.setMessage(
+            "Tap SPACE for desktop controls",
+            300
+        );
+    }
+
+    // Show phone tip 10 seconds after starting the game.
+    setTimeout(() => {
+
+        if (typeof taxiManager !== 'undefined') {
+            taxiManager.setMessage(
+                "Tip: swipe down from the top to use phone",
+                300
+            );
+        }
+
+    }, 10000);
+
+    localStorage.setItem("gma_has_played", "true");
+
+    if (typeof gameLoop !== 'undefined') {
+        requestAnimationFrame(gameLoop);
+    }
+});
 
 // --- 3. DYNAMIC RESIZE FUNCTION ---
 
