@@ -1722,8 +1722,8 @@ function moveArrestPoliceCar(
         }
     }
 
-    car.angle = moveAngle + Math.PI / 2;
-    car.speed = speed;
+    smoothlyTurnAIMovement(car, moveAngle, dt, true);
+car.speed = speed;
 
     const nextX = car.x + Math.cos(moveAngle) * speed * dt;
     const nextY = car.y + Math.sin(moveAngle) * speed * dt;
@@ -2231,7 +2231,25 @@ function drawPoliceBullets(ctx) {
     });
 
     ctx.restore();
-}                                                                     // --- HELPER: EXECUTE EXISTING CHASE & NAVIGATION BEHAVIOR FOR A SINGLE UNIT ---
+}                                                                    function smoothlyTurnAIMovement(unit, moveAngle, dt, isCar) {
+    const targetAngle = moveAngle + Math.PI / 2;
+
+    // Use the same turnSpeed values already used by normal cars.
+    // Police cars are sedans, so their normal turnSpeed is 0.05.
+    const turnSpeed = isCar
+        ? (unit.turnSpeed || 0.05)
+        : 0.12;
+
+    let angleDiff = targetAngle - unit.angle;
+
+    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+
+    const maxTurn = turnSpeed * dt;
+
+    unit.angle += Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), maxTurn);
+}
+// --- HELPER: EXECUTE EXISTING CHASE & NAVIGATION BEHAVIOR FOR A SINGLE UNIT ---
 function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
     const isCar = unit.length !== undefined;
         // --- Police-car A* repath timer ---
@@ -2529,8 +2547,7 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
             }
         }
 
-        unit.angle = moveAngle + Math.PI / 2;
-
+        smoothlyTurnAIMovement(unit, moveAngle, dt, isCar);
         // Position Updates & Collision Handling
        if (isCar) {
     const policeChaseSpeed = 3.2;

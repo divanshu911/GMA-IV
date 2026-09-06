@@ -224,22 +224,58 @@ function canOpenPlayerPhone() {
 
 function openPlayerPhone() {
     if (!canOpenPlayerPhone()) return false;
+    if (!playerPhone) return false;
+
+    // Cancel a closing animation if the phone is opened again quickly.
+    if (window.playerPhoneCloseTimer) {
+        clearTimeout(window.playerPhoneCloseTimer);
+        window.playerPhoneCloseTimer = null;
+    }
 
     playerPhoneOpen = true;
+
+    // Reset animation state.
+    playerPhone.classList.remove("phone-closing");
+    playerPhone.classList.remove("phone-opening");
+
+    // Force the browser to apply the reset before starting the animation.
+    void playerPhone.offsetWidth;
+
     playerPhone.style.display = "block";
+    playerPhone.classList.add("phone-opening");
     playerPhone.setAttribute("aria-hidden", "false");
 
     return true;
 }
 
 function closePlayerPhone() {
+    if (!playerPhone) {
+        playerPhoneOpen = false;
+        return;
+    }
+
     playerPhoneOpen = false;
 
-    if (playerPhone) {
+    // Stop any previous animation.
+    playerPhone.classList.remove("phone-opening");
+    playerPhone.classList.remove("phone-closing");
+
+    // Force the browser to reset the animation state.
+    void playerPhone.offsetWidth;
+
+    // Play the reverse/drop-out animation.
+    playerPhone.classList.add("phone-closing");
+    playerPhone.setAttribute("aria-hidden", "true");
+
+    // Only hide it after the animation has finished.
+    window.playerPhoneCloseTimer = setTimeout(() => {
+        playerPhone.classList.remove("phone-closing");
         playerPhone.style.display = "none";
-        playerPhone.setAttribute("aria-hidden", "true");
-    }
+        window.playerPhoneCloseTimer = null;
+    }, 280);
 }
+
+
 
 function togglePlayerPhone() {
     if (playerPhoneOpen) {

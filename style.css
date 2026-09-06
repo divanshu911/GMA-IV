@@ -320,7 +320,6 @@ canvas {
   font-size: 14px;
   color: #bbbbbb;
 }
-/* PLAYER PHONE*/
 #playerPhone {
     position: fixed;
     left: 50%;
@@ -334,6 +333,52 @@ canvas {
     pointer-events: auto;
     user-select: none;
     -webkit-user-select: none;
+}
+
+/* Phone opening animation: drops down from above the screen */
+#playerPhone.phone-opening {
+    display: block;
+    animation: phoneDropIn 0.32s cubic-bezier(0.22, 0.8, 0.25, 1) forwards;
+}
+
+/* Phone closing animation: reverses the drop */
+#playerPhone.phone-closing {
+    display: block;
+    animation: phoneDropOut 0.28s cubic-bezier(0.65, 0, 0.8, 0.2) forwards;
+}
+
+@keyframes phoneDropIn {
+    0% {
+        transform: translate(-50%, -135vh) rotate(-2deg);
+        opacity: 0;
+    }
+
+    75% {
+        transform: translate(-50%, -47%) rotate(0.4deg);
+        opacity: 0.82;
+    }
+
+    100% {
+        transform: translate(-50%, -50%) rotate(0deg);
+        opacity: 0.82;
+    }
+}
+
+@keyframes phoneDropOut {
+    0% {
+        transform: translate(-50%, -50%) rotate(0deg);
+        opacity: 0.82;
+    }
+
+    25% {
+        transform: translate(-50%, -47%) rotate(0.4deg);
+        opacity: 0.82;
+    }
+
+    100% {
+        transform: translate(-50%, -135vh) rotate(-2deg);
+        opacity: 0;
+    }
 }
 
 /* Main phone body */
