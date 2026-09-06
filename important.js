@@ -6,7 +6,14 @@ let gameActive = false;
 let showFullMap = false;
 let desktopControlsOpen = false;
 let playerPhoneOpen = false;
-console.log("umm");
+// Full-map animation state
+let fullMapAnimating = false;
+let fullMapAnimationProgress = 0;
+let fullMapAnimationFrom = 0;
+let fullMapAnimationTo = 0;
+let fullMapAnimationStartTime = 0;
+let fullMapAnimationDuration = 350;
+console.log("map");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -284,6 +291,42 @@ function togglePlayerPhone() {
     }
 
     openPlayerPhone();
+}
+function beginFullMapAnimation(targetProgress, duration) {
+    fullMapAnimationFrom = fullMapAnimationProgress;
+    fullMapAnimationTo = targetProgress;
+    fullMapAnimationStartTime = performance.now();
+    fullMapAnimationDuration = duration;
+    fullMapAnimating = true;
+}
+
+function openFullMap() {
+    if (showFullMap && !fullMapAnimating) return;
+
+    if (playerPhoneOpen) {
+        closePlayerPhone();
+    }
+
+    showFullMap = true;
+    gameActive = false;
+
+    beginFullMapAnimation(1, 350);
+}
+
+function closeFullMap() {
+    if (!showFullMap && !fullMapAnimating) return;
+
+    gameActive = false;
+
+    beginFullMapAnimation(0, 280);
+}
+
+function toggleFullMap() {
+    if (showFullMap || fullMapAnimating) {
+        closeFullMap();
+    } else {
+        openFullMap();
+    }
 }
 function openAmbulanceCallScreen() {
     const homeScreen = document.getElementById("phoneHomeScreen");
@@ -777,7 +820,7 @@ function tryEnableStartButton() {
         startBtn.disabled = false;
         startBtn.textContent = "START GAME";
 
-        console.log("Loading complete: map + collision + timer ready.");
+        
     }
 }
 
@@ -855,7 +898,12 @@ startBtn.addEventListener('click', () => {
 function resizeCanvas() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
-  if ((gameActive || showFullMap) && typeof drawGame !== 'undefined') drawGame();
+  if (
+    (gameActive || showFullMap || fullMapAnimating) &&
+    typeof drawGame !== 'undefined'
+) {
+    drawGame();
+}
 }
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas(); 
@@ -1059,67 +1107,55 @@ window.addEventListener('keydown', e => {
         return;
     }
 
-    if (!gameActive) return;
-
-    const mappedKey = keyboardKeyMap[e.key];
-
-    if (mappedKey) {
-        e.preventDefault();
-        activeMoves[mappedKey] = true;
-        return;
-    }
-
-    // E = Enter / Exit vehicle
-    if (e.key === 'e' || e.key === 'E') {
-        e.preventDefault();
-
-        if (playerCar) {
-            if (
-                typeof exitBtn !== 'undefined' &&
-                exitBtn &&
-                exitBtn.style.display !== 'none'
-            ) {
-                exitBtn.dispatchEvent(new PointerEvent('pointerdown', {
-                    bubbles: true,
-                    cancelable: true,
-                    pointerType: 'keyboard'
-                }));
-            }
-        } else {
-            if (
-                typeof jackBtn !== 'undefined' &&
-                jackBtn &&
-                jackBtn.style.display !== 'none'
-            ) {
-                jackBtn.dispatchEvent(new PointerEvent('pointerdown', {
-                    bubbles: true,
-                    cancelable: true,
-                    pointerType: 'keyboard'
-                }));
-            }
-        }
-
-        return;
-    }
-
     // H = Open / close full map
-    if (e.key === 'h' || e.key === 'H') {
-        e.preventDefault();
+if (e.key === 'h' || e.key === 'H') {
+    e.preventDefault();
+    toggleFullMap();
+    return;
+}
 
-        if (showFullMap) {
-    showFullMap = false;
-    gameActive = true;
-} else {
-    if (playerPhoneOpen) {
-        closePlayerPhone();
-    }
+if (!gameActive) return;
 
-    showFullMap = true;
-    gameActive = false;
+const mappedKey = keyboardKeyMap[e.key];
+
+if (mappedKey) {
+    e.preventDefault();
+    activeMoves[mappedKey] = true;
+    return;
+}
+
+// E = Enter / Exit vehicle
+if (e.key === 'e' || e.key === 'E') {
+    e.preventDefault();
+
+    if (playerCar) {
+        if (
+            typeof exitBtn !== 'undefined' &&
+            exitBtn &&
+            exitBtn.style.display !== 'none'
+        ) {
+            exitBtn.dispatchEvent(new PointerEvent('pointerdown', {
+                bubbles: true,
+                cancelable: true,
+                pointerType: 'keyboard'
+            }));
         }
-
-        return;
+    } else {
+        if (
+            typeof jackBtn !== 'undefined' &&
+            jackBtn &&
+            jackBtn.style.display !== 'none'
+        ) {
+            jackBtn.dispatchEvent(new PointerEvent('pointerdown', {
+                bubbles: true,
+                cancelable: true,
+                pointerType: 'keyboard'
+            }));
+        }
     }
+
+    return;
+}
     // P = Open / close player phone
 if (e.key === 'p' || e.key === 'P') {
     e.preventDefault();
@@ -1227,20 +1263,37 @@ canvas.addEventListener('pointerdown', (e) => {
   const mouseX = e.clientX - rect.left;
   const mouseY = e.clientY - rect.top;
 
-  if (showFullMap) {
-    if (mouseX >= 30 && mouseX <= 160 && mouseY >= 30 && mouseY <= 75) {
-      showFullMap = false; gameActive = true; 
+if (showFullMap || fullMapAnimating) {
+    if (
+        showFullMap &&
+        !fullMapAnimating &&
+        mouseX >= 30 &&
+        mouseX <= 160 &&
+        mouseY >= 30 &&
+        mouseY <= 75
+    ) {
+        closeFullMap();
     }
-    return;
-  }
 
-  if (gameActive) {
+    return;
+}
+
+if (gameActive) {
     const radarRadius = 80, padding = 20;
-    const mmX = canvas.width - radarRadius - padding, mmY = radarRadius + padding;
-    if (Math.sqrt((mouseX - mmX) ** 2 + (mouseY - mmY) ** 2) <= radarRadius) {
-      showFullMap = true; gameActive = false; 
+    const mmX = canvas.width - radarRadius - padding;
+    const mmY = radarRadius + padding;
+
+    if (
+        Math.sqrt(
+            (mouseX - mmX) ** 2 +
+            (mouseY - mmY) ** 2
+        ) <= radarRadius
+    ) {
+        openFullMap();
     }
-  }
+}  
+
+  
 });
 
 const joystickZone = document.getElementById('joystickZone');

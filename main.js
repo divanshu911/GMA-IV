@@ -1,4 +1,4 @@
-console.log("oe");
+console.log("vadapav");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1909,16 +1909,144 @@ function drawGame() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.imageSmoothingEnabled = true;
 
-  if (typeof showFullMap !== 'undefined' && showFullMap) {
-    ctx.fillStyle = "rgba(26, 26, 26, 0.95)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    if (mapImage.complete && mapWidth > 0) {
-      const padding = 40;
-      const scale = Math.min((canvas.width - padding * 2) / mapWidth, (canvas.height - padding * 2) / mapHeight);
-      const fullW = mapWidth * scale, fullH = mapHeight * scale;
-      const fullX = (canvas.width - fullW) / 2, fullY = (canvas.height - fullH) / 2;
+  if (
+    (typeof showFullMap !== 'undefined' && showFullMap) ||
+    (typeof fullMapAnimating !== 'undefined' && fullMapAnimating)
+) {
+    // Update full-map animation progress.
+    if (fullMapAnimating) {
+        const elapsed = performance.now() - fullMapAnimationStartTime;
+        const t = Math.min(
+            1,
+            elapsed / fullMapAnimationDuration
+        );
 
-      ctx.drawImage(mapImage, fullX, fullY, fullW, fullH);
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.4)"; ctx.lineWidth = 3; ctx.strokeRect(fullX, fullY, fullW, fullH);
+        // Smooth ease-out.
+        const eased = 1 - Math.pow(1 - t, 3);
+
+        fullMapAnimationProgress =
+            fullMapAnimationFrom +
+            (fullMapAnimationTo - fullMapAnimationFrom) * eased;
+
+        if (t >= 1) {
+            fullMapAnimationProgress = fullMapAnimationTo;
+            fullMapAnimating = false;
+
+            // Only return control to the game after the
+            // closing animation has completely finished.
+            if (fullMapAnimationProgress <= 0) {
+                showFullMap = false;
+                gameActive = true;
+            } else {
+                showFullMap = true;
+                gameActive = false;
+            }
+        }
+    }
+
+    const mapProgress = Math.max(
+        0,
+        Math.min(1, fullMapAnimationProgress)
+    );
+
+    // Dark background fades in/out with the map.
+    const backgroundAlpha =
+        0.25 + mapProgress * 0.70;
+
+    ctx.fillStyle =
+        `rgba(26, 26, 26, ${backgroundAlpha})`;
+
+    ctx.fillRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+    if (mapImage.complete && mapWidth > 0) {
+        const padding = 40;
+
+        const scale = Math.min(
+            (canvas.width - padding * 2) / mapWidth,
+            (canvas.height - padding * 2) / mapHeight
+        );
+
+        const fullW = mapWidth * scale;
+        const fullH = mapHeight * scale;
+
+        const fullX = (canvas.width - fullW) / 2;
+        const fullY = (canvas.height - fullH) / 2;
+
+        const fullCenterX = fullX + fullW / 2;
+        const fullCenterY = fullY + fullH / 2;
+
+        // The animation begins from the minimap position.
+        const radarRadius = 80;
+        const radarPadding = 20;
+        const miniMapX =
+            canvas.width - radarRadius - radarPadding;
+        const miniMapY =
+            radarRadius + radarPadding;
+
+        // Start with the map fitting roughly inside the minimap.
+        const startScale = Math.min(
+            (radarRadius * 2) / fullW,
+            (radarRadius * 2) / fullH
+        );
+
+        const animatedScale =
+            startScale +
+            (1 - startScale) * mapProgress;
+
+        const animatedCenterX =
+            miniMapX +
+            (fullCenterX - miniMapX) * mapProgress;
+
+        const animatedCenterY =
+            miniMapY +
+            (fullCenterY - miniMapY) * mapProgress;
+
+        // Everything inside this save/restore is the map itself
+        // and its markers, so they expand together.
+        ctx.save();
+
+        ctx.translate(
+            animatedCenterX,
+            animatedCenterY
+        );
+
+        ctx.scale(
+            animatedScale,
+            animatedScale
+        );
+
+        ctx.translate(
+            -fullCenterX,
+            -fullCenterY
+        );
+
+        ctx.globalAlpha =
+            0.25 + mapProgress * 0.75;
+
+        ctx.drawImage(
+            mapImage,
+            fullX,
+            fullY,
+            fullW,
+            fullH
+        );
+
+        ctx.strokeStyle =
+            "rgba(255, 255, 255, 0.4)";
+
+        ctx.lineWidth = 3;
+
+        ctx.strokeRect(
+            fullX,
+            fullY,
+            fullW,
+            fullH
+        );
         
         
 
@@ -2010,7 +2138,11 @@ function drawGame() {
       ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(-7, 7); ctx.lineTo(7, 7); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.restore();
 
-      const legendItems = [
+// End the map + marker animation transform.
+// The legend and BACK button remain screen-space UI.
+ctx.restore();
+
+const legendItems = [
         { color: "#f1c40f", label: "Taxi / Pickup" },
         { color: "#2ecc71", label: "Drop-off" },
         { color: "#e67e22", label: "Truck / Cargo" },
@@ -2030,7 +2162,10 @@ function drawGame() {
       const lY = canvas.height / 2 - lH / 2;
 
       ctx.save();
-      ctx.fillStyle = "rgba(0, 0, 0, 0.72)";
+
+ctx.globalAlpha = mapProgress;
+
+ctx.fillStyle = "rgba(0, 0, 0, 0.72)";
       ctx.strokeStyle = "rgba(255,255,255,0.2)";
       ctx.lineWidth = 1;
       ctx.fillRect(lX, lY, lW, lH);
@@ -2068,11 +2203,42 @@ function drawGame() {
       ctx.restore();
     }
 
-    ctx.fillStyle = "#f1c40f"; ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 3;
-    ctx.fillRect(30, 30, 130, 45); ctx.strokeRect(30, 30, 130, 45);
-    ctx.fillStyle = "#000000"; ctx.font = "bold 18px Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(" BACK", 30 + 130 / 2, 30 + 45 / 2);
-    return; 
+    ctx.save();
+
+ctx.globalAlpha = mapProgress;
+
+ctx.fillStyle = "#f1c40f";
+ctx.strokeStyle = "#ffffff";
+ctx.lineWidth = 3;
+
+ctx.fillRect(
+    30,
+    30,
+    130,
+    45
+);
+
+ctx.strokeRect(
+    30,
+    30,
+    130,
+    45
+);
+
+ctx.fillStyle = "#000000";
+ctx.font = "bold 18px Arial";
+ctx.textAlign = "center";
+ctx.textBaseline = "middle";
+
+ctx.fillText(
+    " BACK",
+    30 + 130 / 2,
+    30 + 45 / 2
+);
+
+ctx.restore();
+
+return;
   }
   // Camera transform setup
   ctx.save();
