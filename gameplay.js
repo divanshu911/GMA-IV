@@ -1,4 +1,4 @@
-console.log("hair")
+console.log("r")
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -1189,24 +1189,39 @@ respawnBtn.addEventListener('click', () => {
 
 
 function updateRespawnButtonUI() {
-    if (typeof showFullMap !== 'undefined' && showFullMap) {
+    if (
+        typeof showFullMap !== 'undefined' &&
+        (showFullMap || fullMapAnimating)
+    ) {
         respawnBtn.style.display = 'block';
+
+        // Fade the respawn button together with the full-map animation.
+        const fadeProgress =
+            typeof fullMapAnimationProgress !== 'undefined'
+                ? Math.max(0, Math.min(1, fullMapAnimationProgress))
+                : 1;
+
+        respawnBtn.style.opacity = fadeProgress;
+        respawnBtn.style.pointerEvents =
+            fadeProgress > 0.95 ? 'auto' : 'none';
+
         let status = getRespawnStatus();
 
         if (status.active) {
-            respawnBtn.style.backgroundColor = '#f1c40f'; 
-            respawnBtn.style.color = '#000000';           
+            respawnBtn.style.backgroundColor = '#f1c40f';
+            respawnBtn.style.color = '#000000';
         } else {
-            respawnBtn.style.backgroundColor = '#7f8c8d'; 
-            respawnBtn.style.color = '#ffffff';           
+            respawnBtn.style.backgroundColor = '#7f8c8d';
+            respawnBtn.style.color = '#ffffff';
         }
     } else {
         respawnBtn.style.display = 'none';
+        respawnBtn.style.opacity = '0';
+        respawnBtn.style.pointerEvents = 'none';
     }
 
     requestAnimationFrame(updateRespawnButtonUI);
 }
-
 updateRespawnButtonUI();
 
 function spawnPlayerOwnedCars() {

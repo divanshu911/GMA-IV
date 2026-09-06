@@ -1,4 +1,4 @@
-console.log("vadapav");
+console.log("fafda");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1950,11 +1950,10 @@ function drawGame() {
     );
 
     // Dark background fades in/out with the map.
-    const backgroundAlpha =
-        0.25 + mapProgress * 0.70;
+    const backgroundAlpha = mapProgress * 0.95;
 
-    ctx.fillStyle =
-        `rgba(26, 26, 26, ${backgroundAlpha})`;
+ctx.fillStyle =
+    `rgba(26, 26, 26, ${backgroundAlpha})`;
 
     ctx.fillRect(
         0,
