@@ -1,4 +1,4 @@
-console.log("chair")
+console.log("hair")
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
