@@ -1,4 +1,4 @@
-console.log("r")
+console.log("rop")
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -2147,6 +2147,23 @@ const POLICE_OFFICER_FIRE_COOLDOWN = 28;
 const POLICE_OFFICER_SHOOT_RANGE = 300;
 const POLICE_OFFICER_MIN_CAR_SPEED = 0.35;
 
+
+const POLICE_BULLET_SOUND_URL = "https://raw.githubusercontent.com/divanshu911/My-game-assets/ed8f60817772b47df611091dd6f73b2f58435b46/gunshot.wav";
+
+let policeBulletSound = null;
+
+function playPoliceBulletSound() {
+    if (!POLICE_BULLET_SOUND_URL) return;
+
+    if (!policeBulletSound) {
+        policeBulletSound = new Audio(POLICE_BULLET_SOUND_URL);
+        policeBulletSound.volume = 0.45;
+    }
+
+    policeBulletSound.currentTime = 0;
+    policeBulletSound.play().catch(() => {});
+}
+
 function fireOfficerBullet(officer, targetCar) {
     if (!officer || !targetCar) return;
 
@@ -2158,15 +2175,20 @@ function fireOfficerBullet(officer, targetCar) {
 
     const angle = Math.atan2(dy, dx);
 
-    policeBullets.push({
-        x: officer.x,
-        y: officer.y,
-        vx: Math.cos(angle) * POLICE_BULLET_SPEED,
-        vy: Math.sin(angle) * POLICE_BULLET_SPEED,
-        life: POLICE_BULLET_LIFETIME,
-        owner: officer,
-        targetCar: targetCar
-    });
+ policeBullets.push({
+    x: officer.x,
+    y: officer.y,
+    vx: Math.cos(angle) * POLICE_BULLET_SPEED,
+    vy: Math.sin(angle) * POLICE_BULLET_SPEED,
+    life: POLICE_BULLET_LIFETIME,
+    owner: officer,
+    targetCar: targetCar
+});
+
+// Brief firing pose.
+officer.policeFiringTimer = 10;
+
+playPoliceBulletSound();   
 }
 
 function updatePoliceBullets(dt) {
@@ -2227,31 +2249,44 @@ function updatePoliceBullets(dt) {
     }
 }
 
-function drawPoliceBullets(ctx) {
+ function drawPoliceBullets(ctx) {
     if (!policeBullets.length) return;
 
     ctx.save();
 
     policeBullets.forEach(bullet => {
-        ctx.fillStyle = "#f1c40f";
-        ctx.beginPath();
-        ctx.arc(
-            bullet.x,
-            bullet.y,
-            POLICE_BULLET_RADIUS,
-            0,
-            Math.PI * 2
+        const bulletAngle = Math.atan2(
+            bullet.vy,
+            bullet.vx
         );
-        ctx.fill();
+
+        ctx.save();
+
+        ctx.translate(
+            bullet.x,
+            bullet.y
+        );
+
+        ctx.rotate(bulletAngle);
+
+        // Tiny bullet-like projectile.
+        ctx.fillStyle = "#f1c40f";
+        ctx.fillRect(
+            -4,
+            -1,
+            8,
+            2
+        );
+
+        ctx.restore();
     });
 
     ctx.restore();
-}                                                                    function smoothlyTurnAIMovement(unit, moveAngle, dt, isCar) {
+ }                                                             function smoothlyTurnAIMovement(unit, moveAngle, dt, isCar) {
     const targetAngle = moveAngle + Math.PI / 2;
 
-    // Use the same turnSpeed values already used by normal cars.
-    // Police cars are sedans, so their normal turnSpeed is 0.05.
-    const turnSpeed = isCar
+    // Base turning speed from the vehicle/NPC.
+    const baseTurnSpeed = isCar
         ? (unit.turnSpeed || 0.05)
         : 0.12;
 
@@ -2260,13 +2295,28 @@ function drawPoliceBullets(ctx) {
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
 
+    const turnAmount = Math.abs(angleDiff);
+
+    // Larger directional changes turn faster.
+    // Small corrections remain slower and smooth.
+    const directionScale =
+        0.5 + (turnAmount / Math.PI) * 1.5;
+
+    const turnSpeed =
+        baseTurnSpeed * directionScale;
+
     const maxTurn = turnSpeed * dt;
 
-    unit.angle += Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), maxTurn);
+    unit.angle +=
+        Math.sign(angleDiff) *
+        Math.min(turnAmount, maxTurn);
 }
 // --- HELPER: EXECUTE EXISTING CHASE & NAVIGATION BEHAVIOR FOR A SINGLE UNIT ---
 function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
     const isCar = unit.length !== undefined;
+    if (!isCar && unit.policeFiringTimer > 0) {
+    unit.policeFiringTimer -= dt;
+}
         // --- Police-car A* repath timer ---
     if (isCar) {
         if (unit.repathTimer === undefined) {

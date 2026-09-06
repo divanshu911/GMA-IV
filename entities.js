@@ -1,4 +1,4 @@
-console.log("npccc")
+console.log("c")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -434,12 +434,56 @@ if (this.isInjured) {
     ctx.rotate(this.angle);
 
     let swingOffset = Math.sin(this.walkTimer) * (this.size * 0.18);
-    this.drawBaseBody(ctx, swingOffset);
+this.drawBaseBody(ctx, swingOffset);
 
-    // Render speech bubble upright above NPC body
+// Police firing pose: one arm extended with a gun.
+if (
+    this.isPolice &&
+    this.policeFiringTimer > 0 &&
+    !this.isInjured
+) {
+    const s = this.size;
+
+    ctx.strokeStyle = this.skinColor;
+    ctx.lineWidth = Math.max(2, s * 0.11);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    // Extended arm.
+    ctx.beginPath();
+    ctx.moveTo(s * 0.22, -s * 0.05);
+    ctx.lineTo(s * 0.38, -s * 0.28);
+    ctx.lineTo(s * 0.28, -s * 0.58);
+    ctx.stroke();
+
+    // Small handgun.
+    ctx.strokeStyle = "#222222";
+    ctx.lineWidth = Math.max(2, s * 0.10);
+
+    ctx.beginPath();
+    ctx.moveTo(s * 0.28, -s * 0.58);
+    ctx.lineTo(s * 0.28, -s * 0.82);
+    ctx.stroke();
+
+    // Tiny muzzle flash while firing.
+    if (this.policeFiringTimer > 5) {
+        ctx.fillStyle = "rgba(255, 220, 80, 0.9)";
+        ctx.beginPath();
+        ctx.arc(
+            s * 0.28,
+            -s * 0.88,
+            s * 0.08,
+            0,
+            Math.PI * 2
+        );
+        ctx.fill();
+    }
+}
+
+
     this.drawSpeechBubble(ctx);
-
-    ctx.restore();
+ctx.restore();
+    
   }
 }
 
@@ -873,6 +917,11 @@ class Car {
     this.maxHealth = 250;
     this.exploded = false;
     this.damageParticles = [];
+    // Punctured-tyre spark animation.
+this.punctureSparks = [];
+this.punctureSparkTimer = 0;
+this.punctureSparkSide =
+    Math.random() < 0.5 ? -1 : 1;
 
     if (this.type === "Hauler, Truck") { this.weightMultiplier = 4.0; }
     else if (this.type === "Porter, Van") { this.weightMultiplier = 2.6; }
@@ -1263,9 +1312,72 @@ if (typeof playerCar !== 'undefined' && playerCar && this.id === playerCar.id) r
         ctx.fill();
       }
     }
-    
-    ctx.restore();
-  }  drawLights(ctx) {
+    // Punctured tyre sparks while the car is moving.
+if (
+    this.tirePunctured &&
+    !this.exploded &&
+    Math.abs(this.speed) > 0.35
+) {
+    this.punctureSparkTimer -= 1;
+
+    if (this.punctureSparkTimer <= 0) {
+        this.punctureSparkTimer =
+            18 + Math.random() * 28;
+
+        const wheelX =
+            this.punctureSparkSide *
+            (this.width * 0.42);
+
+        const wheelY =
+            this.length * 0.30;
+
+        this.punctureSparks.push({
+            x: wheelX,
+            y: wheelY,
+            vx: (Math.random() - 0.5) * 1.4,
+            vy: 0.5 + Math.random() * 1.2,
+            life: 1
+        });
+    }
+
+    for (
+        let i = this.punctureSparks.length - 1;
+        i >= 0;
+        i--
+    ) {
+        const spark = this.punctureSparks[i];
+
+        spark.x += spark.vx;
+        spark.y += spark.vy;
+        spark.vy += 0.05;
+        spark.life -= 0.12;
+
+        if (spark.life <= 0) {
+            this.punctureSparks.splice(i, 1);
+            continue;
+        }
+
+        ctx.strokeStyle =
+            `rgba(255, 190, 40, ${spark.life})`;
+
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+
+        ctx.moveTo(
+            spark.x,
+            spark.y
+        );
+
+        ctx.lineTo(
+            spark.x - spark.vx * 3,
+            spark.y - spark.vy * 3
+        );
+
+        ctx.stroke();
+    }
+}    ctx.restore();
+  }  
+  drawLights(ctx) {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
