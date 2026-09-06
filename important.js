@@ -6,12 +6,12 @@ let gameActive = false;
 let showFullMap = false;
 let desktopControlsOpen = false;
 let playerPhoneOpen = false;
-console.log(".");
+console.log("oo");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
 
-const HIT_RUN_ESCAPE_DISTANCE = 300;
+const HIT_RUN_ESCAPE_DISTANCE = 450;
 
 let pendingHitRunIncidents = [];
 
@@ -57,6 +57,10 @@ function clearWantedIfNoCrimeCases() {
     if (player.wanted) {
         player.wanted = false;
         localStorage.setItem("gma_player_wanted", "false");
+    }
+
+    return true;
+}lStorage.setItem("gma_player_wanted", "false");
     }
 
     return true;
@@ -149,7 +153,7 @@ function updateHitRunIncidents() {
 
         const distance = Math.hypot(
             player.x - incident.x,
-            player.y - incident.y
+       450  player.y - incident.y
         );
 
         // Once the player reaches 300 units, the opportunity to
@@ -742,11 +746,7 @@ function tryEnableStartButton() {
 // First-time player: 8.690 seconds.
 // Returning player: 4 seconds.
 setTimeout(() => {
-    minimumLoadingTimeElapsed = true;
-    tryEnableStartButton();
-}, loadingDelay);
-
-startBtn.addEventListener('click', () => {
+    minimumstartBtn.addEventListener('click', () => {
   if (startBtn.disabled) return;
   startScreen.style.display = 'none';
 
@@ -767,11 +767,27 @@ startBtn.addEventListener('click', () => {
 
   gameActive = true;
   showFullMap = false;
-      if (typeof taxiManager !== 'undefined') {
-      taxiManager.setMessage("Tap SPACE for desktop controls", 300);
-      }
+
+  if (typeof taxiManager !== 'undefined') {
+    taxiManager.setMessage("Tap SPACE for desktop controls", 300);
+  }
+
+  // Show phone tip 10 seconds after starting the game.
+  setTimeout(() => {
+    if (typeof taxiManager !== 'undefined') {
+      taxiManager.setMessage(
+        "Tip: swipe down from the top to use phone",
+        300
+      );
+    }
+  }, 10000);
+
   localStorage.setItem("gma_has_played", "true");
+
   if (typeof gameLoop !== 'undefined') {
+    requestAnimationFrame(gameLoop);
+  }
+});ameLoop !== 'undefined') {
       requestAnimationFrame(gameLoop); 
   }
 });
