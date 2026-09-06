@@ -6,7 +6,7 @@ let gameActive = false;
 let showFullMap = false;
 let desktopControlsOpen = false;
 let playerPhoneOpen = false;
-console.log("fixed");
+console.log("fixes");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -57,10 +57,6 @@ function clearWantedIfNoCrimeCases() {
     if (player.wanted) {
         player.wanted = false;
         localStorage.setItem("gma_player_wanted", "false");
-    }
-
-    return true;
-}lStorage.setItem("gma_player_wanted", "false");
     }
 
     return true;
@@ -153,10 +149,10 @@ function updateHitRunIncidents() {
 
         const distance = Math.hypot(
             player.x - incident.x,
-       450  player.y - incident.y
+         player.y - incident.y
         );
 
-        // Once the player reaches 300 units, the opportunity to
+        // Once the player reaches 450 units, the opportunity to
         // report the accident is gone permanently.
         if (distance >= HIT_RUN_ESCAPE_DISTANCE) {
             pendingHitRunIncidents.splice(i, 1);
@@ -785,8 +781,8 @@ function tryEnableStartButton() {
 
   if (typeof gameLoop !== 'undefined') {
     requestAnimationFrame(gameLoop);
-  }
-  }); 
+  
+  } });
 
 // --- 3. DYNAMIC RESIZE FUNCTION ---
 
