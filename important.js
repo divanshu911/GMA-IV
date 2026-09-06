@@ -6,7 +6,7 @@ let gameActive = false;
 let showFullMap = false;
 let desktopControlsOpen = false;
 let playerPhoneOpen = false;
-console.log("oo");
+console.log("fixed");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -745,8 +745,7 @@ function tryEnableStartButton() {
 
 // First-time player: 8.690 seconds.
 // Returning player: 4 seconds.
-setTimeout(() => {
-    minimumstartBtn.addEventListener('click', () => {
+  startBtn.addEventListener('click', () => {
   if (startBtn.disabled) return;
   startScreen.style.display = 'none';
 
@@ -787,10 +786,7 @@ setTimeout(() => {
   if (typeof gameLoop !== 'undefined') {
     requestAnimationFrame(gameLoop);
   }
-});ameLoop !== 'undefined') {
-      requestAnimationFrame(gameLoop); 
-  }
-});
+  }); 
 
 // --- 3. DYNAMIC RESIZE FUNCTION ---
 
