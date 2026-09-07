@@ -1,4 +1,4 @@
-console.log("kkc")
+console.log("kfc")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -83,7 +83,7 @@ class Pedestrian {
     ctx.restore();
   }
 
-  drawBaseBody(ctx, swingOffset, isFiring = false) {
+    drawBaseBody(ctx, swingOffset, isFiring = false) {
     // 1. Draw Arms (Hands)
     ctx.fillStyle = this.skinColor;
 
@@ -123,18 +123,19 @@ class Pedestrian {
     ctx.ellipse(0, 0, this.size * 0.38, this.size * 0.22, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // 3. Draw Head (Skin)
-    ctx.fillStyle = this.skinColor;
+    // 3. Draw Head (Completely filled with hair color)
+    ctx.fillStyle = this.hairColor;
     ctx.beginPath();
     ctx.arc(0, 0, this.size * 0.22, 0, Math.PI * 2);
     ctx.fill();
 
-    // 4. Draw Hair
-    ctx.fillStyle = this.hairColor;
+    // 4. Draw Nose (Skin color, placed in front of the head)
+    ctx.fillStyle = this.skinColor;
     ctx.beginPath();
-    ctx.arc(0, 0, this.size * 0.22, Math.PI * 0.8, Math.PI * 2.2);
+    ctx.arc(0, -this.size * 0.22, this.size * 0.08, 0, Math.PI * 2);
     ctx.fill();
-  }
+    }
+  
 }
 
 class Player extends Pedestrian {
