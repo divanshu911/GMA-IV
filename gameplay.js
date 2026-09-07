@@ -1,4 +1,4 @@
-console.log("oo");
+console.log("ooggy");
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -2882,37 +2882,110 @@ if (chaseDistance > 35) {
             const chaseY = Math.sin(moveAngle);
             const avoidDirX = Math.cos(avoidAngle);
             const avoidDirY = Math.sin(avoidAngle);
+    // --- A* CHASE LOGIC & NAVIGATION MOVEMENT ---
+    const chaseTarget =
+        playerCar && !playerCar.exploded
+            ? playerCar
+            : player;
 
-            const finalX =
-                chaseX * (1 - separationStrength) +
-                avoidDirX * separationStrength;
+    const chaseDistance = Math.hypot(
+        chaseTarget.x - unit.x,
+        chaseTarget.y - unit.y
+    );
 
-            const finalY =
-                chaseY * (1 - separationStrength) +
-                avoidDirY * separationStrength;
+    if (chaseDistance > 35) {
+        if (unit.repathTimer === undefined) {
+            unit.repathTimer = 0;
+        }
 
-            if (Math.hypot(finalX, finalY) > 0.001) {
-                moveAngle = Math.atan2(finalY, finalX);
+        unit.repathTimer -= dt;
+
+        unit.policePath = navigationSystem.findPath(
+            unit.x,
+            unit.y,
+            chaseTarget.x,
+            chaseTarget.y
+        );
+
+        unit.repathTimer = 0.33;
+    }
+
+    const path = unit.policePath;
+    let moveAngle = unit.angle;
+
+    if (path && path.length > 1) {
+        const nextWaypoint = path[1];
+        moveAngle = Math.atan2(nextWaypoint.y - unit.y, nextWaypoint.x - unit.x);
+    } else {
+        moveAngle = Math.atan2(
+            chaseTarget.y - unit.y,
+            chaseTarget.x - unit.x
+        ); 
+    }
+
+    let avoidX = 0;
+    let avoidY = 0;
+    const avoidanceRadius = isCar ? 55 : 35;
+
+    cars.forEach(otherCar => {
+        if (otherCar !== unit && otherCar !== playerCar && otherCar.isPolice) {
+            const dx = otherCar.x - unit.x;
+            const dy = otherCar.y - unit.y;
+            const d = Math.hypot(dx, dy);
+
+            if (d < avoidanceRadius && d > 0.01) {
+                const strength = (avoidanceRadius - d) / avoidanceRadius;
+                avoidX -= (dx / d) * strength;
+                avoidY -= (dy / d) * strength;
             }
         }
-// Local obstacle avoidance for police chase cars.
+    });
 
-if (isCar) {
-    const localAvoidance =
-        getPoliceObstacleAvoidance(
+    npcs.forEach(npc => {
+        if (npc !== unit && npc.isPolice) {
+            const dx = npc.x - unit.x;
+            const dy = npc.y - unit.y;
+            const d = Math.hypot(dx, dy);
+
+            if (d < avoidanceRadius && d > 0.01) {
+                const strength = (avoidanceRadius - d) / avoidanceRadius;
+                avoidX -= (dx / d) * strength;
+                avoidY -= (dy / d) * strength;
+            }
+        }
+    });
+
+    if (avoidX !== 0 || avoidY !== 0) {
+        const avoidAngle = Math.atan2(avoidY, avoidX);
+        const separationStrength = Math.min(0.35, Math.hypot(avoidX, avoidY) * 0.35);
+
+        const chaseX = Math.cos(moveAngle);
+        const chaseY = Math.sin(moveAngle);
+        const avoidDirX = Math.cos(avoidAngle);
+        const avoidDirY = Math.sin(avoidAngle);
+
+        const finalX = chaseX * (1 - separationStrength) + avoidDirX * separationStrength;
+        const finalY = chaseY * (1 - separationStrength) + avoidDirY * separationStrength;
+
+        if (Math.hypot(finalX, finalY) > 0.001) {
+            moveAngle = Math.atan2(finalY, finalX);
+        }
+    }
+
+    if (isCar) {
+        const localAvoidance = getPoliceObstacleAvoidance(
             unit,
             moveAngle,
             cars
         );
 
-    if (localAvoidance.blocked) {
-        moveAngle = localAvoidance.angle;
+        if (localAvoidance.blocked) {
+            moveAngle = localAvoidance.angle;
+        }
     }
-  }
-}
 
-
-        smoothlyTurnAIMovement(unit, moveAngle, dt, isCar);
+    smoothlyTurnAIMovement(unit, moveAngle, dt, isCar);
+          
         // Position Updates & Collision Handling
        if (isCar) {
     const policeChaseSpeed = 3.2;
