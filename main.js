@@ -1,4 +1,4 @@
-console.log("lll");
+console.log("kill");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1945,22 +1945,23 @@ function drawGame() {
     }
 
     const mapProgress = Math.max(
-        0,
-        Math.min(1, fullMapAnimationProgress)
-    );
+    0,
+    Math.min(1, fullMapAnimationProgress)
+);
 
-    // Dark background fades in/out with the map.
-    const backgroundAlpha = mapProgress * 0.95;
+// Grey background fades in and out with the map.
+ctx.globalAlpha = mapProgress;
 
-ctx.fillStyle =
-    `rgba(26, 26, 26, ${backgroundAlpha})`;
+ctx.fillStyle = "#808080";
 
-    ctx.fillRect(
-        0,
-        0,
-        canvas.width,
-        canvas.height
-    );
+ctx.fillRect(
+    0,
+    0,
+    canvas.width,
+    canvas.height
+);
+
+ctx.globalAlpha = 1;
 
 
     if (mapImage.complete && mapWidth > 0) {

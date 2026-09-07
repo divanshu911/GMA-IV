@@ -13,7 +13,7 @@ let fullMapAnimationFrom = 0;
 let fullMapAnimationTo = 0;
 let fullMapAnimationStartTime = 0;
 let fullMapAnimationDuration = 350;
-console.log("map");
+console.log("map3");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -885,6 +885,14 @@ startBtn.addEventListener('click', () => {
         }
 
     }, 10000);
+    setTimeout(() => {
+    if (typeof taxiManager !== 'undefined') {
+        taxiManager.setMessage(
+            "Tip: open minimap to see locations on map",
+            240
+        );
+    }
+}, 17000);
 
     localStorage.setItem("gma_has_played", "true");
 
