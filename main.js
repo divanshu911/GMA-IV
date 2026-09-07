@@ -1,4 +1,4 @@
-console.log("kill");
+console.log("kill3");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1949,10 +1949,10 @@ function drawGame() {
     Math.min(1, fullMapAnimationProgress)
 );
 
-// Grey background fades in and out with the map.
+// Single grey background layer that fades with the map.
 ctx.globalAlpha = mapProgress;
 
-ctx.fillStyle = "#808080";
+ctx.fillStyle = "#404040";
 
 ctx.fillRect(
     0,
@@ -1960,6 +1960,8 @@ ctx.fillRect(
     canvas.width,
     canvas.height
 );
+
+ctx.globalAlpha = 1;
 
 ctx.globalAlpha = 1;
 
