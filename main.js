@@ -1948,11 +1948,11 @@ function drawGame() {
     0,
     Math.min(1, fullMapAnimationProgress)
 );
+// Dark background fades in/out with the map.
+const backgroundAlpha = mapProgress * 0.95;
 
-// Single grey background layer that fades with the map.
-ctx.globalAlpha = mapProgress;
-
-ctx.fillStyle = "#404040";
+ctx.fillStyle =
+    `rgba(26, 26, 26, ${backgroundAlpha})`;
 
 ctx.fillRect(
     0,
