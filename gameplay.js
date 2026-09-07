@@ -1,4 +1,4 @@
-console.log("rop")
+console.log("p")
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -2270,13 +2270,17 @@ function updatePoliceBullets(dt) {
         ctx.rotate(bulletAngle);
 
         // Tiny bullet-like projectile.
-        ctx.fillStyle = "#f1c40f";
-        ctx.fillRect(
-            -4,
-            -1,
-            8,
-            2
-        );
+      // Bright bullet with a small glow.
+ctx.shadowColor = "#ffd84a";
+ctx.shadowBlur = 6;
+ctx.fillStyle = "#ffd84a";
+
+ctx.fillRect(
+    -6,
+    -1.5,
+    12,
+    3
+);  
 
         ctx.restore();
     });

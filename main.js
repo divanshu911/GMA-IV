@@ -1,4 +1,4 @@
-console.log("jkl");
+console.log("lll");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -2309,14 +2309,11 @@ ctx.translate(
 
 if (!isInsideHouse && !isInsideDealership && typeof drawNightOverlay === 'function') {
     drawNightOverlay();
-    drawPoliceBullets(ctx);
+    
 }
     
-
-
 if (!isInsideHouse && !isInsideDealership) {
     ctx.save();
-
     ctx.translate(canvas.width / 2, canvas.height / 2);
     ctx.rotate(-camera.angle);
 
@@ -2333,6 +2330,10 @@ if (!isInsideHouse && !isInsideDealership) {
             (lightCameraTarget.size || player.size) / 2
     );
 
+    // Bullets are world-space objects, so they must use
+    // the same camera transform as vehicles and lights.
+    drawPoliceBullets(ctx);
+
     cars.forEach(car => {
         if (isEntityOnScreen(car)) {
             car.drawLights(ctx);
@@ -2340,7 +2341,8 @@ if (!isInsideHouse && !isInsideDealership) {
     });
 
     ctx.restore();
-    }
+}
+
 
   ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
   ctx.fillRect(20, 20, 150, 45);

@@ -1,4 +1,4 @@
-console.log("kfc")
+console.log("chicken")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -1309,37 +1309,44 @@ if (typeof playerCar !== 'undefined' && playerCar && this.id === playerCar.id) r
     ctx.fillRect(-this.width / 2 + 1, this.length / 2 - 2, 3, 2);
     ctx.fillRect(this.width / 2 - 4, this.length / 2 - 2, 3, 2);
 
-    // Damage Visuals
-    if (this.health < 60 || this.exploded) {
-      if (!this.damageParticles) this.damageParticles = [];
-      if (Math.random() < (this.health <= 0 ? 0.4 : 0.15)) {
-        this.damageParticles.push({
-          x: (Math.random() - 0.5) * 8,
-          y: -this.length / 3,
-          life: 1.0,
-          isFire: this.exploded
-        });
-      }
+    // Damage smoke visuals
+if (this.health < 60 && !this.exploded) {
+  if (!this.damageParticles) this.damageParticles = [];
 
-      for (let i = this.damageParticles.length - 1; i >= 0; i--) {
-        let p = this.damageParticles[i];
-        p.life -= 0.03;
-        p.y -= 0.5;
-        p.x += (Math.random() - 0.5) * 1.5;
+  if (Math.random() < 0.15) {
+    this.damageParticles.push({
+      x: (Math.random() - 0.5) * 8,
+      y: -this.length / 3,
+      life: 1.0
+    });
+  }
 
-        if (p.life <= 0) {
-          this.damageParticles.splice(i, 1);
-          continue;
-        }
+  for (let i = this.damageParticles.length - 1; i >= 0; i--) {
+    let p = this.damageParticles[i];
 
-        ctx.fillStyle = p.isFire 
-          ? `rgba(255, ${Math.floor(p.life * 150)}, 0, ${p.life})` 
-          : `rgba(80, 80, 80, ${p.life})`;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.isFire ? 4 : 6, 0, Math.PI * 2);
-        ctx.fill();
-      }
+    p.life -= 0.03;
+    p.y -= 0.5;
+    p.x += (Math.random() - 0.5) * 1.5;
+
+    if (p.life <= 0) {
+      this.damageParticles.splice(i, 1);
+      continue;
     }
+
+    ctx.fillStyle =
+      `rgba(80, 80, 80, ${p.life})`;
+
+    ctx.beginPath();
+    ctx.arc(
+      p.x,
+      p.y,
+      6,
+      0,
+      Math.PI * 2
+    );
+    ctx.fill();
+  }
+}
     // Punctured tyre sparks while the car is moving.
 if (
     this.tirePunctured &&
@@ -1409,6 +1416,46 @@ if (
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
+    // Explosion fire — drawn here so it appears above the night overlay.
+if (this.exploded) {
+  if (!this.damageParticles) {
+    this.damageParticles = [];
+  }
+
+  if (Math.random() < 0.4) {
+    this.damageParticles.push({
+      x: (Math.random() - 0.5) * 8,
+      y: -this.length / 3,
+      life: 1.0
+    });
+  }
+
+  for (let i = this.damageParticles.length - 1; i >= 0; i--) {
+    const p = this.damageParticles[i];
+
+    p.life -= 0.03;
+    p.y -= 0.5;
+    p.x += (Math.random() - 0.5) * 1.5;
+
+    if (p.life <= 0) {
+      this.damageParticles.splice(i, 1);
+      continue;
+    }
+
+    ctx.fillStyle =
+      `rgba(255, ${Math.floor(p.life * 150)}, 0, ${p.life})`;
+
+    ctx.beginPath();
+    ctx.arc(
+      p.x,
+      p.y,
+      4,
+      0,
+      Math.PI * 2
+    );
+    ctx.fill();
+  }
+}
 
     // --- POLICE SIREN ANIMATION & GLOW EFFECT ---
     if (this.isPolice) {
