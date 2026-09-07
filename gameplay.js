@@ -1,4 +1,4 @@
-console.log("8");
+console.log("8y");
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -2963,7 +2963,7 @@ if (!pathBlockedByCar) {
                 unit.speed = 0;
             }
         }
-    } 
+    
 
 // --- STAGE 4A: REVISED POLICE RECOGNITION, WARNING, ARREST & CHASE SYSTEM ---
 function updatePoliceStage4A(dt, player, cars, npcs) {
