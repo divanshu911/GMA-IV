@@ -1,4 +1,4 @@
-
+console.log("8");
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -2559,8 +2559,8 @@ ctx.fillRect(
 
     // Base turning speed from the vehicle/NPC.
     const baseTurnSpeed = isCar
-        ? (unit.turnSpeed || 0.05)
-        : 0.12;
+    ? Math.max(unit.turnSpeed || 0.05, 0.085)
+    : 0.12;
 
     let angleDiff = targetAngle - unit.angle;
 
@@ -2896,10 +2896,11 @@ if (chaseDistance > 35) {
             }
         }
 // Local obstacle avoidance for police chase cars.
-if (isCar) {
+
+if (!pathBlockedByCar) {
     const localAvoidance =
         getPoliceObstacleAvoidance(
-            unit,
+            car,
             moveAngle,
             cars
         );
@@ -2907,7 +2908,9 @@ if (isCar) {
     if (localAvoidance.blocked) {
         moveAngle = localAvoidance.angle;
     }
+  }
 }
+
         smoothlyTurnAIMovement(unit, moveAngle, dt, isCar);
         // Position Updates & Collision Handling
        if (isCar) {
