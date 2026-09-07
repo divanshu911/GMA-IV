@@ -1,4 +1,4 @@
-console.log("p")
+
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -1596,7 +1596,206 @@ function spawnArrestTransportCar() {
     arrestTransportState = "APPROACHING";
 }
 
+// ------------------------------------------------------------
+// POLICE LOCAL OBSTACLE AVOIDANCE
+// Avoids:
+// 1. Other cars
+// 2. Yellow collision pixels (buildings)
+// 3. Blue collision pixels (water)
+// ------------------------------------------------------------
+function getPoliceObstacleAvoidance(car, moveAngle, cars) {
+    if (!car) {
+        return {
+            angle: moveAngle,
+            blocked: false
+        };
+    }
 
+    const forwardX = Math.cos(moveAngle);
+    const forwardY = Math.sin(moveAngle);
+
+    const rightX = -forwardY;
+    const rightY = forwardX;
+
+    const sensorLength = Math.max(
+        45,
+        (car.sensorLength || 35) + 20
+    );
+
+    const sideOffset = 22;
+    const sampleDistances = [
+        sensorLength * 0.45,
+        sensorLength * 0.70,
+        sensorLength
+    ];
+
+    function isBlockedByCollisionPixel(x, y) {
+        if (
+            typeof collisionData === "undefined" ||
+            !collisionData ||
+            typeof collisionMapImage === "undefined" ||
+            !collisionMapImage.width ||
+            !collisionMapImage.height
+        ) {
+            return false;
+        }
+
+        const px = Math.floor(x);
+        const py = Math.floor(y);
+
+        if (
+            px < 0 ||
+            py < 0 ||
+            px >= collisionMapImage.width ||
+            py >= collisionMapImage.height
+        ) {
+            return true;
+        }
+
+        const index =
+            (py * collisionMapImage.width + px) * 4;
+
+        const r = collisionData[index];
+        const g = collisionData[index + 1];
+        const b = collisionData[index + 2];
+
+        // Yellow building pixels.
+        const yellow =
+            r >= 220 &&
+            g >= 175 &&
+            b <= 85 &&
+            r - b >= 135 &&
+            g - b >= 90;
+
+        // Blue water pixels.
+        const blue =
+            b >= 120 &&
+            b > r * 1.15 &&
+            b > g * 1.05;
+
+        return yellow || blue;
+    }
+
+    function isBlockedByCar(x, y) {
+        if (!Array.isArray(cars)) return false;
+
+        for (const otherCar of cars) {
+            if (
+                !otherCar ||
+                otherCar === car ||
+                otherCar.exploded
+            ) {
+                continue;
+            }
+
+            const distance = Math.hypot(
+                otherCar.x - x,
+                otherCar.y - y
+            );
+
+            if (distance < 28) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    function checkDirection(side) {
+        let blockedCount = 0;
+
+        for (const distance of sampleDistances) {
+            const centerX =
+                car.x +
+                forwardX * distance;
+
+            const centerY =
+                car.y +
+                forwardY * distance;
+
+            const sideX =
+                centerX +
+                rightX * side * sideOffset;
+
+            const sideY =
+                centerY +
+                rightY * side * sideOffset;
+
+            if (
+                isBlockedByCollisionPixel(
+                    centerX,
+                    centerY
+                )
+            ) {
+                blockedCount += 2;
+            }
+
+            if (
+                isBlockedByCollisionPixel(
+                    sideX,
+                    sideY
+                )
+            ) {
+                blockedCount += 1;
+            }
+
+            if (
+                isBlockedByCar(
+                    sideX,
+                    sideY
+                )
+            ) {
+                blockedCount += 2;
+            }
+        }
+
+        return blockedCount;
+    }
+
+    const centerBlocked =
+        isBlockedByCollisionPixel(
+            car.x + forwardX * 35,
+            car.y + forwardY * 35
+        ) ||
+        isBlockedByCar(
+            car.x + forwardX * 35,
+            car.y + forwardY * 35
+        );
+
+    if (!centerBlocked) {
+        return {
+            angle: moveAngle,
+            blocked: false
+        };
+    }
+
+    const leftScore = checkDirection(-1);
+    const rightScore = checkDirection(1);
+
+    // Turn toward the side with fewer obstacles.
+    const turnAmount = Math.PI * 0.55;
+
+    if (leftScore < rightScore) {
+        return {
+            angle: moveAngle - turnAmount,
+            blocked: true
+        };
+    }
+
+    if (rightScore < leftScore) {
+        return {
+            angle: moveAngle + turnAmount,
+            blocked: true
+        };
+    }
+
+    // If both sides are blocked, make a smaller turn
+    // so the car can search for an opening naturally.
+    return {
+        angle: moveAngle + Math.PI * 0.35,
+        blocked: true
+    };
+}
 
 // ------------------------------------------------------------
 function moveArrestPoliceCar(
@@ -1736,6 +1935,17 @@ function moveArrestPoliceCar(
             moveAngle = Math.atan2(finalY, finalX);
         }
     }
+    // Avoid normal traffic and collision-map obstacles.
+const localAvoidance =
+    getPoliceObstacleAvoidance(
+        car,
+        moveAngle,
+        cars
+    );
+
+if (localAvoidance.blocked) {
+    moveAngle = localAvoidance.angle;
+}
 
     smoothlyTurnAIMovement(car, moveAngle, dt, true);
 car.speed = speed;
@@ -1922,11 +2132,69 @@ savePendingHitRunIncidents();
 // Update arrest transport + escorts.
 // ------------------------------------------------------------
 function updateArrestTransport(dt) {
-    
+
     if (!player.isBeingArrested) return false;
 
-// Keep player absolutely immobile.
-player.speed = 0;
+    // Keep player absolutely immobile.
+    player.speed = 0;
+
+    // ----------------------------------------------------------
+    // Transport stuck detection.
+    // If the transport car remains at the same position for
+    // 5 seconds, move it to a safe road position.
+    // ----------------------------------------------------------
+    if (arrestTransportCar) {
+        if (arrestTransportCar.stuckX === undefined) {
+            arrestTransportCar.stuckX = arrestTransportCar.x;
+            arrestTransportCar.stuckY = arrestTransportCar.y;
+            arrestTransportCar.stuckTimer = 0;
+        }
+
+        const transportMoved = Math.hypot(
+            arrestTransportCar.x - arrestTransportCar.stuckX,
+            arrestTransportCar.y - arrestTransportCar.stuckY
+        );
+
+        if (transportMoved > 1) {
+            arrestTransportCar.stuckX = arrestTransportCar.x;
+            arrestTransportCar.stuckY = arrestTransportCar.y;
+            arrestTransportCar.stuckTimer = 0;
+        } else {
+            arrestTransportCar.stuckTimer += dt;
+        }
+
+        if (arrestTransportCar.stuckTimer >= 300) {
+            const safeRoadPosition =
+                getRandomStrictRoadPosition();
+
+            arrestTransportCar.x = safeRoadPosition.x;
+            arrestTransportCar.y = safeRoadPosition.y;
+
+            arrestTransportCar.speed = 0;
+            arrestTransportCar.velocityX = 0;
+            arrestTransportCar.velocityY = 0;
+
+            arrestTransportCar.stuckX =
+                arrestTransportCar.x;
+            arrestTransportCar.stuckY =
+                arrestTransportCar.y;
+            arrestTransportCar.stuckTimer = 0;
+
+            arrestTransportCar.arrestTransportPath = null;
+            arrestTransportCar.arrestTransportRepathTimer = 0;
+
+            // Keep the arrested player attached to the transport.
+            if (player.isArrestPassenger) {
+                player.x = arrestTransportCar.x;
+                player.y = arrestTransportCar.y;
+                player.angle = arrestTransportCar.angle;
+            }
+
+            console.log(
+                "Arrest transport stuck for 5 seconds — respawned on road."
+            );
+        }
+    }
 
 
     if (typeof exitBtn !== 'undefined' && exitBtn) {
@@ -2157,7 +2425,7 @@ function playPoliceBulletSound() {
 
     if (!policeBulletSound) {
         policeBulletSound = new Audio(POLICE_BULLET_SOUND_URL);
-        policeBulletSound.volume = 0.45;
+        policeBulletSound.volume = 0.70;
     }
 
     policeBulletSound.currentTime = 0;
@@ -2524,9 +2792,17 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
     }
 
     // --- A* CHASE LOGIC & NAVIGATION MOVEMENT ---
-    const distToPlayer = Math.hypot(player.x - unit.x, player.y - unit.y);
+    const chaseTarget =
+    playerCar && !playerCar.exploded
+        ? playerCar
+        : player;
 
-    if (distToPlayer > 30) {
+const chaseDistance = Math.hypot(
+    chaseTarget.x - unit.x,
+    chaseTarget.y - unit.y
+);
+
+if (chaseDistance > 35) {
     // --- A* repath timer for ALL police units ---
     if (unit.repathTimer === undefined) {
         unit.repathTimer = 0;
@@ -2534,11 +2810,12 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
 
     unit.repathTimer -= dt;
 
-    if (!unit.policePath || unit.repathTimer <= 0) {
-        unit.policePath = navigationSystem.findPath(
-            unit.x, unit.y,
-            player.x, player.y
-        );
+    unit.policePath = navigationSystem.findPath(
+    unit.x,
+    unit.y,
+    chaseTarget.x,
+    chaseTarget.y
+);
 
         unit.repathTimer = 0.33; // recalculate roughly 3 times/sec
     }
@@ -2550,7 +2827,10 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
             const nextWaypoint = path[1];
             moveAngle = Math.atan2(nextWaypoint.y - unit.y, nextWaypoint.x - unit.x);
         } else {
-            moveAngle = Math.atan2(player.y - unit.y, player.x - unit.x);
+           moveAngle = Math.atan2(
+    chaseTarget.y - unit.y,
+    chaseTarget.x - unit.x
+); 
         }
 
                 // Dynamic Police Unit Separation
@@ -2615,7 +2895,19 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
                 moveAngle = Math.atan2(finalY, finalX);
             }
         }
+// Local obstacle avoidance for police chase cars.
+if (isCar) {
+    const localAvoidance =
+        getPoliceObstacleAvoidance(
+            unit,
+            moveAngle,
+            cars
+        );
 
+    if (localAvoidance.blocked) {
+        moveAngle = localAvoidance.angle;
+    }
+}
         smoothlyTurnAIMovement(unit, moveAngle, dt, isCar);
         // Position Updates & Collision Handling
        if (isCar) {
@@ -2668,10 +2960,7 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
                 unit.speed = 0;
             }
         }
-    } else {
-        unit.speed = 0;
-    }
-}
+    } 
 
 // --- STAGE 4A: REVISED POLICE RECOGNITION, WARNING, ARREST & CHASE SYSTEM ---
 function updatePoliceStage4A(dt, player, cars, npcs) {
