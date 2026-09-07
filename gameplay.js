@@ -1,4 +1,4 @@
-console.log("o");
+console.log("oo");
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -2900,7 +2900,7 @@ if (chaseDistance > 35) {
 if (isCar) {
     const localAvoidance =
         getPoliceObstacleAvoidance(
-            car,
+            unit,
             moveAngle,
             cars
         );
@@ -2910,6 +2910,7 @@ if (isCar) {
     }
   }
 }
+
 
         smoothlyTurnAIMovement(unit, moveAngle, dt, isCar);
         // Position Updates & Collision Handling
