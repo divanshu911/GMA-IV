@@ -1,4 +1,4 @@
-console.log("8y");
+console.log("o");
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -2897,7 +2897,7 @@ if (chaseDistance > 35) {
         }
 // Local obstacle avoidance for police chase cars.
 
-if (!pathBlockedByCar) {
+if (isCar) {
     const localAvoidance =
         getPoliceObstacleAvoidance(
             car,
