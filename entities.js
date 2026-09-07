@@ -1,4 +1,4 @@
-console.log("hjc")
+console.log("kkc")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -84,42 +84,58 @@ class Pedestrian {
   }
 
   drawBaseBody(ctx, swingOffset, isFiring = false) {
-  ctx.fillStyle = this.skinColor;
+    // 1. Draw Arms (Hands)
+    ctx.fillStyle = this.skinColor;
 
-  // Left arm.
-  ctx.beginPath();
-  ctx.arc(
-    -this.size * 0.42,
-    -this.size * 0.1 + swingOffset,
-    this.size * 0.12,
-    0,
-    Math.PI * 2
-  );
-  ctx.fill();
+    // Left arm
+    ctx.beginPath();
+    ctx.arc(
+      -this.size * 0.42,
+      -this.size * 0.1 + swingOffset,
+      this.size * 0.12,
+      0,
+      Math.PI * 2
+    );
+    ctx.fill();
 
-  // Right arm.
-  // When firing, use the SAME existing arm and move it ahead
-  // instead of drawing a second arm.
-  const rightArmX = isFiring
-    ? this.size * 0.28
-    : this.size * 0.42;
+    // Right arm
+    const rightArmX = isFiring
+      ? this.size * 0.28
+      : this.size * 0.42;
 
-  const rightArmY = isFiring
-    ? -this.size * 0.48
-    : -this.size * 0.1 - swingOffset;
+    const rightArmY = isFiring
+      ? -this.size * 0.48
+      : -this.size * 0.1 - swingOffset;
 
-  ctx.beginPath();
-  ctx.arc(
-    rightArmX,
-    rightArmY,
-    this.size * 0.12,
-    0,
-    Math.PI * 2
-  );
-  ctx.fill();
+    ctx.beginPath();
+    ctx.arc(
+      rightArmX,
+      rightArmY,
+      this.size * 0.12,
+      0,
+      Math.PI * 2
+    );
+    ctx.fill();
 
-  ctx.fillStyle = this.shirtColor;
-}}
+    // 2. Draw Torso (Shirt)
+    ctx.fillStyle = this.shirtColor;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, this.size * 0.38, this.size * 0.22, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 3. Draw Head (Skin)
+    ctx.fillStyle = this.skinColor;
+    ctx.beginPath();
+    ctx.arc(0, 0, this.size * 0.22, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 4. Draw Hair
+    ctx.fillStyle = this.hairColor;
+    ctx.beginPath();
+    ctx.arc(0, 0, this.size * 0.22, Math.PI * 0.8, Math.PI * 2.2);
+    ctx.fill();
+  }
+}
 
 class Player extends Pedestrian {
   constructor(x, y) {
@@ -494,7 +510,7 @@ if (isFiring) {
 
     this.drawSpeechBubble(ctx);
 ctx.restore();
-    
+
   }
 }
 
@@ -825,7 +841,7 @@ if (this.path && this.pathIndex < this.path.length) {
       // If stuck, keep visual tracking on the target
       this.angle = moveAngle + Math.PI / 2; 
     }
-    
+
     return true;
   }
 
@@ -843,7 +859,7 @@ if (this.path && this.pathIndex < this.path.length) {
     }
 }
 
-  
+
 // === IMPROVED DYNAMIC CAR CLASS WITH OBSTACLE AVOIDANCE & DECOUPLED PLAYER CONTROLS ===
 class Car {
   constructor(id, x, y, color, isPolice = false, type = null) {
@@ -1054,7 +1070,7 @@ if (typeof playerCar !== 'undefined' && playerCar && this.id === playerCar.id) r
 
     // --- OFF-ROAD VEHICLE RECOVERY MANEUVER ---
     const currentlyOnRoad = typeof isRoadColor === 'function' && isRoadColor(this.x, this.y);
-    
+
     if (!currentlyOnRoad) {
       // Sample radial directions to find nearest road vector
       let bestRoadAngle = null;
@@ -1211,12 +1227,12 @@ if (typeof playerCar !== 'undefined' && playerCar && this.id === playerCar.id) r
         this.turnDirection = Math.random() < 0.5 ? 1 : -1;
     }
   }
-              
+
   draw(ctx) {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
-    
+
 
     if (typeof ambientBrightness !== 'undefined' && ambientBrightness >= 0.75) {
       ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
