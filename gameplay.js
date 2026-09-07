@@ -1,4 +1,4 @@
-console.log("ooggy");
+console.log("oggy");
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -2302,7 +2302,7 @@ arrestTransportCar.hasArrestPassenger = true;
 ) {
     arrestEscortCars.forEach((escort, index) => {
 
-         
+
         if (!player.isArrestPassenger) {
             escort.speed = 0;
             escort.velocityX = 0;
@@ -2882,95 +2882,14 @@ if (chaseDistance > 35) {
             const chaseY = Math.sin(moveAngle);
             const avoidDirX = Math.cos(avoidAngle);
             const avoidDirY = Math.sin(avoidAngle);
-    // --- A* CHASE LOGIC & NAVIGATION MOVEMENT ---
-    const chaseTarget =
-        playerCar && !playerCar.exploded
-            ? playerCar
-            : player;
 
-    const chaseDistance = Math.hypot(
-        chaseTarget.x - unit.x,
-        chaseTarget.y - unit.y
-    );
+            const finalX = chaseX * (1 - separationStrength) + avoidDirX * separationStrength;
+            const finalY = chaseY * (1 - separationStrength) + avoidDirY * separationStrength;
 
-    if (chaseDistance > 35) {
-        if (unit.repathTimer === undefined) {
-            unit.repathTimer = 0;
-        }
-
-        unit.repathTimer -= dt;
-
-        unit.policePath = navigationSystem.findPath(
-            unit.x,
-            unit.y,
-            chaseTarget.x,
-            chaseTarget.y
-        );
-
-        unit.repathTimer = 0.33;
-    }
-
-    const path = unit.policePath;
-    let moveAngle = unit.angle;
-
-    if (path && path.length > 1) {
-        const nextWaypoint = path[1];
-        moveAngle = Math.atan2(nextWaypoint.y - unit.y, nextWaypoint.x - unit.x);
-    } else {
-        moveAngle = Math.atan2(
-            chaseTarget.y - unit.y,
-            chaseTarget.x - unit.x
-        ); 
-    }
-
-    let avoidX = 0;
-    let avoidY = 0;
-    const avoidanceRadius = isCar ? 55 : 35;
-
-    cars.forEach(otherCar => {
-        if (otherCar !== unit && otherCar !== playerCar && otherCar.isPolice) {
-            const dx = otherCar.x - unit.x;
-            const dy = otherCar.y - unit.y;
-            const d = Math.hypot(dx, dy);
-
-            if (d < avoidanceRadius && d > 0.01) {
-                const strength = (avoidanceRadius - d) / avoidanceRadius;
-                avoidX -= (dx / d) * strength;
-                avoidY -= (dy / d) * strength;
+            if (Math.hypot(finalX, finalY) > 0.001) {
+                moveAngle = Math.atan2(finalY, finalX);
             }
         }
-    });
-
-    npcs.forEach(npc => {
-        if (npc !== unit && npc.isPolice) {
-            const dx = npc.x - unit.x;
-            const dy = npc.y - unit.y;
-            const d = Math.hypot(dx, dy);
-
-            if (d < avoidanceRadius && d > 0.01) {
-                const strength = (avoidanceRadius - d) / avoidanceRadius;
-                avoidX -= (dx / d) * strength;
-                avoidY -= (dy / d) * strength;
-            }
-        }
-    });
-
-    if (avoidX !== 0 || avoidY !== 0) {
-        const avoidAngle = Math.atan2(avoidY, avoidX);
-        const separationStrength = Math.min(0.35, Math.hypot(avoidX, avoidY) * 0.35);
-
-        const chaseX = Math.cos(moveAngle);
-        const chaseY = Math.sin(moveAngle);
-        const avoidDirX = Math.cos(avoidAngle);
-        const avoidDirY = Math.sin(avoidAngle);
-
-        const finalX = chaseX * (1 - separationStrength) + avoidDirX * separationStrength;
-        const finalY = chaseY * (1 - separationStrength) + avoidDirY * separationStrength;
-
-        if (Math.hypot(finalX, finalY) > 0.001) {
-            moveAngle = Math.atan2(finalY, finalX);
-        }
-    }
 
     if (isCar) {
         const localAvoidance = getPoliceObstacleAvoidance(
@@ -2985,7 +2904,7 @@ if (chaseDistance > 35) {
     }
 
     smoothlyTurnAIMovement(unit, moveAngle, dt, isCar);
-          
+
         // Position Updates & Collision Handling
        if (isCar) {
     const policeChaseSpeed = 3.2;
@@ -3037,7 +2956,8 @@ if (chaseDistance > 35) {
                 unit.speed = 0;
             }
         }
-    
+}
+
 
 // --- STAGE 4A: REVISED POLICE RECOGNITION, WARNING, ARREST & CHASE SYSTEM ---
 function updatePoliceStage4A(dt, player, cars, npcs) {
@@ -3171,35 +3091,6 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
         player.beingChased = false;
         isPlayerSurrendered = false;
 
-        if (surrenderBtn) surrenderBtn.style.display = 'none';
-        return;
-    }
-    // 1. CLEAR ALL POLICE UNITS WHEN NOT WANTED
-if (!player.wanted && !player.beingChased) {
-        cars.forEach(c => {
-            if (c.isPolice && c.policeState && c.policeState !== "PATROL") {
-                if (typeof c.stopSiren === 'function') c.stopSiren();
-                else c.sirenState = 0;
-                c.isParked = false;
-                c.policeState = "PATROL";
-                c.warningTimer = 0;
-                c.graceTimer = 0;
-                c.arrestStage = 0;
-                c.arrestTimer = 0;
-                c.saidStepOut = false;
-                c.saidArrested = false;
-            }
-        });
-        npcs.forEach(n => {
-            if (n.isPolice && n.policeState && n.policeState !== "PATROL") {
-                n.speed = 0.3 + Math.random() * 0.4;
-                n.policeState = "PATROL";
-                n.saidStepOut = false;
-                n.saidArrested = false;
-            }
-        });
-        player.beingChased = false;
-        isPlayerSurrendered = false;
         if (surrenderBtn) surrenderBtn.style.display = 'none';
         return;
     }
@@ -3387,4 +3278,3 @@ if (surrenderBtn) {
         });
     }
 }
-        }}
