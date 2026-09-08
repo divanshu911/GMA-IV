@@ -1,4 +1,4 @@
-console.log("oggy");
+console.log("jack");
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -2586,6 +2586,14 @@ ctx.fillRect(
 // --- HELPER: EXECUTE EXISTING CHASE & NAVIGATION BEHAVIOR FOR A SINGLE UNIT ---
 function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
     const isCar = unit.length !== undefined;
+
+    // Injured police officers must immediately leave the chase.
+    if (!isCar && unit.isInjured) {
+        unit.speed = 0;
+        unit.policeState = "PATROL";
+        unit.policeFiringTimer = 0;
+        return;
+    }
     if (!isCar && unit.policeFiringTimer > 0) {
     unit.policeFiringTimer -= dt;
 }
@@ -3122,9 +3130,13 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
             }
         });
 
-        npcs.forEach(npc => {
-            if (npc.isPolice && (!npc.policeState || npc.policeState === "PATROL")) {
-                let dist = Math.hypot(player.x - npc.x, player.y - npc.y);
+    npcs.forEach(npc => {
+    if (
+        npc.isPolice &&
+        !npc.isInjured &&
+        (!npc.policeState || npc.policeState === "PATROL")
+    ) {
+        let dist = Math.hypot(player.x - npc.x, player.y - npc.y);    
                 if (dist < minDistance) {
                     minDistance = dist;
                     closestUnit = npc;
@@ -3249,9 +3261,14 @@ if (surrenderBtn) {
      }
 
         // Check nearby police officer NPCs
-        if (activeChasingOfficers < 2) {
-            npcs.forEach(n => {
-                if (activeChasingOfficers < 2 && n.isPolice && (!n.policeState || n.policeState === "PATROL")) {
+      if (activeChasingOfficers < 2) {
+    npcs.forEach(n => {
+        if (
+            activeChasingOfficers < 2 &&
+            n.isPolice &&
+            !n.isInjured &&
+            (!n.policeState || n.policeState === "PATROL")
+        ) {  
                     if (Math.hypot(player.x - n.x, player.y - n.y) <= 240) {
                         n.policeState = "CHASE";
                         activeChasingOfficers++;
