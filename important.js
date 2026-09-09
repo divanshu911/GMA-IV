@@ -256,7 +256,7 @@ let nightMusicPlaying = false;
 
 const DAY_LENGTH = 15 * 60; 
 
-const savedGameTime = localStorage.getItem("gameTime"); let gameSeconds = (savedGameTime === null) ? (DAY_LENGTH * 0.25) : Number(savedGameTime); if (isNaN(gameSeconds)) { gameSeconds = DAY_LENGTH * 0.25; }
+const savedGameTime = localStorage.getItem("gameTime"); let gameSeconds = (savedGameTime === null) ? (DAY_LENGTH * 0.625) : Number(savedGameTime); if (isNaN(gameSeconds)) { gameSeconds = DAY_LENGTH * 0.625; }
 
 let ambientBrightness = 1;
 let skyColor = "rgba(0,0,0,0)";
