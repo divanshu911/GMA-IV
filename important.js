@@ -13,7 +13,7 @@ let fullMapAnimationFrom = 0;
 let fullMapAnimationTo = 0;
 let fullMapAnimationStartTime = 0;
 let fullMapAnimationDuration = 350;
-console.log("i8");
+console.log("m5");
                      
 
 // ============================================================
@@ -284,11 +284,24 @@ function updateDayNight(dt){
 // 05:00 -> lights begin turning OFF
 // ============================================================
 
+// After 6 AM, force every building light OFF.
+if (hour >= 6 && hour < 20) {
+    const lights = window.buildingLightShapes || [];
+
+    for (let i = 0; i < lights.length; i++) {
+        lights[i].enabled = false;
+    }
+
+    buildingLightsMode = "day";
+    buildingLightsSequenceIndex = 0;
+}
+
+// Start turning building lights ON at 8 PM.
 if (hour >= 20 && buildingLightsMode === "day") {
     startBuildingLightsOn();
 }
 
-if (hour >= 5 && hour < 20 && buildingLightsMode === "night") {
+if (hour >= 5 && hour < 6 && buildingLightsMode === "night") {
     startBuildingLightsOff();
 }
 
