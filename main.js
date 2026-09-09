@@ -1,4 +1,4 @@
-console.log("3");
+console.log("3i");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -201,6 +201,32 @@ function updateBuildingLightSequence() {
     const lights = window.buildingLightShapes || [];
 
     if (lights.length === 0) return;
+
+    const currentHour = (gameSeconds / DAY_LENGTH) * 24;
+
+    // After 6 AM, every building light is OFF.
+    if (currentHour >= 6 && currentHour < 20) {
+        for (let i = 0; i < lights.length; i++) {
+            lights[i].enabled = false;
+        }
+
+        buildingLightsMode = "day";
+        buildingLightsSequenceIndex = 0;
+        return;
+    }
+
+    // Past 10 PM, immediately turn every remaining light ON.
+    if (currentHour >= 22) {
+        for (let i = 0; i < lights.length; i++) {
+            lights[i].enabled = true;
+        }
+
+        buildingLightsMode = "night";
+        buildingLightsSequenceIndex = lights.length;
+        return;
+    }
+
+    // Existing 20:00 → 22:00 sequential light sequence continues below...
 
     const now = performance.now();
 
