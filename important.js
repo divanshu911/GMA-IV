@@ -13,7 +13,7 @@ let fullMapAnimationFrom = 0;
 let fullMapAnimationTo = 0;
 let fullMapAnimationStartTime = 0;
 let fullMapAnimationDuration = 350;
-console.log("map3i");
+console.log("i8");
                      
 
 // ============================================================
@@ -278,6 +278,28 @@ function updateDayNight(dt){
 
    const hour = t * 24;
    let darkness = 0;
+    // ============================================================
+// BUILDING LIGHT SCHEDULE
+// 20:00 -> lights begin turning ON
+// 05:00 -> lights begin turning OFF
+// ============================================================
+
+if (hour >= 20 && buildingLightsMode === "day") {
+    startBuildingLightsOn();
+}
+
+if (hour >= 5 && hour < 20 && buildingLightsMode === "night") {
+    startBuildingLightsOff();
+}
+
+if (hour >= 5 && hour < 20 && buildingLightsMode === "turningOn") {
+    // Safety reset if the game somehow jumps past the night period.
+    buildingLightsMode = "night";
+}
+
+if (hour >= 20 || hour < 5) {
+    updateBuildingLightSequence();
+}
 
    // --- DYNAMIC TOW BUTTON VISIBILITY ---
    if (typeof towTruckBtn !== 'undefined' && towTruckBtn) {
@@ -416,9 +438,13 @@ function drawNightOverlay() {
         canvas.height
     );
 
-    if (lights.length === 0 || ambientBrightness >= 0.75) {
-        ctx.restore();
-        return;
+    if (
+    lights.length === 0 ||
+    ambientBrightness >= 0.75 ||
+    buildingLightsMode === "day"
+) {
+    ctx.restore();
+    return;
     }
 
     function isLightInViewport(light) {
@@ -560,13 +586,18 @@ function drawNightOverlay() {
      */
     for (let i = 0; i < lights.length; i++) {
 
-        const light = lights[i];
+    const light = lights[i];
 
-        if (!isLightInViewport(light)) {
-            continue;
-        }
+    // Do not draw lights that have not been switched on yet.
+    if (!light.enabled) {
+        continue;
+    }
 
-        drawLightBeam(light);
+    if (!isLightInViewport(light)) {
+        continue;
+    }
+
+    drawLightBeam(light);
     }
 
     ctx.restore();

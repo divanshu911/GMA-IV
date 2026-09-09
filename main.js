@@ -1,4 +1,4 @@
-console.log("kill3");
+console.log("3");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -128,9 +128,135 @@ collisionMapImage.crossOrigin = "Anonymous";
 // ============================================================
 
 window.buildingLightShapes = [];
-
 const BUILDING_LIGHT_MIN_PIXELS = 12;
 
+// ============================================================
+// BUILDING LIGHT SEQUENCING
+// Lights turn on/off one at a time every 0.5 real seconds.
+// ============================================================
+
+let buildingLightsMode = "day";
+let buildingLightsSequence = [];
+let buildingLightsSequenceIndex = 0;
+let buildingLightsLastActionTime = 0;
+
+const BUILDING_LIGHT_INTERVAL = 500; // 0.5 real seconds
+
+function shuffleBuildingLights() {
+    const lights = window.buildingLightShapes || [];
+
+    buildingLightsSequence = lights.slice();
+
+    // Fisher-Yates shuffle
+    for (let i = buildingLightsSequence.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+
+        const temp = buildingLightsSequence[i];
+        buildingLightsSequence[i] = buildingLightsSequence[j];
+        buildingLightsSequence[j] = temp;
+    }
+
+    buildingLightsSequenceIndex = 0;
+}
+
+function startBuildingLightsOn() {
+    const lights = window.buildingLightShapes || [];
+
+    if (lights.length === 0) return;
+
+    shuffleBuildingLights();
+
+    buildingLightsMode = "turningOn";
+    buildingLightsLastActionTime = performance.now();
+
+    // Start with one light immediately at 8 PM.
+    const firstLight = buildingLightsSequence[0];
+
+    if (firstLight) {
+        firstLight.enabled = true;
+        buildingLightsSequenceIndex = 1;
+    }
+}
+
+function startBuildingLightsOff() {
+    const lights = window.buildingLightShapes || [];
+
+    if (lights.length === 0) return;
+
+    shuffleBuildingLights();
+
+    buildingLightsMode = "turningOff";
+    buildingLightsLastActionTime = performance.now();
+
+    // Start with one light immediately at 5 AM.
+    const firstLight = buildingLightsSequence[0];
+
+    if (firstLight) {
+        firstLight.enabled = false;
+        buildingLightsSequenceIndex = 1;
+    }
+}
+
+function updateBuildingLightSequence() {
+    const lights = window.buildingLightShapes || [];
+
+    if (lights.length === 0) return;
+
+    const now = performance.now();
+
+    if (
+        buildingLightsMode === "turningOn" &&
+        buildingLightsSequenceIndex < buildingLightsSequence.length
+    ) {
+        if (now - buildingLightsLastActionTime >= BUILDING_LIGHT_INTERVAL) {
+            const light =
+                buildingLightsSequence[buildingLightsSequenceIndex];
+
+            if (light) {
+                light.enabled = true;
+            }
+
+            buildingLightsSequenceIndex++;
+            buildingLightsLastActionTime = now;
+        }
+
+        return;
+    }
+
+    if (
+        buildingLightsMode === "turningOff" &&
+        buildingLightsSequenceIndex < buildingLightsSequence.length
+    ) {
+        if (now - buildingLightsLastActionTime >= BUILDING_LIGHT_INTERVAL) {
+            const light =
+                buildingLightsSequence[buildingLightsSequenceIndex];
+
+            if (light) {
+                light.enabled = false;
+            }
+
+            buildingLightsSequenceIndex++;
+            buildingLightsLastActionTime = now;
+        }
+
+        return;
+    }
+
+    // Sequence finished.
+    if (
+        buildingLightsMode === "turningOn" &&
+        buildingLightsSequenceIndex >= buildingLightsSequence.length
+    ) {
+        buildingLightsMode = "night";
+    }
+
+    if (
+        buildingLightsMode === "turningOff" &&
+        buildingLightsSequenceIndex >= buildingLightsSequence.length
+    ) {
+        buildingLightsMode = "day";
+    }
+}
 // CollisionMap2's main building color is approximately:
 // RGB(249, 212, 19).
 // Use a range so antialiased/shaded yellow pixels remain connected.
@@ -549,16 +675,18 @@ if (!isStrictCardinal) {
                 continue;
             }
 
-            window.buildingLightShapes.push({
-                x: originX,
-                y: originY,
+      window.buildingLightShapes.push({
+    x: originX,
+    y: originY,
+    nx: normal.x,
+    ny: normal.y,
 
-                nx: normal.x,
-                ny: normal.y,
+    length,
+    baseWidth,
 
-                length,
-                baseWidth
-            });
+    // Lights begin off and are enabled by the day/night sequence.
+    enabled: false
+});      
 
             lightCount++;
         }
