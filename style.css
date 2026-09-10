@@ -245,6 +245,33 @@ canvas {
 .interact-btn:active {
   transform: scale(0.95);
 }
+/* ===== PUNCH / COMBAT BUTTON ===== */
+#punchBtn {
+  position: absolute;
+  top: 210px;
+  right: 10%;
+  width: 70px;
+  height: 70px;
+  background: rgba(192, 57, 43, 0.75);
+  border: 4px solid rgba(255, 255, 255, 0.75);
+  border-radius: 50%;
+  font-size: 2rem;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 15;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  outline: none;
+  padding: 0;
+  touch-action: manipulation;
+  transition: background-color 0.1s ease, transform 0.1s ease;
+}
+
+#punchBtn:active {
+  background: rgba(192, 57, 43, 0.95);
+  transform: scale(0.95);
+}
 
 #enterHomeBtn { 
   right: 55%; /* Next to the burger button */

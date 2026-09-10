@@ -1,4 +1,4 @@
-console.log("chicken")
+console.log("g63")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -83,7 +83,7 @@ class Pedestrian {
     ctx.restore();
   }
 
-    drawBaseBody(ctx, swingOffset, isFiring = false) {
+    drawBaseBody(ctx, swingOffset, isFiring = false, punchProgress = 0) {
     // 1. Draw Arms (Hands)
     ctx.fillStyle = this.skinColor;
 
@@ -99,13 +99,29 @@ class Pedestrian {
     ctx.fill();
 
     // Right arm
-    const rightArmX = isFiring
-      ? this.size * 0.28
-      : this.size * 0.42;
+    let rightArmX;
+    let rightArmY;
 
-    const rightArmY = isFiring
-      ? -this.size * 0.48
-      : -this.size * 0.1 - swingOffset;
+    if (isFiring) {
+      rightArmX = this.size * 0.28;
+      rightArmY = -this.size * 0.48;
+    } else if (punchProgress > 0) {
+      // Punch animation:
+      // 0 = normal position
+      // 1 = fully extended
+      const punchX =
+        this.size * (0.42 - 0.14 * punchProgress);
+
+      const punchY =
+        -this.size * 0.1 -
+        this.size * 0.50 * punchProgress;
+
+      rightArmX = punchX;
+      rightArmY = punchY;
+    } else {
+      rightArmX = this.size * 0.42;
+      rightArmY = -this.size * 0.1 - swingOffset;
+    }
 
     ctx.beginPath();
     ctx.arc(
@@ -123,25 +139,26 @@ class Pedestrian {
     ctx.ellipse(0, 0, this.size * 0.38, this.size * 0.22, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // 3. Draw Head (Completely filled with hair color)
+    // 3. Draw Head
     ctx.fillStyle = this.hairColor;
     ctx.beginPath();
     ctx.arc(0, 0, this.size * 0.22, 0, Math.PI * 2);
     ctx.fill();
 
-    // 4. Draw Nose (Skin color, placed in front of the head)
+    // 4. Draw Nose
     ctx.fillStyle = this.skinColor;
     ctx.beginPath();
     ctx.arc(0, -this.size * 0.22, this.size * 0.08, 0, Math.PI * 2);
     ctx.fill();
     }
-  
 }
 
 class Player extends Pedestrian {
   constructor(x, y) {
     super(x, y, 20, "#e67e22", "#2d3436", "#ffdbac");
     this.maxSpeed = 3;
+    this.punchTimer = 0;
+this.punchCooldown = 0;
     // --- POLICE WANTED STATE ---
     let savedWanted = localStorage.getItem("gma_player_wanted");
     this.wanted = savedWanted === "true";
@@ -175,6 +192,15 @@ class Player extends Pedestrian {
   }
 
   update(dt, isMoving, targetAngle) {
+        if (this.punchTimer > 0) {
+      this.punchTimer -= dt;
+      if (this.punchTimer < 0) this.punchTimer = 0;
+    }
+
+    if (this.punchCooldown > 0) {
+      this.punchCooldown -= dt;
+      if (this.punchCooldown < 0) this.punchCooldown = 0;
+    }
     this.speed = 0;
     if (isMoving) {
       this.angle = targetAngle;
@@ -208,7 +234,30 @@ class Player extends Pedestrian {
     }
 
     let swingOffset = Math.sin(this.walkTimer) * (this.size * 0.18);
-    this.drawBaseBody(ctx, swingOffset);
+
+let punchProgress = 0;
+
+if (this.punchTimer > 0) {
+    const punchDuration = 12;
+    const elapsed = punchDuration - this.punchTimer;
+
+    // Fast extension, slower return.
+    if (elapsed < 4) {
+        punchProgress = elapsed / 4;
+    } else {
+        punchProgress = Math.max(
+            0,
+            1 - ((elapsed - 4) / 8)
+        );
+    }
+}
+
+this.drawBaseBody(
+    ctx,
+    swingOffset,
+    false,
+    punchProgress
+);
 
     ctx.restore();
   }
@@ -227,6 +276,8 @@ class NPC extends Pedestrian {
     this.isPolice = isPolice;
     // Hit & run injury state
 this.isInjured = false;
+        this.punchCount = 0;
+    this.punchesToInjure = 2 + Math.floor(Math.random() * 4);
 
     // Conversation & Reaction properties
     this.inConversation = false;

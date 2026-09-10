@@ -1,4 +1,4 @@
-console.log("gls");
+console.log("gls600");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1479,7 +1479,128 @@ function updateStolenCarsStorage() {
         );
     }
 }
+// ============================================================
+// PUNCH / BASIC MELEE COMBAT
+// Foundation only: no NPC reactions or crime logic yet.
+// ============================================================
 
+const punchBtn = document.getElementById("punchBtn");
+
+const PUNCH_RANGE = 48;
+const PUNCH_COOLDOWN = 14;
+const PUNCH_KNOCKBACK = 6;
+
+function getPunchTarget() {
+    if (
+        !player ||
+        playerCar ||
+        player.isBeingArrested ||
+        isInsideHouse ||
+        isInsideDealership
+    ) {
+        return null;
+    }
+
+    let closestNPC = null;
+    let closestDistance = PUNCH_RANGE;
+
+    const forwardX = Math.cos(player.angle - Math.PI / 2);
+    const forwardY = Math.sin(player.angle - Math.PI / 2);
+
+    for (let i = 0; i < npcs.length; i++) {
+        const npc = npcs[i];
+
+        if (!npc) continue;
+        if (npc.isPassenger) continue;
+        if (npc.isPolice) continue;
+        if (npc.isInjured) continue;
+
+        const dx = npc.x - player.x;
+        const dy = npc.y - player.y;
+        const distance = Math.hypot(dx, dy);
+
+        if (distance > PUNCH_RANGE || distance === 0) {
+            continue;
+        }
+
+        // NPC must be roughly in front of the player.
+        const dot =
+            (dx / distance) * forwardX +
+            (dy / distance) * forwardY;
+
+        if (dot < 0.15) continue;
+
+        if (distance < closestDistance) {
+            closestDistance = distance;
+            closestNPC = npc;
+        }
+    }
+
+    return closestNPC;
+}
+
+function punchNPC() {
+    if (!player || player.punchCooldown > 0) return;
+
+    const target = getPunchTarget();
+
+    if (!target) return;
+
+    // Start the punch animation.
+    player.punchTimer = 12;
+    player.punchCooldown = PUNCH_COOLDOWN;
+
+    // Count this NPC's punches.
+    target.punchCount = (target.punchCount || 0) + 1;
+
+    // Bounce the NPC a few pixels away from the player.
+    let dx = target.x - player.x;
+    let dy = target.y - player.y;
+    let distance = Math.hypot(dx, dy);
+
+    if (distance > 0) {
+        const nx = dx / distance;
+        const ny = dy / distance;
+
+        const pushedX = target.x + nx * PUNCH_KNOCKBACK;
+        const pushedY = target.y + ny * PUNCH_KNOCKBACK;
+
+        if (
+            typeof isRoadColor !== "function" ||
+            isRoadColor(pushedX, pushedY)
+        ) {
+            target.x = pushedX;
+            target.y = pushedY;
+        }
+    }
+
+    // NPC becomes injured after a randomly chosen 2–5 punches.
+    if (
+        target.punchCount >=
+        target.punchesToInjure
+    ) {
+        target.isInjured = true;
+        target.speed = 0;
+        target.inConversation = false;
+        target.speechText = null;
+        target.speechTimer = 0;
+        target.changeDirTimer = 999999;
+        target.fleeTimer = 0;
+    }
+
+    if (typeof npcHitPool !== "undefined") {
+        playSpatialSound(
+            npcHitPool,
+            target.x,
+            target.y,
+            1.0
+        );
+    }
+}
+
+if (punchBtn) {
+    punchBtn.addEventListener("click", punchNPC);
+}
 function updateGame(dt) {
   if (typeof gameActive !== 'undefined' && !gameActive) return;
   if (typeof updateDayNight === 'function') updateDayNight(dt);
@@ -1906,12 +2027,21 @@ cars.forEach(car => {
       if (exitBtn) exitBtn.style.display = 'none'; 
       if (typeof sirenBtn !== 'undefined' && sirenBtn) sirenBtn.style.display = 'none'; // Hide siren when on foot
 
+              if (punchBtn) {
+          const punchTarget = getPunchTarget();
+
+          punchBtn.style.display =
+              (!player.isBeingArrested && punchTarget)
+                  ? 'flex'
+                  : 'none';
+              }
   } else {
     if (exitBtn) {
     exitBtn.style.display =
         player.isBeingArrested ? 'none' : 'flex';
     }
     if (jackBtn) jackBtn.style.display = 'none';
+            if (punchBtn) punchBtn.style.display = 'none';
    // Update siren button label and display status when driving
     if (typeof updateSirenButtonLabel === 'function') {
         if (playerCar && playerCar.isPolice) {
