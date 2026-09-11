@@ -1,4 +1,4 @@
-console.log("gls600");
+console.log("Gtr");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1540,55 +1540,193 @@ function getPunchTarget() {
 }
 
 function punchNPC() {
-    if (!player || player.punchCooldown > 0) return;
+    if (
+        !player ||
+        player.punchCooldown > 0
+    ) {
+        return;
+    }
 
     const target = getPunchTarget();
 
     if (!target) return;
 
-    // Start the punch animation.
+    // Police are NEVER valid combat targets.
+    if (target.isPolice) return;
+
+    // Start player punch animation.
     player.punchTimer = 12;
-    player.punchCooldown = PUNCH_COOLDOWN;
+    player.punchCooldown =
+        PUNCH_COOLDOWN;
 
-    // Count this NPC's punches.
-    target.punchCount = (target.punchCount || 0) + 1;
+    // Count punches.
+    target.punchCount =
+        (target.punchCount || 0) + 1;
 
-    // Bounce the NPC a few pixels away from the player.
-    let dx = target.x - player.x;
-    let dy = target.y - player.y;
-    let distance = Math.hypot(dx, dy);
+    // ------------------------------------------------------------
+    // Knock the NPC backwards.
+    // ------------------------------------------------------------
+    let dx =
+        target.x - player.x;
+
+    let dy =
+        target.y - player.y;
+
+    let distance =
+        Math.hypot(dx, dy);
 
     if (distance > 0) {
-        const nx = dx / distance;
-        const ny = dy / distance;
+        const nx =
+            dx / distance;
 
-        const pushedX = target.x + nx * PUNCH_KNOCKBACK;
-        const pushedY = target.y + ny * PUNCH_KNOCKBACK;
+        const ny =
+            dy / distance;
+
+        const pushedX =
+            target.x +
+            nx * PUNCH_KNOCKBACK;
+
+        const pushedY =
+            target.y +
+            ny * PUNCH_KNOCKBACK;
 
         if (
-            typeof isRoadColor !== "function" ||
-            isRoadColor(pushedX, pushedY)
+            typeof isRoadColor !==
+                "function" ||
+            isRoadColor(
+                pushedX,
+                pushedY
+            )
         ) {
             target.x = pushedX;
             target.y = pushedY;
         }
     }
 
-    // NPC becomes injured after a randomly chosen 2–5 punches.
+    // ------------------------------------------------------------
+    // Clear conversation immediately.
+    // ------------------------------------------------------------
+    target.inConversation = false;
+    target.speechText = null;
+    target.speechTimer = 0;
+    target.conversationCooldown = 180;
+
+    // ------------------------------------------------------------
+    // Injure after the existing random 2–5 punches.
+    // ------------------------------------------------------------
     if (
         target.punchCount >=
         target.punchesToInjure
     ) {
         target.isInjured = true;
         target.speed = 0;
+
+        target.isFightingBack = false;
+        target.fightTimer = 0;
+        target.fightPath = [];
+        target.fightPathIndex = 0;
+
+        target.fleeTimer = 0;
+        target.fleePath = [];
+        target.fleePathIndex = 0;
+
         target.inConversation = false;
         target.speechText = null;
         target.speechTimer = 0;
         target.changeDirTimer = 999999;
-        target.fleeTimer = 0;
+
+        if (
+            typeof npcHitPool !==
+                "undefined"
+        ) {
+            playSpatialSound(
+                npcHitPool,
+                target.x,
+                target.y,
+                1.0
+            );
+        }
+
+        return;
     }
 
-    if (typeof npcHitPool !== "undefined") {
+    // ------------------------------------------------------------
+    // Some civilians fight back.
+    // Others flee.
+    //
+    // Police are already excluded above.
+    // No wanted/crime code is called here.
+    // ------------------------------------------------------------
+    if (target.canFightBack) {
+        target.isFightingBack = true;
+        target.fightTimer = 900;
+        target.fightPath = [];
+        target.fightPathIndex = 0;
+        target.fightRepathTimer = 0;
+
+        target.fleeTimer = 0;
+        target.fleePath = [];
+        target.fleePathIndex = 0;
+        target.fleePathRepathTimer = 0;
+
+        const fightLines = [
+            "Hey you!",
+            "Who you think you are?",
+            "Back off!",
+            "You wanna fight?!",
+            "What you want!"
+        ];
+
+        target.say(
+            fightLines[
+                Math.floor(
+                    Math.random() *
+                    fightLines.length
+                )
+            ],
+            90
+        );
+    } else {
+        target.isFightingBack = false;
+        target.fightTimer = 0;
+        target.fightPath = [];
+        target.fightPathIndex = 0;
+
+        target.fleeAngle =
+            Math.atan2(
+                dy,
+                dx
+            ) +
+            Math.PI / 2;
+
+        target.fleeTimer = 300;
+
+        target.fleePath = [];
+        target.fleePathIndex = 0;
+        target.fleePathRepathTimer = 0;
+
+        const fleeLines = [
+            "Police!",
+            "What was that?!",
+            "Help!",
+            "What you want!"
+        ];
+
+        target.say(
+            fleeLines[
+                Math.floor(
+                    Math.random() *
+                    fleeLines.length
+                )
+            ],
+            90
+        );
+    }
+
+    if (
+        typeof npcHitPool !==
+            "undefined"
+    ) {
         playSpatialSound(
             npcHitPool,
             target.x,
@@ -1597,7 +1735,6 @@ function punchNPC() {
         );
     }
 }
-
 if (punchBtn) {
     punchBtn.addEventListener("click", punchNPC);
 }

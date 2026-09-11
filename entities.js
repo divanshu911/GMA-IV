@@ -1,4 +1,4 @@
-console.log("g63")
+console.log("amg")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -264,6 +264,460 @@ this.drawBaseBody(
 }
 
 // --- UPDATE NPC CLASS FOR OFF-ROAD RECOVERY ---
+// ============================================================
+// NPC REACTION A*
+// Generic pedestrian combat / flee navigation.
+// Uses the existing 32px world grid.
+// ============================================================
+
+const NPC_REACTION_GRID_SIZE = 32;
+const NPC_FIGHT_DISTANCE = 285;
+const NPC_FIGHT_ATTACK_DISTANCE = 30;
+const NPC_FLEE_DISTANCE = 260;
+
+function npcReactionWorldToGrid(x, y) {
+    return {
+        x: Math.floor(x / NPC_REACTION_GRID_SIZE),
+        y: Math.floor(y / NPC_REACTION_GRID_SIZE)
+    };
+}
+
+function npcReactionGridToWorld(x, y) {
+    return {
+        x: x * NPC_REACTION_GRID_SIZE +
+            NPC_REACTION_GRID_SIZE * 0.5,
+        y: y * NPC_REACTION_GRID_SIZE +
+            NPC_REACTION_GRID_SIZE * 0.5
+    };
+}
+
+function npcReactionIsWalkable(
+    x,
+    y,
+    allowGrass
+) {
+    if (allowGrass) {
+        return (
+            typeof isGrassOrRoad === "function" &&
+            isGrassOrRoad(x, y)
+        );
+    }
+
+    return (
+        typeof isRoadColor === "function" &&
+        isRoadColor(x, y)
+    );
+}
+
+function findNPCReactionPath(
+    startX,
+    startY,
+    targetX,
+    targetY,
+    allowGrass
+) {
+    if (
+        typeof mapWidth === "undefined" ||
+        typeof mapHeight === "undefined" ||
+        mapWidth <= 0 ||
+        mapHeight <= 0
+    ) {
+        return [];
+    }
+
+    const start = npcReactionWorldToGrid(
+        startX,
+        startY
+    );
+
+    const goal = npcReactionWorldToGrid(
+        targetX,
+        targetY
+    );
+
+    const gridWidth = Math.ceil(
+        mapWidth / NPC_REACTION_GRID_SIZE
+    );
+
+    const gridHeight = Math.ceil(
+        mapHeight / NPC_REACTION_GRID_SIZE
+    );
+
+    if (
+        start.x < 0 ||
+        start.y < 0 ||
+        start.x >= gridWidth ||
+        start.y >= gridHeight
+    ) {
+        return [];
+    }
+
+    // If the target itself is blocked, find the closest
+    // walkable cell around it.
+    let actualGoal = {
+        x: goal.x,
+        y: goal.y
+    };
+
+    if (
+        actualGoal.x < 0 ||
+        actualGoal.y < 0 ||
+        actualGoal.x >= gridWidth ||
+        actualGoal.y >= gridHeight ||
+        !npcReactionIsWalkable(
+            npcReactionGridToWorld(
+                actualGoal.x,
+                actualGoal.y
+            ).x,
+            npcReactionGridToWorld(
+                actualGoal.x,
+                actualGoal.y
+            ).y,
+            allowGrass
+        )
+    ) {
+        let foundGoal = null;
+
+        for (let radius = 1; radius <= 6; radius++) {
+            for (let dy = -radius; dy <= radius; dy++) {
+                for (let dx = -radius; dx <= radius; dx++) {
+                    if (
+                        Math.abs(dx) !== radius &&
+                        Math.abs(dy) !== radius
+                    ) {
+                        continue;
+                    }
+
+                    const gx = goal.x + dx;
+                    const gy = goal.y + dy;
+
+                    if (
+                        gx < 0 ||
+                        gy < 0 ||
+                        gx >= gridWidth ||
+                        gy >= gridHeight
+                    ) {
+                        continue;
+                    }
+
+                    const world =
+                        npcReactionGridToWorld(gx, gy);
+
+                    if (
+                        npcReactionIsWalkable(
+                            world.x,
+                            world.y,
+                            allowGrass
+                        )
+                    ) {
+                        foundGoal = {
+                            x: gx,
+                            y: gy
+                        };
+                        break;
+                    }
+                }
+
+                if (foundGoal) break;
+            }
+
+            if (foundGoal) break;
+        }
+
+        if (!foundGoal) return [];
+
+        actualGoal = foundGoal;
+    }
+
+    const startWorld =
+        npcReactionGridToWorld(start.x, start.y);
+
+    if (
+        !npcReactionIsWalkable(
+            startWorld.x,
+            startWorld.y,
+            allowGrass
+        )
+    ) {
+        // Find a nearby valid starting cell.
+        let foundStart = null;
+
+        for (let radius = 1; radius <= 4; radius++) {
+            for (let dy = -radius; dy <= radius; dy++) {
+                for (let dx = -radius; dx <= radius; dx++) {
+                    const gx = start.x + dx;
+                    const gy = start.y + dy;
+
+                    if (
+                        gx < 0 ||
+                        gy < 0 ||
+                        gx >= gridWidth ||
+                        gy >= gridHeight
+                    ) {
+                        continue;
+                    }
+
+                    const world =
+                        npcReactionGridToWorld(gx, gy);
+
+                    if (
+                        npcReactionIsWalkable(
+                            world.x,
+                            world.y,
+                            allowGrass
+                        )
+                    ) {
+                        foundStart = {
+                            x: gx,
+                            y: gy
+                        };
+                        break;
+                    }
+                }
+
+                if (foundStart) break;
+            }
+
+            if (foundStart) break;
+        }
+
+        if (!foundStart) return [];
+
+        start.x = foundStart.x;
+        start.y = foundStart.y;
+    }
+
+    const key = (x, y) => `${x},${y}`;
+
+    const open = [];
+    const openKeys = new Set();
+    const closed = new Set();
+    const cameFrom = new Map();
+    const gScore = new Map();
+
+    const heuristic = (x, y) => {
+        return Math.hypot(
+            actualGoal.x - x,
+            actualGoal.y - y
+        );
+    };
+
+    const startKey = key(start.x, start.y);
+
+    open.push({
+        x: start.x,
+        y: start.y,
+        g: 0,
+        f: heuristic(start.x, start.y)
+    });
+
+    openKeys.add(startKey);
+    gScore.set(startKey, 0);
+
+    // Eight-direction A*.
+    const directions = [
+        { x: 1, y: 0, cost: 1 },
+        { x: -1, y: 0, cost: 1 },
+        { x: 0, y: 1, cost: 1 },
+        { x: 0, y: -1, cost: 1 },
+        { x: 1, y: 1, cost: 1.414 },
+        { x: -1, y: 1, cost: 1.414 },
+        { x: 1, y: -1, cost: 1.414 },
+        { x: -1, y: -1, cost: 1.414 }
+    ];
+
+    let iterations = 0;
+    const maxIterations = 5000;
+
+    while (
+        open.length > 0 &&
+        iterations < maxIterations
+    ) {
+        iterations++;
+
+        // Lowest F score.
+        let bestIndex = 0;
+
+        for (let i = 1; i < open.length; i++) {
+            if (
+                open[i].f <
+                open[bestIndex].f
+            ) {
+                bestIndex = i;
+            }
+        }
+
+        const current =
+            open.splice(bestIndex, 1)[0];
+
+        const currentKey =
+            key(current.x, current.y);
+
+        openKeys.delete(currentKey);
+
+        if (
+            current.x === actualGoal.x &&
+            current.y === actualGoal.y
+        ) {
+            const path = [];
+            let traceKey = currentKey;
+
+            while (traceKey) {
+                const parts =
+                    traceKey.split(",");
+
+                const px =
+                    Number(parts[0]);
+
+                const py =
+                    Number(parts[1]);
+
+                const world =
+                    npcReactionGridToWorld(
+                        px,
+                        py
+                    );
+
+                path.push(world);
+
+                traceKey =
+                    cameFrom.get(traceKey);
+            }
+
+            path.reverse();
+
+            // Do not make the NPC walk to its own
+            // current cell as its first waypoint.
+            if (path.length > 1) {
+                path.shift();
+            }
+
+            return path;
+        }
+
+        closed.add(currentKey);
+
+        for (
+            let i = 0;
+            i < directions.length;
+            i++
+        ) {
+            const dir = directions[i];
+
+            const nx =
+                current.x + dir.x;
+
+            const ny =
+                current.y + dir.y;
+
+            if (
+                nx < 0 ||
+                ny < 0 ||
+                nx >= gridWidth ||
+                ny >= gridHeight
+            ) {
+                continue;
+            }
+
+            const neighborWorld =
+                npcReactionGridToWorld(
+                    nx,
+                    ny
+                );
+
+            if (
+                !npcReactionIsWalkable(
+                    neighborWorld.x,
+                    neighborWorld.y,
+                    allowGrass
+                )
+            ) {
+                continue;
+            }
+
+            // Prevent diagonal corner cutting.
+            if (
+                Math.abs(dir.x) === 1 &&
+                Math.abs(dir.y) === 1
+            ) {
+                const sideA =
+                    npcReactionGridToWorld(
+                        current.x + dir.x,
+                        current.y
+                    );
+
+                const sideB =
+                    npcReactionGridToWorld(
+                        current.x,
+                        current.y + dir.y
+                    );
+
+                if (
+                    !npcReactionIsWalkable(
+                        sideA.x,
+                        sideA.y,
+                        allowGrass
+                    ) ||
+                    !npcReactionIsWalkable(
+                        sideB.x,
+                        sideB.y,
+                        allowGrass
+                    )
+                ) {
+                    continue;
+                }
+            }
+
+            const neighborKey =
+                key(nx, ny);
+
+            if (closed.has(neighborKey)) {
+                continue;
+            }
+
+            const tentativeG =
+                current.g + dir.cost;
+
+            const oldG =
+                gScore.has(neighborKey)
+                    ? gScore.get(neighborKey)
+                    : Infinity;
+
+            if (tentativeG >= oldG) {
+                continue;
+            }
+
+            cameFrom.set(
+                neighborKey,
+                currentKey
+            );
+
+            gScore.set(
+                neighborKey,
+                tentativeG
+            );
+
+            const f =
+                tentativeG +
+                heuristic(nx, ny);
+
+            if (
+                !openKeys.has(neighborKey)
+            ) {
+                open.push({
+                    x: nx,
+                    y: ny,
+                    g: tentativeG,
+                    f
+                });
+
+                openKeys.add(neighborKey);
+            }
+        }
+    }
+
+    return [];
+}
 class NPC extends Pedestrian {
   constructor(id, x, y, shirt, hair, skin, isPolice = false) {
     let shirtColor = isPolice ? "#0b1d3a" : shirt;
@@ -283,144 +737,709 @@ this.isInjured = false;
     this.inConversation = false;
     this.conversationCooldown = Math.random() * 200;
     this.fleeTimer = 0;
-    this.fleeAngle = 0;
+this.fleeAngle = 0;
 
-    // Off-road recovery pathfinding properties
-    this.recoveryPath = null;
-    this.recoveryPathIndex = 0;
+// ============================================================
+// GENERIC NPC COMBAT REACTION
+// Police are excluded completely.
+// ============================================================
+this.canFightBack =
+    !this.isPolice &&
+    Math.random() < 0.25;
+
+this.isFightingBack = false;
+this.fightTimer = 0;
+this.fightPath = [];
+this.fightPathIndex = 0;
+this.fightRepathTimer = 0;
+
+this.punchTimer = 0;
+this.attackCooldown = 0;
+
+// Flee A* state.
+// Used for both explosions and player punches.
+this.fleePath = [];
+this.fleePathIndex = 0;
+this.fleePathRepathTimer = 0;
+
+// Off-road recovery pathfinding properties
+this.recoveryPath = null;
+this.recoveryPathIndex = 0;
   }
-
-  update(dt) {
+update(dt) {
     if (this.isPassenger) return;
+
+    // ------------------------------------------------------------
     // Injured pedestrians stay exactly where they were hit.
-if (this.isInjured) {
-    this.speed = 0;
-    this.speechText = null;
-    this.speechTimer = 0;
-    this.inConversation = false;
-    return;
-}
-// Police officers in an active police interaction are controlled
-// by updatePoliceStage4A(), not by normal NPC movement.
-if (
-    this.isPolice &&
-    this.policeState &&
-    this.policeState !== "PATROL"
-) {
-    this.updateSpeech(dt);
-    return;
-}
+    // ------------------------------------------------------------
+    if (this.isInjured) {
+        this.speed = 0;
+        this.isFightingBack = false;
+        this.fightTimer = 0;
+        this.fleeTimer = 0;
+        this.punchTimer = 0;
+        this.attackCooldown = 0;
+
+        this.speechText = null;
+        this.speechTimer = 0;
+        this.inConversation = false;
+        return;
+    }
+
+    // ------------------------------------------------------------
+    // POLICE EXCLUSION
+    // Never allow the generic civilian combat system to
+    // interfere with police AI.
+    // ------------------------------------------------------------
+    if (this.isPolice) {
+        if (
+            this.policeState &&
+            this.policeState !== "PATROL"
+        ) {
+            this.updateSpeech(dt);
+            return;
+        }
+    }
+
     this.updateSpeech(dt);
 
     if (this.conversationCooldown > 0) {
-      this.conversationCooldown -= dt;
+        this.conversationCooldown -= dt;
     }
 
-    // Reaction: Running away from explosions
-    if (this.fleeTimer > 0) {
-      this.fleeTimer -= dt;
-      this.angle = this.fleeAngle;
-      let runSpeed = this.speed * 2.5;
-      let nextX = this.x + Math.cos(this.angle - Math.PI / 2) * (runSpeed * dt);
-      let nextY = this.y + Math.sin(this.angle - Math.PI / 2) * (runSpeed * dt);
+    if (this.punchTimer > 0) {
+        this.punchTimer -= dt;
 
-      if (typeof isRoadColor === 'function' && isRoadColor(nextX, nextY)) {
-        this.x = nextX;
-        this.y = nextY;
-      }
-      this.walkTimer += runSpeed * dt * 0.3;
-      return;
+        if (this.punchTimer < 0) {
+            this.punchTimer = 0;
+        }
     }
 
-    // --- OFF-ROAD RECOVERY LOGIC ---
-    const currentlyOnRoad = typeof isRoadColor === 'function' && isRoadColor(this.x, this.y);
+    if (this.attackCooldown > 0) {
+        this.attackCooldown -= dt;
+
+        if (this.attackCooldown < 0) {
+            this.attackCooldown = 0;
+        }
+    }
+
+    // ============================================================
+    // FIGHT BACK
+    // Chase player up to 285 px.
+    // Road + grass are allowed.
+    // ============================================================
+    if (
+        this.isFightingBack &&
+        !this.isPolice &&
+        !this.isInjured
+    ) {
+        this.fightTimer -= dt;
+
+        if (!player) {
+            this.isFightingBack = false;
+            this.fightPath = [];
+            this.fightPathIndex = 0;
+            return;
+        }
+
+        const targetX = player.x;
+        const targetY = player.y;
+
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
+        const distance = Math.hypot(dx, dy);
+
+        // If the player gets too far away, the NPC gives up.
+        if (
+            distance > NPC_FIGHT_DISTANCE ||
+            this.fightTimer <= 0
+        ) {
+            this.isFightingBack = false;
+            this.fightTimer = 0;
+            this.fightPath = [];
+            this.fightPathIndex = 0;
+            this.fightRepathTimer = 0;
+            this.conversationCooldown = 180;
+            this.changeDirTimer = 90;
+            return;
+        }
+
+        // --------------------------------------------------------
+        // If the player is still in a car and the NPC gets close
+        // enough, eject the player.
+        // --------------------------------------------------------
+        if (
+            playerCar &&
+            Math.hypot(
+                playerCar.x - this.x,
+                playerCar.y - this.y
+            ) <= 42
+        ) {
+            const car = playerCar;
+
+            if (car.humAudio) {
+                car.humAudio.pause();
+                car.humAudio = null;
+            }
+
+            car.speed = 0;
+            car.isParked = true;
+            car.hasDriver = false;
+            car.recentlyJackedTimer = 90;
+
+            const sideAngle =
+                car.angle - Math.PI / 2;
+
+            const ejectX =
+                car.x +
+                Math.cos(sideAngle) * 35;
+
+            const ejectY =
+                car.y +
+                Math.sin(sideAngle) * 35;
+
+            if (
+                typeof isWalkableColor === "function" &&
+                isWalkableColor(
+                    ejectX,
+                    ejectY,
+                    player.size
+                )
+            ) {
+                player.x = ejectX;
+                player.y = ejectY;
+            } else {
+                player.x = car.x + 30;
+                player.y = car.y;
+            }
+
+            player.angle = car.angle;
+
+            playerCar = null;
+
+            const exitButton =
+                typeof exitBtn !== "undefined"
+                    ? exitBtn
+                    : null;
+
+            if (exitButton) {
+                exitButton.style.display = "none";
+            }
+
+            this.fightPath = [];
+            this.fightPathIndex = 0;
+            this.fightRepathTimer = 0;
+        }
+
+        // --------------------------------------------------------
+        // Recalculate A* periodically because the player moves.
+        // --------------------------------------------------------
+        this.fightRepathTimer -= dt;
+
+        if (
+            this.fightRepathTimer <= 0 ||
+            !this.fightPath ||
+            this.fightPathIndex >=
+                this.fightPath.length
+        ) {
+            this.fightPath =
+                findNPCReactionPath(
+                    this.x,
+                    this.y,
+                    targetX,
+                    targetY,
+                    true
+                );
+
+            this.fightPathIndex = 0;
+
+            // Repath roughly twice per second.
+            this.fightRepathTimer = 30;
+        }
+
+        // --------------------------------------------------------
+        // Follow the A* path.
+        // --------------------------------------------------------
+        if (
+            this.fightPath &&
+            this.fightPathIndex <
+                this.fightPath.length
+        ) {
+            const waypoint =
+                this.fightPath[
+                    this.fightPathIndex
+                ];
+
+            const wx = waypoint.x - this.x;
+            const wy = waypoint.y - this.y;
+            const waypointDistance =
+                Math.hypot(wx, wy);
+
+            if (waypointDistance < 8) {
+                this.fightPathIndex++;
+            } else {
+                this.angle =
+                    Math.atan2(wy, wx) +
+                    Math.PI / 2;
+
+                const fightSpeed =
+                    Math.max(
+                        1.25,
+                        this.speed * 2.4
+                    );
+
+                const moveDistance =
+                    fightSpeed * dt;
+
+                const nextX =
+                    this.x +
+                    Math.cos(
+                        this.angle - Math.PI / 2
+                    ) *
+                    moveDistance;
+
+                const nextY =
+                    this.y +
+                    Math.sin(
+                        this.angle - Math.PI / 2
+                    ) *
+                    moveDistance;
+
+                if (
+                    typeof isGrassOrRoad ===
+                        "function" &&
+                    isGrassOrRoad(
+                        nextX,
+                        nextY
+                    )
+                ) {
+                    this.x = nextX;
+                    this.y = nextY;
+                }
+
+                this.walkTimer +=
+                    fightSpeed *
+                    dt *
+                    0.3;
+            }
+        }
+
+        // --------------------------------------------------------
+        // Attack when close enough.
+        // --------------------------------------------------------
+        const attackDx =
+            player.x - this.x;
+
+        const attackDy =
+            player.y - this.y;
+
+        const attackDistance =
+            Math.hypot(
+                attackDx,
+                attackDy
+            );
+
+        if (
+            attackDistance <=
+                NPC_FIGHT_ATTACK_DISTANCE &&
+            this.attackCooldown <= 0
+        ) {
+            this.angle =
+                Math.atan2(
+                    attackDy,
+                    attackDx
+                ) + Math.PI / 2;
+
+            this.punchTimer = 12;
+            this.attackCooldown = 55;
+
+            if (
+                !player.isInvulnerable &&
+                typeof damagePlayer ===
+                    "function"
+            ) {
+                damagePlayer(5);
+
+                player.isInvulnerable = true;
+                player.invulnerabilityTimer = 30;
+            }
+
+            if (
+                typeof npcHitPool !==
+                    "undefined"
+            ) {
+                playSpatialSound(
+                    npcHitPool,
+                    player.x,
+                    player.y,
+                    0.8
+                );
+            }
+        }
+
+        return;
+    }
+
+    // ============================================================
+    // FLEE
+    // Used by explosions AND frightened NPCs after being punched.
+    // A* is ROAD ONLY.
+    // ============================================================
+    if (
+        this.fleeTimer > 0 &&
+        !this.isPolice &&
+        !this.isFightingBack
+    ) {
+        this.fleeTimer -= dt;
+
+        if (this.fleeTimer <= 0) {
+            this.fleeTimer = 0;
+            this.fleePath = [];
+            this.fleePathIndex = 0;
+            this.fleePathRepathTimer = 0;
+            return;
+        }
+
+        this.fleePathRepathTimer -= dt;
+
+        // Create a point in the original flee direction.
+        const fleeDirection =
+            this.fleeAngle -
+            Math.PI / 2;
+
+        const targetDistance =
+            NPC_FLEE_DISTANCE +
+            Math.random() * 90;
+
+        const targetX =
+            this.x +
+            Math.cos(fleeDirection) *
+            targetDistance;
+
+        const targetY =
+            this.y +
+            Math.sin(fleeDirection) *
+            targetDistance;
+
+        if (
+            this.fleePathRepathTimer <= 0 ||
+            !this.fleePath ||
+            this.fleePathIndex >=
+                this.fleePath.length
+        ) {
+            this.fleePath =
+                findNPCReactionPath(
+                    this.x,
+                    this.y,
+                    targetX,
+                    targetY,
+                    false
+                );
+
+            this.fleePathIndex = 0;
+            this.fleePathRepathTimer = 45;
+        }
+
+        if (
+            this.fleePath &&
+            this.fleePathIndex <
+                this.fleePath.length
+        ) {
+            const waypoint =
+                this.fleePath[
+                    this.fleePathIndex
+                ];
+
+            const dx =
+                waypoint.x - this.x;
+
+            const dy =
+                waypoint.y - this.y;
+
+            const distance =
+                Math.hypot(dx, dy);
+
+            if (distance < 8) {
+                this.fleePathIndex++;
+            } else {
+                this.angle =
+                    Math.atan2(dy, dx) +
+                    Math.PI / 2;
+
+                const runSpeed =
+                    Math.max(
+                        1.0,
+                        this.speed * 2.5
+                    );
+
+                const moveDistance =
+                    runSpeed * dt;
+
+                const nextX =
+                    this.x +
+                    Math.cos(
+                        this.angle - Math.PI / 2
+                    ) *
+                    moveDistance;
+
+                const nextY =
+                    this.y +
+                    Math.sin(
+                        this.angle - Math.PI / 2
+                    ) *
+                    moveDistance;
+
+                // Final safety check:
+                // fleeing NPCs MUST remain on roads.
+                if (
+                    typeof isRoadColor ===
+                        "function" &&
+                    isRoadColor(
+                        nextX,
+                        nextY
+                    )
+                ) {
+                    this.x = nextX;
+                    this.y = nextY;
+                }
+
+                this.walkTimer +=
+                    runSpeed *
+                    dt *
+                    0.3;
+            }
+        }
+
+        return;
+    }
+
+    // ============================================================
+    // EXISTING OFF-ROAD RECOVERY
+    // ============================================================
+    const currentlyOnRoad =
+        typeof isRoadColor === "function" &&
+        isRoadColor(
+            this.x,
+            this.y
+        );
 
     if (!currentlyOnRoad) {
-      // Build navigation grid if necessary
-      if (typeof navigationSystem !== 'undefined' && !navigationSystem.ready) {
-        navigationSystem.buildGrid();
-      }
+        if (
+            typeof navigationSystem !==
+                "undefined" &&
+            !navigationSystem.ready
+        ) {
+            navigationSystem.buildGrid();
+        }
 
-      // Calculate path to nearest road tile if path is missing or finished
-      if (!this.recoveryPath || this.recoveryPathIndex >= this.recoveryPath.length) {
-        if (typeof navigationSystem !== 'undefined' && navigationSystem.ready) {
-          const currentGrid = navigationSystem.worldToGrid(this.x, this.y);
-          let targetRoadCell = null;
+        if (
+            !this.recoveryPath ||
+            this.recoveryPathIndex >=
+                this.recoveryPath.length
+        ) {
+            if (
+                typeof navigationSystem !==
+                    "undefined" &&
+                navigationSystem.ready
+            ) {
+                const currentGrid =
+                    navigationSystem.worldToGrid(
+                        this.x,
+                        this.y
+                    );
 
-          // Find nearest walkable road cell in expanding rings
-          for (let radius = 1; radius < 25; radius++) {
-            for (let dy = -radius; dy <= radius; dy++) {
-              for (let dx = -radius; dx <= radius; dx++) {
-                if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
-                let testWorld = navigationSystem.gridToWorld(currentGrid.x + dx, currentGrid.y + dy);
-                if (isRoadColor(testWorld.x, testWorld.y)) {
-                  targetRoadCell = testWorld;
-                  break;
+                let targetRoadCell = null;
+
+                for (
+                    let radius = 1;
+                    radius < 25;
+                    radius++
+                ) {
+                    for (
+                        let dy = -radius;
+                        dy <= radius;
+                        dy++
+                    ) {
+                        for (
+                            let dx = -radius;
+                            dx <= radius;
+                            dx++
+                        ) {
+                            if (
+                                Math.abs(dx) !== radius &&
+                                Math.abs(dy) !== radius
+                            ) {
+                                continue;
+                            }
+
+                            let testWorld =
+                                navigationSystem.gridToWorld(
+                                    currentGrid.x + dx,
+                                    currentGrid.y + dy
+                                );
+
+                            if (
+                                isRoadColor(
+                                    testWorld.x,
+                                    testWorld.y
+                                )
+                            ) {
+                                targetRoadCell =
+                                    testWorld;
+                                break;
+                            }
+                        }
+
+                        if (targetRoadCell) break;
+                    }
+
+                    if (targetRoadCell) break;
                 }
-              }
-              if (targetRoadCell) break;
+
+                if (targetRoadCell) {
+                    this.recoveryPath =
+                        navigationSystem.findPath(
+                            this.x,
+                            this.y,
+                            targetRoadCell.x,
+                            targetRoadCell.y
+                        );
+
+                    this.recoveryPathIndex = 0;
+                }
             }
-            if (targetRoadCell) break;
-          }
-
-          if (targetRoadCell) {
-            this.recoveryPath = navigationSystem.findPath(this.x, this.y, targetRoadCell.x, targetRoadCell.y);
-            this.recoveryPathIndex = 0;
-          }
         }
-      }
 
-      // Navigate along recovery path (allowed to walk on grass/transitions)
-      if (this.recoveryPath && this.recoveryPathIndex < this.recoveryPath.length) {
-        let wp = this.recoveryPath[this.recoveryPathIndex];
-        let dx = wp.x - this.x;
-        let dy = wp.y - this.y;
-        let dist = Math.hypot(dx, dy);
+        if (
+            this.recoveryPath &&
+            this.recoveryPathIndex <
+                this.recoveryPath.length
+        ) {
+            let wp =
+                this.recoveryPath[
+                    this.recoveryPathIndex
+                ];
 
-        if (dist < 8) {
-          this.recoveryPathIndex++;
-        } else {
-          this.angle = Math.atan2(dy, dx) + Math.PI / 2;
-          let moveDist = this.speed * dt;
-          let nextX = this.x + Math.cos(this.angle - Math.PI / 2) * moveDist;
-          let nextY = this.y + Math.sin(this.angle - Math.PI / 2) * moveDist;
+            let dx =
+                wp.x - this.x;
 
-          if (typeof isWalkableColor === 'function' && isWalkableColor(nextX, nextY, this.size)) {
-            this.x = nextX;
-            this.y = nextY;
-          }
-          this.walkTimer += this.speed * dt * 0.25;
+            let dy =
+                wp.y - this.y;
+
+            let dist =
+                Math.hypot(dx, dy);
+
+            if (dist < 8) {
+                this.recoveryPathIndex++;
+            } else {
+                this.angle =
+                    Math.atan2(dy, dx) +
+                    Math.PI / 2;
+
+                let moveDist =
+                    this.speed * dt;
+
+                let nextX =
+                    this.x +
+                    Math.cos(
+                        this.angle -
+                            Math.PI / 2
+                    ) *
+                    moveDist;
+
+                let nextY =
+                    this.y +
+                    Math.sin(
+                        this.angle -
+                            Math.PI / 2
+                    ) *
+                    moveDist;
+
+                if (
+                    typeof isWalkableColor ===
+                        "function" &&
+                    isWalkableColor(
+                        nextX,
+                        nextY,
+                        this.size
+                    )
+                ) {
+                    this.x = nextX;
+                    this.y = nextY;
+                }
+
+                this.walkTimer +=
+                    this.speed *
+                    dt *
+                    0.25;
+            }
+
+            return;
         }
-        return;
-      }
     } else {
-      // Clear recovery path when back on road surface
-      this.recoveryPath = null;
-      this.recoveryPathIndex = 0;
+        this.recoveryPath = null;
+        this.recoveryPathIndex = 0;
     }
 
-    // Stop moving when engaged in conversation
+    // ------------------------------------------------------------
+    // Normal conversation / pedestrian movement.
+    // ------------------------------------------------------------
     if (this.inConversation) return;
 
-    this.changeDirTimer -= 1 * dt;
+    this.changeDirTimer -= dt;
+
     if (this.changeDirTimer <= 0) {
-      this.angle = Math.random() * Math.PI * 2;
-      this.changeDirTimer = 150 + Math.random() * 200;
+        this.angle =
+            Math.random() *
+            Math.PI *
+            2;
+
+        this.changeDirTimer =
+            150 +
+            Math.random() *
+                200;
     }
 
-    let nextX = this.x + Math.cos(this.angle - Math.PI / 2) * (this.speed * dt);
-    let nextY = this.y + Math.sin(this.angle - Math.PI / 2) * (this.speed * dt);
+    let nextX =
+        this.x +
+        Math.cos(
+            this.angle -
+                Math.PI / 2
+        ) *
+        (this.speed * dt);
 
-    if (isRoadColor(nextX, nextY)) {
-      this.x = nextX;
-      this.y = nextY;
-      this.walkTimer += this.speed * dt * 0.25;
+    let nextY =
+        this.y +
+        Math.sin(
+            this.angle -
+                Math.PI / 2
+        ) *
+        (this.speed * dt);
+
+    if (
+        isRoadColor(
+            nextX,
+            nextY
+        )
+    ) {
+        this.x = nextX;
+        this.y = nextY;
+
+        this.walkTimer +=
+            this.speed *
+            dt *
+            0.25;
     } else {
-      this.angle = Math.random() * Math.PI * 2;
-      this.changeDirTimer = 40;
-    }
-  }
+        this.angle =
+            Math.random() *
+            Math.PI *
+            2;
 
+        this.changeDirTimer = 40;
+    }
+}
+                  
+        
   draw(ctx) {
     if (this.isPassenger) return;
 
@@ -513,7 +1532,33 @@ if (this.isInjured) {
 
     ctx.rotate(this.angle);
 
-    let swingOffset = Math.sin(this.walkTimer) * (this.size * 0.18);
+   let swingOffset =
+    Math.sin(this.walkTimer) *
+    (this.size * 0.18);
+
+let punchProgress = 0;
+
+if (
+    this.punchTimer > 0 &&
+    !this.isPolice
+) {
+    const punchDuration = 12;
+    const elapsed =
+        punchDuration -
+        this.punchTimer;
+
+    if (elapsed < 4) {
+        punchProgress =
+            elapsed / 4;
+    } else {
+        punchProgress =
+            Math.max(
+                0,
+                1 -
+                ((elapsed - 4) / 8)
+            );
+    }
+}
 
 const isFiring =
     this.isPolice &&
@@ -523,8 +1568,9 @@ const isFiring =
 this.drawBaseBody(
     ctx,
     swingOffset,
-    isFiring
-);
+    isFiring,
+    punchProgress
+); 
 
 // Draw the gun from the existing arm.
 if (isFiring) {
