@@ -1,4 +1,4 @@
-console.log("89");
+console.log("javascript");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -17,6 +17,12 @@ let playerCarStealCases = parseInt(
     10
 );
 
+// ASSAULT IS A SEPARATE CRIME TYPE.
+let playerAssaultCases = parseInt(
+    localStorage.getItem("gma_assault_cases") || "0",
+    10
+);
+
 function saveCrimeCaseCounts() {
     localStorage.setItem(
         "gma_hit_run_cases",
@@ -27,6 +33,11 @@ function saveCrimeCaseCounts() {
         "gma_car_steal_cases",
         String(playerCarStealCases)
     );
+
+    localStorage.setItem(
+        "gma_assault_cases",
+        String(playerAssaultCases)
+    );
 }
 
 function hasActiveCrimeCases() {
@@ -35,10 +46,64 @@ function hasActiveCrimeCases() {
         Array.isArray(cars) &&
         cars.some(car => car && car.isStolen);
 
-    const hasCarStealCrime = playerCarStealCases > 0;
-    const hasHitRunCrime = playerHitRunCases > 0;
+    const hasCarStealCrime =
+        playerCarStealCases > 0;
 
-    return hasStolenCarCrime || hasCarStealCrime || hasHitRunCrime;
+    const hasHitRunCrime =
+        playerHitRunCases > 0;
+
+    const hasAssaultCrime =
+        playerAssaultCases > 0;
+
+    return (
+        hasStolenCarCrime ||
+        hasCarStealCrime ||
+        hasHitRunCrime ||
+        hasAssaultCrime
+    );
+}
+
+// ------------------------------------------------------------
+// ASSAULT CRIME
+// Generic combat never calls this directly.
+// Witness/reporting logic decides when an assault becomes a crime.
+// ------------------------------------------------------------
+function registerAssaultCrime(target = null) {
+    if (!player) return false;
+
+    // One punched NPC can only create one assault case.
+    if (
+        target &&
+        target.assaultCrimeRegistered
+    ) {
+        return false;
+    }
+
+    if (target) {
+        target.assaultCrimeRegistered = true;
+    }
+
+    playerAssaultCases++;
+    saveCrimeCaseCounts();
+
+    player.wanted = true;
+
+    localStorage.setItem(
+        "gma_player_wanted",
+        "true"
+    );
+
+    if (
+        typeof taxiManager !== "undefined" &&
+        taxiManager.setMessage
+    ) {
+        taxiManager.setMessage(
+            "Assault reported to police!",
+            180
+        );
+    }
+
+    return true;
 }
 
 function clearWantedIfNoCrimeCases() {
@@ -141,7 +206,7 @@ function updateHitRunIncidents() {
 
         const distance = Math.hypot(
             player.x - incident.x,
-         player.y - incident.y
+            player.y - incident.y
         );
 
         // Once the player reaches 450 units, the opportunity to
@@ -194,6 +259,7 @@ try {
         error
     );
 }
+
 // Dynamic positioning helper
 function repositionSirenButton() {
     const exitBtn = document.getElementById('exitBtn');
@@ -210,7 +276,7 @@ let sirenBtn = document.getElementById('sirenBtn');
 if (!sirenBtn) {
     sirenBtn = document.createElement('button');
     sirenBtn.id = 'sirenBtn';
-    sirenBtn.innerText = 'ðŸš¨ SIREN: OFF';
+    sirenBtn.innerText = '🚨 SIREN: OFF';
     sirenBtn.style.position = 'fixed';
 
     // Position directly on the right side of the screen
@@ -256,13 +322,13 @@ function updateSirenButtonLabel() {
     sirenBtn.style.display = 'flex';
 
     if (playerCar.sirenState === 1) {
-        sirenBtn.innerText = 'ðŸš¨ SIREN: WAIL';
+        sirenBtn.innerText = '🚨 SIREN: WAIL';
         sirenBtn.style.borderColor = '#e74c3c';
     } else if (playerCar.sirenState === 2) {
-        sirenBtn.innerText = 'ðŸš¨ SIREN: YELP';
+        sirenBtn.innerText = '🚨 SIREN: YELP';
         sirenBtn.style.borderColor = '#3498db';
     } else {
-        sirenBtn.innerText = 'ðŸš¨ SIREN: OFF';
+        sirenBtn.innerText = '🚨 SIREN: OFF';
         sirenBtn.style.borderColor = '#ffffff';
     }
 }
@@ -297,7 +363,7 @@ function executeArrestProcess() {
     player.isBeingArrested = true;
     player.isArrestPassenger = false;
     player.ispassenger = false;
-player.arrestTransportCar = null;
+    player.arrestTransportCar = null;
     player.beingChased = false;
 
     // Stop player input immediately.
@@ -317,8 +383,6 @@ player.arrestTransportCar = null;
     }
 
     // If player was driving, force them out immediately.
-    // The stolen/player car remains in the world until the
-    // black-screen transition, so arrest cleanup is NOT immediate.
     if (playerCar) {
         if (playerCar.humAudio) {
             playerCar.humAudio.pause();
@@ -345,18 +409,15 @@ player.arrestTransportCar = null;
         playerCar = null;
     }
 
-    // ------------------------------------------------------------
-    // Capture police cars that were ACTUALLY chasing at the
-    // instant of arrest. These become escort vehicles.
-    // ------------------------------------------------------------
+    // Capture police cars that were ACTUALLY chasing at the instant of arrest.
     arrestEscortCars = cars.filter(c =>
-    c &&
-    c.isPolice &&
-    (c.policeState === "CHASE" || c.policeState === "WARNING") &&
-    c !== playerCar &&
-    !c.exploded &&
-    c.health > 0
-);
+        c &&
+        c.isPolice &&
+        (c.policeState === "CHASE" || c.policeState === "WARNING") &&
+        c !== playerCar &&
+        !c.exploded &&
+        c.health > 0
+    );
     arrestEscortCars.forEach((escort, index) => {
         escort.policeState = "ARREST_ESCORT";
         escort.isParked = false;
@@ -379,8 +440,6 @@ player.arrestTransportCar = null;
     arrestTransportRepathTimer = 0;
     arrestTransitionStarted = false;
 
-    // Make absolutely sure wanted status remains active during
-    // the arrest sequence.
     player.wanted = true;
     localStorage.setItem("gma_player_wanted", "true");
 
@@ -406,10 +465,6 @@ let arrestTransportRepathTimer = 0;
 let arrestTransitionStarted = false;
 let arrestFadeOverlay = null;
 
-
-// ------------------------------------------------------------
-// Create the black transition overlay once.
-// ------------------------------------------------------------
 function getArrestFadeOverlay() {
     if (arrestFadeOverlay) return arrestFadeOverlay;
 
@@ -432,11 +487,6 @@ function getArrestFadeOverlay() {
     return arrestFadeOverlay;
 }
 
-
-// ------------------------------------------------------------
-// Find a road position outside the current viewport.
-// ------------------------------------------------------------
-
 function getArrestSpawnPosition() {
     const SPAWN_DISTANCE = 500;
 
@@ -451,7 +501,6 @@ function getArrestSpawnPosition() {
         Math.PI * 1.75
     ];
 
-    // Try deterministic directions first.
     for (const angle of angles) {
         const x = player.x + Math.cos(angle) * SPAWN_DISTANCE;
         const y = player.y + Math.sin(angle) * SPAWN_DISTANCE;
@@ -467,7 +516,6 @@ function getArrestSpawnPosition() {
         }
     }
 
-    // Fallback: search around the same 500-unit distance.
     for (let i = 0; i < 80; i++) {
         const angle = Math.random() * Math.PI * 2;
         const distance =
@@ -490,9 +538,6 @@ function getArrestSpawnPosition() {
     return getRandomStrictRoadPosition();
 }        
 
-// ------------------------------------------------------------
-// Spawn the arrest transport police car.
-// ------------------------------------------------------------
 function spawnArrestTransportCar() {
     const spawn = getArrestSpawnPosition();
 
@@ -514,7 +559,6 @@ function spawnArrestTransportCar() {
     policeCar.ownerType = "police";
     policeCar.type = "Commuter, Sedan";
 
-    // Keep police-car characteristics.
     policeCar.width = 16;
     policeCar.length = 28;
     policeCar.baseSpeed = 3.2;
@@ -524,7 +568,6 @@ function spawnArrestTransportCar() {
     policeCar.hasDriver = true;
     policeCar.policeState = "ARREST_TRANSPORT";
 
-    // Face roughly toward the player initially.
     policeCar.angle =
         Math.atan2(
             player.y - policeCar.y,
@@ -546,13 +589,6 @@ function spawnArrestTransportCar() {
     arrestTransportState = "APPROACHING";
 }
 
-// ------------------------------------------------------------
-// POLICE LOCAL OBSTACLE AVOIDANCE
-// Avoids:
-// 1. Other cars
-// 2. Yellow collision pixels (buildings)
-// 3. Blue collision pixels (water)
-// ------------------------------------------------------------
 function getPoliceObstacleAvoidance(car, moveAngle, cars) {
     if (!car) {
         return {
@@ -609,7 +645,6 @@ function getPoliceObstacleAvoidance(car, moveAngle, cars) {
         const g = collisionData[index + 1];
         const b = collisionData[index + 2];
 
-        // Yellow building pixels.
         const yellow =
             r >= 220 &&
             g >= 175 &&
@@ -617,7 +652,6 @@ function getPoliceObstacleAvoidance(car, moveAngle, cars) {
             r - b >= 135 &&
             g - b >= 90;
 
-        // Blue water pixels.
         const blue =
             b >= 120 &&
             b > r * 1.15 &&
@@ -722,7 +756,6 @@ function getPoliceObstacleAvoidance(car, moveAngle, cars) {
     const leftScore = checkDirection(-1);
     const rightScore = checkDirection(1);
 
-    // Turn toward the side with fewer obstacles.
     const turnAmount = Math.PI * 0.55;
 
     if (leftScore < rightScore) {
@@ -739,15 +772,12 @@ function getPoliceObstacleAvoidance(car, moveAngle, cars) {
         };
     }
 
-    // If both sides are blocked, make a smaller turn
-    // so the car can search for an opening naturally.
     return {
         angle: moveAngle + Math.PI * 0.35,
         blocked: true
     };
 }
 
-// ------------------------------------------------------------
 function moveArrestPoliceCar(
     car,
     targetX,
@@ -757,13 +787,11 @@ function moveArrestPoliceCar(
 ) {
     if (!car) return;
 
-    // Initialize tracking properties if not present
     if (car.arrestTransportRepathTimer === undefined) car.arrestTransportRepathTimer = 0;
     if (car.arrestTransportPathIndex === undefined) car.arrestTransportPathIndex = 1;
 
     car.arrestTransportRepathTimer -= dt;
 
-    // Check if path is physically blocked by another vehicle ahead
     const checkSensorDist = (car.sensorLength || 35) + 10;
     const forwardAngle = car.angle - Math.PI / 2;
     const frontCheckX = car.x + Math.cos(forwardAngle) * checkSensorDist;
@@ -782,7 +810,6 @@ function moveArrestPoliceCar(
         }
     }
 
-    // Repath ONLY if path is missing or blocked by a car (and repath cooldown expired)
     if (!car.arrestTransportPath || (pathBlockedByCar && car.arrestTransportRepathTimer <= 0)) {
         const newPath = navigationSystem.findPath(
             car.x,
@@ -848,7 +875,6 @@ function moveArrestPoliceCar(
         }
     }
 
-    // Dynamic Police Unit Separation (prevent stacking/spinning)
     let avoidX = 0;
     let avoidY = 0;
     const avoidanceRadius = 55;
@@ -885,25 +911,23 @@ function moveArrestPoliceCar(
             moveAngle = Math.atan2(finalY, finalX);
         }
     }
-    // Avoid normal traffic and collision-map obstacles.
-const localAvoidance =
-    getPoliceObstacleAvoidance(
+
+    const localAvoidance = getPoliceObstacleAvoidance(
         car,
         moveAngle,
         cars
     );
 
-if (localAvoidance.blocked) {
-    moveAngle = localAvoidance.angle;
-}
+    if (localAvoidance.blocked) {
+        moveAngle = localAvoidance.angle;
+    }
 
     smoothlyTurnAIMovement(car, moveAngle, dt, true);
-car.speed = speed;
+    car.speed = speed;
 
     const nextX = car.x + Math.cos(moveAngle) * speed * dt;
     const nextY = car.y + Math.sin(moveAngle) * speed * dt;
 
-    // Movement check matching chasing police (primarily road, secondary grass)
     if (isGrassOrRoad(nextX, nextY)) {
         car.x = nextX;
         car.y = nextY;
@@ -933,13 +957,9 @@ function startArrestTransition() {
     arrestTransportState = "TRANSITION";
 
     const overlay = getArrestFadeOverlay();
-
     overlay.style.opacity = "1";
 
-    // Give the fade time to reach black.
     setTimeout(() => {
-        // DESPAWN TRANSPORT CAR.
-        // ------------------------------------------------------
         if (arrestTransportCar) {
             if (typeof arrestTransportCar.stopSiren === 'function') {
                 arrestTransportCar.stopSiren();
@@ -950,8 +970,7 @@ function startArrestTransition() {
                 arrestTransportCar.humAudio = null;
             }
 
-            const index =
-                cars.indexOf(arrestTransportCar);
+            const index = cars.indexOf(arrestTransportCar);
 
             if (index > -1) {
                 cars.splice(index, 1);
@@ -960,9 +979,6 @@ function startArrestTransition() {
 
         arrestTransportCar = null;
 
-        // ------------------------------------------------------
-        // DESPAWN ESCORT POLICE CARS.
-        // ------------------------------------------------------
         arrestEscortCars.forEach(escort => {
             if (!escort) return;
 
@@ -984,9 +1000,6 @@ function startArrestTransition() {
 
         arrestEscortCars = [];
 
-        // ------------------------------------------------------
-        // REMOVE ALL STOLEN CARS ONLY NOW.
-        // ------------------------------------------------------
         cars = cars.filter(car => {
             if (!car || !car.isStolen) {
                 return true;
@@ -1004,9 +1017,6 @@ function startArrestTransition() {
             return false;
         });
 
-        // ------------------------------------------------------
-        // NOW clear wanted/stolen records.
-        // ------------------------------------------------------
         localStorage.removeItem("stolen_cars");
         localStorage.removeItem("stolen car");
 
@@ -1018,24 +1028,22 @@ function startArrestTransition() {
             "false"
         );
 
-        // Place player at the police station.
         player.x = ARREST_STATION_X;
         player.y = ARREST_STATION_Y;
         player.speed = 0;
 
-        // ------------------------------------------------------
-        // Hold black screen for 2 seconds.
-        // ------------------------------------------------------
         setTimeout(() => {
-
             overlay.style.opacity = "0";
 
             setTimeout(() => {
- player.isBeingArrested = false;
-player.isArrestPassenger = false;
- player.ispassenger = false;
- camera.passengerFollowAngle = null;  player.arrestTransportCar = null; 
-arrestTransportState = "NONE";                       arrestTransitionStarted = false;                 arrestTransportPath = null;
+                player.isBeingArrested = false;
+                player.isArrestPassenger = false;
+                player.ispassenger = false;
+                camera.passengerFollowAngle = null;  
+                player.arrestTransportCar = null; 
+                arrestTransportState = "NONE";                       
+                arrestTransitionStarted = false;                 
+                arrestTransportPath = null;
                 arrestTransportRepathTimer = 0;
 
                 if (typeof surrenderBtn !== 'undefined' && surrenderBtn) {
@@ -1052,23 +1060,21 @@ arrestTransportState = "NONE";                       arrestTransitionStarted = f
 
                 if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
                     const hitRunCharges = playerHitRunCases;
-const carStealCharges = playerCarStealCases;
+                    const carStealCharges = playerCarStealCases;
+                    const assaultCharges = playerAssaultCases;
 
-if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
-    taxiManager.setMessage(
-        `Charged with ${hitRunCharges} hit-run and ${carStealCharges} car steal cases.`,
-        300
-    );
-}
+                    taxiManager.setMessage(
+                        `Charged with ${hitRunCharges} hit-run, ${carStealCharges} car steal & ${assaultCharges} assault cases.`,
+                        300
+                    );
 
-// The current wanted streak is now finished.
-playerHitRunCases = 0;
-playerCarStealCases = 0;
-saveCrimeCaseCounts();
+                    playerHitRunCases = 0;
+                    playerCarStealCases = 0;
+                    playerAssaultCases = 0;
 
-// All pending hit-run incidents are cleared with the arrest.
-pendingHitRunIncidents = [];
-savePendingHitRunIncidents();
+                    saveCrimeCaseCounts();               
+                    pendingHitRunIncidents = [];
+                    savePendingHitRunIncidents();
                 }
             }, 450);
 
@@ -1077,22 +1083,11 @@ savePendingHitRunIncidents();
     }, 450);
 }
 
-
-// ------------------------------------------------------------
-// Update arrest transport + escorts.
-// ------------------------------------------------------------
 function updateArrestTransport(dt) {
-
     if (!player.isBeingArrested) return false;
 
-    // Keep player absolutely immobile.
     player.speed = 0;
 
-    // ----------------------------------------------------------
-    // Transport stuck detection.
-    // If the transport car remains at the same position for
-    // 5 seconds, move it to a safe road position.
-    // ----------------------------------------------------------
     if (arrestTransportCar) {
         if (arrestTransportCar.stuckX === undefined) {
             arrestTransportCar.stuckX = arrestTransportCar.x;
@@ -1114,8 +1109,7 @@ function updateArrestTransport(dt) {
         }
 
         if (arrestTransportCar.stuckTimer >= 300) {
-            const safeRoadPosition =
-                getRandomStrictRoadPosition();
+            const safeRoadPosition = getRandomStrictRoadPosition();
 
             arrestTransportCar.x = safeRoadPosition.x;
             arrestTransportCar.y = safeRoadPosition.y;
@@ -1124,16 +1118,13 @@ function updateArrestTransport(dt) {
             arrestTransportCar.velocityX = 0;
             arrestTransportCar.velocityY = 0;
 
-            arrestTransportCar.stuckX =
-                arrestTransportCar.x;
-            arrestTransportCar.stuckY =
-                arrestTransportCar.y;
+            arrestTransportCar.stuckX = arrestTransportCar.x;
+            arrestTransportCar.stuckY = arrestTransportCar.y;
             arrestTransportCar.stuckTimer = 0;
 
             arrestTransportCar.arrestTransportPath = null;
             arrestTransportCar.arrestTransportRepathTimer = 0;
 
-            // Keep the arrested player attached to the transport.
             if (player.isArrestPassenger) {
                 player.x = arrestTransportCar.x;
                 player.y = arrestTransportCar.y;
@@ -1141,11 +1132,10 @@ function updateArrestTransport(dt) {
             }
 
             console.log(
-                "Arrest transport stuck for 5 seconds â€” respawned on road."
+                "Arrest transport stuck for 5 seconds — respawned on road."
             );
         }
     }
-
 
     if (typeof exitBtn !== 'undefined' && exitBtn) {
         exitBtn.style.display = 'none';
@@ -1159,47 +1149,39 @@ function updateArrestTransport(dt) {
         surrenderBtn.style.display = 'none';
     }
 
-    // ----------------------------------------------------------
-    // Transport car approaching player.
-    // ----------------------------------------------------------
     if (
         arrestTransportState === "APPROACHING" &&
         arrestTransportCar
     ) {
-        const distance =
-            Math.hypot(
-                player.x - arrestTransportCar.x,
-                player.y - arrestTransportCar.y
-            );
+        const distance = Math.hypot(
+            player.x - arrestTransportCar.x,
+            player.y - arrestTransportCar.y
+        );
 
         if (distance <= 42) {
+            arrestTransportState = "CARRYING";
 
-     arrestTransportState = "CARRYING";
+            player.isArrestPassenger = true;
+            player.ispassenger = true;
+            player.arrestTransportCar = arrestTransportCar;
 
-player.isArrestPassenger = true;
-player.ispassenger = true;
-player.arrestTransportCar = arrestTransportCar;
-
-arrestTransportCar.speed = 0;
-arrestTransportCar.hasArrestPassenger = true;       
+            arrestTransportCar.speed = 0;
+            arrestTransportCar.hasArrestPassenger = true;       
 
             arrestTransportCar.arrestTransportPath = null;
             arrestTransportCar.arrestTransportRepathTimer = 0;
 
         } else {
             moveArrestPoliceCar(
-    arrestTransportCar,
-    player.x,
-    player.y,
-    dt,
-    3.2
-);
+                arrestTransportCar,
+                player.x,
+                player.y,
+                dt,
+                3.2
+            );
         }
     }
 
-    // ----------------------------------------------------------
-    // Transport car carrying player to station.
-    // ----------------------------------------------------------
     if (
         arrestTransportState === "CARRYING" &&
         arrestTransportCar
@@ -1209,37 +1191,29 @@ arrestTransportCar.hasArrestPassenger = true;
         player.angle = arrestTransportCar.angle;
         player.speed = 0;
 
-        const stationDistance =
-            Math.hypot(
-                ARREST_STATION_X - arrestTransportCar.x,
-                ARREST_STATION_Y - arrestTransportCar.y
-            );
+        const stationDistance = Math.hypot(
+            ARREST_STATION_X - arrestTransportCar.x,
+            ARREST_STATION_Y - arrestTransportCar.y
+        );
 
         if (stationDistance <= 55) {
-
-            arrestTransportCar.x =
-                ARREST_STATION_X;
-
-            arrestTransportCar.y =
-                ARREST_STATION_Y;
-
+            arrestTransportCar.x = ARREST_STATION_X;
+            arrestTransportCar.y = ARREST_STATION_Y;
             arrestTransportCar.speed = 0;
 
             player.x = ARREST_STATION_X;
             player.y = ARREST_STATION_Y;
 
             startArrestTransition();
-
         } else {
             moveArrestPoliceCar(
-    arrestTransportCar,
-    ARREST_STATION_X,
-    ARREST_STATION_Y,
-    dt,
-    3.2
-);
+                arrestTransportCar,
+                ARREST_STATION_X,
+                ARREST_STATION_Y,
+                dt,
+                3.2
+            );
 
-            // Keep player attached after movement.
             player.x = arrestTransportCar.x;
             player.y = arrestTransportCar.y;
             player.angle = arrestTransportCar.angle;
@@ -1247,57 +1221,42 @@ arrestTransportCar.hasArrestPassenger = true;
     }
 
     if (
-    arrestTransportCar &&
-    arrestTransportState !== "TRANSITION"
-) {
-    arrestEscortCars.forEach((escort, index) => {
-
-
-        if (!player.isArrestPassenger) {
-            escort.speed = 0;
-            escort.velocityX = 0;
-            escort.velocityY = 0;
-            return;
-        }
+        arrestTransportCar &&
+        arrestTransportState !== "TRANSITION"
+    ) {
+        arrestEscortCars.forEach((escort, index) => {
+            if (!player.isArrestPassenger) {
+                escort.speed = 0;
+                escort.velocityX = 0;
+                escort.velocityY = 0;
+                return;
+            }
 
             if (!escort) return;
             if (!cars.includes(escort)) return;
 
-            const forwardAngle =
-                arrestTransportCar.angle -
-                Math.PI / 2;
+            const forwardAngle = arrestTransportCar.angle - Math.PI / 2;
 
-            // Keep escorts behind / beside the transport rather
-            // than sending every car to exactly the same point.
-            const side =
-                index % 2 === 0 ? -1 : 1;
-
-            const row =
-                Math.floor(index / 2);
+            const side = index % 2 === 0 ? -1 : 1;
+            const row = Math.floor(index / 2);
 
             const targetX =
                 arrestTransportCar.x -
-                Math.cos(forwardAngle) *
-                (65 + row * 45) +
-                Math.cos(forwardAngle + Math.PI / 2) *
-                side *
-                45;
+                Math.cos(forwardAngle) * (65 + row * 45) +
+                Math.cos(forwardAngle + Math.PI / 2) * side * 45;
 
             const targetY =
                 arrestTransportCar.y -
-                Math.sin(forwardAngle) *
-                (65 + row * 45) +
-                Math.sin(forwardAngle + Math.PI / 2) *
-                side *
-                45;
+                Math.sin(forwardAngle) * (65 + row * 45) +
+                Math.sin(forwardAngle + Math.PI / 2) * side * 45;
 
             moveArrestPoliceCar(
-    escort,
-    targetX,
-    targetY,
-    dt,
-    3.2
-);
+                escort,
+                targetX,
+                targetY,
+                dt,
+                3.2
+            );
 
             if (typeof escort.playSiren === 'function') {
                 escort.playSiren(2);
@@ -1309,12 +1268,14 @@ arrestTransportCar.hasArrestPassenger = true;
 
     return true;
 }    
+
 surrenderBtn.addEventListener('click', () => {
     if (player.isBeingArrested) return;
 
     isPlayerSurrendered = true;
     executeArrestProcess();
 });
+
 function isPlayerNearPoliceUnit(maxDistance = 120, specificUnit = null) {
     if (!player) return false;
 
@@ -1352,10 +1313,9 @@ function isPlayerNearPoliceUnit(maxDistance = 120, specificUnit = null) {
     });
 
     return nearby;
-}              // --- STAGE 4A: POLICE RECOGNITION, WARNING & ARREST SYSTEM ---
-// POLICE OFFICER VEHICLE INTERCEPTION BULLETS
-// ============================================================
+}              
 
+// --- STAGE 4A: POLICE RECOGNITION, WARNING & ARREST SYSTEM ---
 const policeBullets = [];
 
 const POLICE_BULLET_SPEED = 7.5;
@@ -1364,7 +1324,6 @@ const POLICE_BULLET_RADIUS = 3;
 const POLICE_OFFICER_FIRE_COOLDOWN = 28;
 const POLICE_OFFICER_SHOOT_RANGE = 300;
 const POLICE_OFFICER_MIN_CAR_SPEED = 0.35;
-
 
 const POLICE_BULLET_SOUND_URL = "https://raw.githubusercontent.com/divanshu911/My-game-assets/ed8f60817772b47df611091dd6f73b2f58435b46/gunshot.wav";
 
@@ -1393,20 +1352,18 @@ function fireOfficerBullet(officer, targetCar) {
 
     const angle = Math.atan2(dy, dx);
 
- policeBullets.push({
-    x: officer.x,
-    y: officer.y,
-    vx: Math.cos(angle) * POLICE_BULLET_SPEED,
-    vy: Math.sin(angle) * POLICE_BULLET_SPEED,
-    life: POLICE_BULLET_LIFETIME,
-    owner: officer,
-    targetCar: targetCar
-});
+    policeBullets.push({
+        x: officer.x,
+        y: officer.y,
+        vx: Math.cos(angle) * POLICE_BULLET_SPEED,
+        vy: Math.sin(angle) * POLICE_BULLET_SPEED,
+        life: POLICE_BULLET_LIFETIME,
+        owner: officer,
+        targetCar: targetCar
+    });
 
-// Brief firing pose.
-officer.policeFiringTimer = 10;
-
-playPoliceBulletSound();   
+    officer.policeFiringTimer = 10;
+    playPoliceBulletSound();   
 }
 
 function updatePoliceBullets(dt) {
@@ -1433,7 +1390,6 @@ function updatePoliceBullets(dt) {
         bullet.y += bullet.vy * dt;
         bullet.life -= dt;
 
-        // Bullet reached the player's car.
         const hitDistance = Math.hypot(
             bullet.x - car.x,
             bullet.y - car.y
@@ -1446,19 +1402,17 @@ function updatePoliceBullets(dt) {
         );
 
         if (hitDistance <= hitRadius) {
-    // Only puncture and notify once.
-    if (!car.tirePunctured) {
-        car.tirePunctured = true;
-        taxiManager.setMessage("Car's tyre is punctured!", 240);
+            if (!car.tirePunctured) {
+                car.tirePunctured = true;
+                taxiManager.setMessage("Car's tyre is punctured!", 240);
 
-        // Immediately reduce current speed so the effect is noticeable.
-        if (Math.abs(car.speed) > car.baseSpeed * 1.15) {
-            car.speed = Math.sign(car.speed) * car.baseSpeed * 1.15;
-        }
-    }
+                if (Math.abs(car.speed) > car.baseSpeed * 1.15) {
+                    car.speed = Math.sign(car.speed) * car.baseSpeed * 1.15;
+                }
+            }
 
-    policeBullets.splice(i, 1);
-    continue;
+            policeBullets.splice(i, 1);
+            continue;
         }
 
         if (bullet.life <= 0) {
@@ -1467,7 +1421,7 @@ function updatePoliceBullets(dt) {
     }
 }
 
- function drawPoliceBullets(ctx) {
+function drawPoliceBullets(ctx) {
     if (!policeBullets.length) return;
 
     ctx.save();
@@ -1479,38 +1433,26 @@ function updatePoliceBullets(dt) {
         );
 
         ctx.save();
-
-        ctx.translate(
-            bullet.x,
-            bullet.y
-        );
-
+        ctx.translate(bullet.x, bullet.y);
         ctx.rotate(bulletAngle);
 
-        // Tiny bullet-like projectile.
-      // Bright bullet with a small glow.
-ctx.shadowColor = "#ffd84a";
-ctx.shadowBlur = 6;
-ctx.fillStyle = "#ffd84a";
+        ctx.shadowColor = "#ffd84a";
+        ctx.shadowBlur = 6;
+        ctx.fillStyle = "#ffd84a";
 
-ctx.fillRect(
-    -6,
-    -1.5,
-    12,
-    3
-);  
-
+        ctx.fillRect(-6, -1.5, 12, 3);  
         ctx.restore();
     });
 
     ctx.restore();
- }                                                             function smoothlyTurnAIMovement(unit, moveAngle, dt, isCar) {
+}                                                             
+
+function smoothlyTurnAIMovement(unit, moveAngle, dt, isCar) {
     const targetAngle = moveAngle + Math.PI / 2;
 
-    // Base turning speed from the vehicle/NPC.
     const baseTurnSpeed = isCar
-    ? Math.max(unit.turnSpeed || 0.05, 0.085)
-    : 0.12;
+        ? Math.max(unit.turnSpeed || 0.05, 0.085)
+        : 0.12;
 
     let angleDiff = targetAngle - unit.angle;
 
@@ -1519,25 +1461,16 @@ ctx.fillRect(
 
     const turnAmount = Math.abs(angleDiff);
 
-    // Larger directional changes turn faster.
-    // Small corrections remain slower and smooth.
-    const directionScale =
-        0.5 + (turnAmount / Math.PI) * 1.5;
-
-    const turnSpeed =
-        baseTurnSpeed * directionScale;
-
+    const directionScale = 0.5 + (turnAmount / Math.PI) * 1.5;
+    const turnSpeed = baseTurnSpeed * directionScale;
     const maxTurn = turnSpeed * dt;
 
-    unit.angle +=
-        Math.sign(angleDiff) *
-        Math.min(turnAmount, maxTurn);
+    unit.angle += Math.sign(angleDiff) * Math.min(turnAmount, maxTurn);
 }
-// --- HELPER: EXECUTE EXISTING CHASE & NAVIGATION BEHAVIOR FOR A SINGLE UNIT ---
+
 function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
     const isCar = unit.length !== undefined;
 
-    // Injured police officers must immediately leave the chase.
     if (!isCar && unit.isInjured) {
         unit.speed = 0;
         unit.policeState = "PATROL";
@@ -1545,15 +1478,14 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
         return;
     }
     if (!isCar && unit.policeFiringTimer > 0) {
-    unit.policeFiringTimer -= dt;
-}
-        // --- Police-car A* repath timer ---
+        unit.policeFiringTimer -= dt;
+    }
+
     if (isCar) {
         if (unit.repathTimer === undefined) {
             unit.repathTimer = 0;
         }
 
-        // --- Police chase stop/start timers ---
         if (unit.policeChaseTimerState === undefined) {
             unit.policeChaseTimerState = "CHASING";
             unit.policeStopTimer = 0;
@@ -1562,7 +1494,7 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
             unit.policeCoastSpeed = 3.2;
         }
     }
-    // Destroyed police cars must never continue the chase.
+
     if (isCar && (unit.health <= 0 || unit.exploded)) {
         unit.speed = 0;
 
@@ -1576,7 +1508,6 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
         return;
     }
 
-    // Siren and unpark state for police cars
     if (isCar) {
         unit.isParked = false;
         if (typeof unit.playSiren === 'function') {
@@ -1586,7 +1517,6 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
         }
     }
 
-    // ON-FOOT OFFICER VS MOVING PLAYER CAR (Interceptor shooting logic)
     if (!isCar && playerCar) {
         const playerCarSpeed = Math.abs(playerCar.speed);
         if (playerCarSpeed > POLICE_OFFICER_MIN_CAR_SPEED) {
@@ -1609,47 +1539,34 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
             return;
         }
     }
-    // --- POLICE CAR STOP/START CHASE TIMERS ---
-    // Police cars only. Officer NPC chase behavior is untouched.
+
     if (isCar) {
-    const playerIsMoving = Math.abs(player.speed || 0) > 0.05;
-    const policeCarIsNearPlayer = isPlayerNearPoliceUnit(120, unit);
+        const playerIsMoving = Math.abs(player.speed || 0) > 0.05;
+        const policeCarIsNearPlayer = isPlayerNearPoliceUnit(120, unit);
 
-    if (!playerIsMoving && policeCarIsNearPlayer) {
+        if (!playerIsMoving && policeCarIsNearPlayer) {
 
-            // Player just stopped during a normal chase.
-            // Start the 0.6 second forward-coast period.
             if (unit.policeChaseTimerState === "CHASING") {
                 unit.policeChaseTimerState = "STOPPING";
                 unit.policeStopTimer = 0.6 * 60;
-
-                // Lock the direction the police car was already facing.
                 unit.policeCoastAngle = unit.angle - Math.PI / 2;
-
-                // Keep its current chase speed for the coast.
                 unit.policeCoastSpeed =
                     Math.abs(unit.speed) > 0.05
                         ? Math.abs(unit.speed)
                         : 3.2;
             }
 
-            // Player stopped while the 0.8 sec start timer was running.
-            // IMPORTANT: pause the timer; do NOT reset it.
             if (unit.policeChaseTimerState === "STARTING") {
                 unit.policeChaseTimerState = "STARTING_PAUSED";
                 unit.speed = 0;
                 return;
             }
 
-            // Timer already paused. Remain stopped.
             if (unit.policeChaseTimerState === "STARTING_PAUSED") {
                 unit.speed = 0;
                 return;
             }
 
-            // -----------------------------------------------------
-            // 0.6 SECOND FORWARD COAST
-            // -----------------------------------------------------
             if (unit.policeChaseTimerState === "STOPPING") {
                 unit.policeStopTimer -= dt;
 
@@ -1659,27 +1576,15 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
                 unit.speed = coastSpeed;
                 unit.angle = coastAngle + Math.PI / 2;
 
-                const nextX =
-                    unit.x +
-                    Math.cos(coastAngle) *
-                    coastSpeed *
-                    dt;
-
-                const nextY =
-                    unit.y +
-                    Math.sin(coastAngle) *
-                    coastSpeed *
-                    dt;
+                const nextX = unit.x + Math.cos(coastAngle) * coastSpeed * dt;
+                const nextY = unit.y + Math.sin(coastAngle) * coastSpeed * dt;
 
                 if (isGrassOrRoad(nextX, nextY)) {
                     unit.x = nextX;
                     unit.y = nextY;
                 } else {
-                    const xWalkable =
-                        isGrassOrRoad(nextX, unit.y);
-
-                    const yWalkable =
-                        isGrassOrRoad(unit.x, nextY);
+                    const xWalkable = isGrassOrRoad(nextX, unit.y);
+                    const yWalkable = isGrassOrRoad(unit.x, nextY);
 
                     if (xWalkable && yWalkable) {
                         unit.x = nextX;
@@ -1700,20 +1605,11 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
                 return;
             }
 
-            // Police has completed the 0.6 sec coast.
-            // Stay exactly where it stopped.
             if (unit.policeChaseTimerState === "STOPPED") {
                 unit.speed = 0;
                 return;
             }
-        }
-
-        // ---------------------------------------------------------
-        // PLAYER HAS STARTED MOVING
-        // ---------------------------------------------------------
-        else {
-
-            // Player started moving while police was still in the0.6 sec coast. Cancel the coast and begin the 0.5 sec stationary delay.
+        } else {
             if (unit.policeChaseTimerState === "STOPPING") {
                 unit.policeStopTimer = 0;
                 unit.policeStartTimer = 0.5 * 60;
@@ -1722,21 +1618,19 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
                 return;
             }
 
-            // Player starts moving after police has completely stopped.
             if (unit.policeChaseTimerState === "STOPPED") {
                 unit.policeStartTimer = 0.5 * 60;
                 unit.policeChaseTimerState = "STARTING";
                 unit.speed = 0;
                 return;
             }
-           // Resume a previously paused 0.5 sec timer.
+
             if (unit.policeChaseTimerState === "STARTING_PAUSED") {
                 unit.policeChaseTimerState = "STARTING";
             }
-            // -------------------------------------------            // 0.5 SECOND START DELAY           // -----------------------------------------------------
+
             if (unit.policeChaseTimerState === "STARTING") {
                 unit.speed = 0;
-
                 unit.policeStartTimer -= dt;
 
                 if (unit.policeStartTimer > 0) {
@@ -1749,105 +1643,94 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
         }
     }
 
-    // --- A* CHASE LOGIC & NAVIGATION MOVEMENT ---
     const chaseTarget =
-    playerCar && !playerCar.exploded
-        ? playerCar
-        : player;
+        playerCar && !playerCar.exploded
+            ? playerCar
+            : player;
 
-const chaseDistance = Math.hypot(
-    chaseTarget.x - unit.x,
-    chaseTarget.y - unit.y
-);
+    const chaseDistance = Math.hypot(
+        chaseTarget.x - unit.x,
+        chaseTarget.y - unit.y
+    );
 
-if (chaseDistance > 35) {
-    // --- A* repath timer for ALL police units ---
-    if (unit.repathTimer === undefined) {
-        unit.repathTimer = 0;
-    }
+    if (chaseDistance > 35) {
+        if (unit.repathTimer === undefined) {
+            unit.repathTimer = 0;
+        }
 
-    unit.repathTimer -= dt;
+        unit.repathTimer -= dt;
 
-    unit.policePath = navigationSystem.findPath(
-    unit.x,
-    unit.y,
-    chaseTarget.x,
-    chaseTarget.y
-);
+        unit.policePath = navigationSystem.findPath(
+            unit.x,
+            unit.y,
+            chaseTarget.x,
+            chaseTarget.y
+        );
 
-        unit.repathTimer = 0.33; // recalculate roughly 3 times/sec
+        unit.repathTimer = 0.33;
     }
 
     const path = unit.policePath;
-        let moveAngle = unit.angle;
+    let moveAngle = unit.angle;
 
-        if (path && path.length > 1) {
-            const nextWaypoint = path[1];
-            moveAngle = Math.atan2(nextWaypoint.y - unit.y, nextWaypoint.x - unit.x);
-        } else {
-           moveAngle = Math.atan2(
-    chaseTarget.y - unit.y,
-    chaseTarget.x - unit.x
-); 
-        }
+    if (path && path.length > 1) {
+        const nextWaypoint = path[1];
+        moveAngle = Math.atan2(nextWaypoint.y - unit.y, nextWaypoint.x - unit.x);
+    } else {
+        moveAngle = Math.atan2(
+            chaseTarget.y - unit.y,
+            chaseTarget.x - unit.x
+        ); 
+    }
 
-                // Dynamic Police Unit Separation
-        // Prevent multiple police units from occupying the exact same
-        // chase position and getting stuck spinning against each other.
-        let avoidX = 0;
-        let avoidY = 0;
-        const avoidanceRadius = isCar ? 55 : 35;
+    let avoidX = 0;
+    let avoidY = 0;
+    const avoidanceRadius = isCar ? 55 : 35;
 
-        cars.forEach(otherCar => {
-            if (otherCar !== unit && otherCar !== playerCar && otherCar.isPolice) {
-                const dx = otherCar.x - unit.x;
-                const dy = otherCar.y - unit.y;
-                const d = Math.hypot(dx, dy);
+    cars.forEach(otherCar => {
+        if (otherCar !== unit && otherCar !== playerCar && otherCar.isPolice) {
+            const dx = otherCar.x - unit.x;
+            const dy = otherCar.y - unit.y;
+            const d = Math.hypot(dx, dy);
 
-                if (d < avoidanceRadius && d > 0.01) {
-                    const strength = (avoidanceRadius - d) / avoidanceRadius;
-                    avoidX -= (dx / d) * strength;
-                    avoidY -= (dy / d) * strength;
-                }
-            }
-        });
-
-        npcs.forEach(npc => {
-            if (npc !== unit && npc.isPolice) {
-                const dx = npc.x - unit.x;
-                const dy = npc.y - unit.y;
-                const d = Math.hypot(dx, dy);
-
-                if (d < avoidanceRadius && d > 0.01) {
-                    const strength = (avoidanceRadius - d) / avoidanceRadius;
-                    avoidX -= (dx / d) * strength;
-                    avoidY -= (dy / d) * strength;
-                }
-            }
-        });
-
-        // Only apply separation when police units are actually close.
-        // Keep the player's chase direction dominant so police don't
-        // randomly veer away during a normal chase.
-        if (avoidX !== 0 || avoidY !== 0) {
-            const avoidAngle = Math.atan2(avoidY, avoidX);
-
-            const separationStrength =
-                Math.min(0.35, Math.hypot(avoidX, avoidY) * 0.35);
-
-            // Blend using vectors instead of directly averaging angles.
-            const chaseX = Math.cos(moveAngle);
-            const chaseY = Math.sin(moveAngle);
-            const avoidDirX = Math.cos(avoidAngle);
-            const avoidDirY = Math.sin(avoidAngle);
-
-            const finalX = chaseX * (1 - separationStrength) + avoidDirX * separationStrength;
-            const finalY = chaseY * (1 - separationStrength) + avoidDirY * separationStrength;
-
-            if (Math.hypot(finalX, finalY) > 0.001) {
-                moveAngle = Math.atan2(finalY, finalX);
+            if (d < avoidanceRadius && d > 0.01) {
+                const strength = (avoidanceRadius - d) / avoidanceRadius;
+                avoidX -= (dx / d) * strength;
+                avoidY -= (dy / d) * strength;
             }
         }
+    });
+
+    npcs.forEach(npc => {
+        if (npc !== unit && npc.isPolice) {
+            const dx = npc.x - unit.x;
+            const dy = npc.y - unit.y;
+            const d = Math.hypot(dx, dy);
+
+            if (d < avoidanceRadius && d > 0.01) {
+                const strength = (avoidanceRadius - d) / avoidanceRadius;
+                avoidX -= (dx / d) * strength;
+                avoidY -= (dy / d) * strength;
+            }
+        }
+    });
+
+    if (avoidX !== 0 || avoidY !== 0) {
+        const avoidAngle = Math.atan2(avoidY, avoidX);
+        const separationStrength = Math.min(0.35, Math.hypot(avoidX, avoidY) * 0.35);
+
+        const chaseX = Math.cos(moveAngle);
+        const chaseY = Math.sin(moveAngle);
+        const avoidDirX = Math.cos(avoidAngle);
+        const avoidDirY = Math.sin(avoidAngle);
+
+        const finalX = chaseX * (1 - separationStrength) + avoidDirX * separationStrength;
+        const finalY = chaseY * (1 - separationStrength) + avoidDirY * separationStrength;
+
+        if (Math.hypot(finalX, finalY) > 0.001) {
+            moveAngle = Math.atan2(finalY, finalX);
+        }
+    }
 
     if (isCar) {
         const localAvoidance = getPoliceObstacleAvoidance(
@@ -1863,63 +1746,61 @@ if (chaseDistance > 35) {
 
     smoothlyTurnAIMovement(unit, moveAngle, dt, isCar);
 
-        // Position Updates & Collision Handling
-       if (isCar) {
-    const policeChaseSpeed = 3.2;
-    unit.speed = policeChaseSpeed;
-    const nextX = unit.x + Math.cos(moveAngle) * policeChaseSpeed * dt;
-    const nextY = unit.y + Math.sin(moveAngle) * policeChaseSpeed * dt; 
+    if (isCar) {
+        const policeChaseSpeed = 3.2;
+        unit.speed = policeChaseSpeed;
+        const nextX = unit.x + Math.cos(moveAngle) * policeChaseSpeed * dt;
+        const nextY = unit.y + Math.sin(moveAngle) * policeChaseSpeed * dt; 
 
-            if (isGrassOrRoad(nextX, nextY)) {
-                unit.x = nextX;
-                unit.y = nextY;
-            } else {
-                const xWalkable = isGrassOrRoad(nextX, unit.y);
-                const yWalkable = isGrassOrRoad(unit.x, nextY);
-                if (xWalkable && yWalkable) {
-                    const xDist = Math.hypot(player.x - nextX, player.y - unit.y);
-                    const yDist = Math.hypot(player.x - unit.x, player.y - nextY);
-                    if (xDist <= yDist) unit.x = nextX;
-                    else unit.y = nextY;
-                } else if (xWalkable) unit.x = nextX;
-                else if (yWalkable) unit.y = nextY;
-            }
+        if (isGrassOrRoad(nextX, nextY)) {
+            unit.x = nextX;
+            unit.y = nextY;
         } else {
-            const chaseSpeed = 1.6;
-            const oldX = unit.x;
-            const oldY = unit.y;
-            const nextX = unit.x + Math.cos(moveAngle) * chaseSpeed * dt;
-            const nextY = unit.y + Math.sin(moveAngle) * chaseSpeed * dt;
-
-            if (isGrassOrRoad(nextX, nextY)) {
-                unit.x = nextX;
-                unit.y = nextY;
-            } else {
-                const xWalkable = isGrassOrRoad(nextX, unit.y);
-                const yWalkable = isGrassOrRoad(unit.x, nextY);
-                if (xWalkable && yWalkable) {
-                    const xDist = Math.hypot(player.x - nextX, player.y - unit.y);
-                    const yDist = Math.hypot(player.x - unit.x, player.y - nextY);
-                    if (xDist <= yDist) unit.x = nextX;
-                    else unit.y = nextY;
-                } else if (xWalkable) unit.x = nextX;
-                else if (yWalkable) unit.y = nextY;
-            }
-
-            const movedDistance = Math.hypot(unit.x - oldX, unit.y - oldY);
-            if (movedDistance > 0.001) {
-                unit.walkTimer = (unit.walkTimer || 0) + chaseSpeed * dt * 0.12;
-                unit.speed = chaseSpeed;
-            } else {
-                unit.speed = 0;
-            }
+            const xWalkable = isGrassOrRoad(nextX, unit.y);
+            const yWalkable = isGrassOrRoad(unit.x, nextY);
+            if (xWalkable && yWalkable) {
+                const xDist = Math.hypot(player.x - nextX, player.y - unit.y);
+                const yDist = Math.hypot(player.x - unit.x, player.y - nextY);
+                if (xDist <= yDist) unit.x = nextX;
+                else unit.y = nextY;
+            } else if (xWalkable) unit.x = nextX;
+            else if (yWalkable) unit.y = nextY;
         }
-}
+    } else {
+        const chaseSpeed = 1.6;
+        const oldX = unit.x;
+        const oldY = unit.y;
+        const nextX = unit.x + Math.cos(moveAngle) * chaseSpeed * dt;
+        const nextY = unit.y + Math.sin(moveAngle) * chaseSpeed * dt;
 
+        if (isGrassOrRoad(nextX, nextY)) {
+            unit.x = nextX;
+            unit.y = nextY;
+        } else {
+            const xWalkable = isGrassOrRoad(nextX, unit.y);
+            const yWalkable = isGrassOrRoad(unit.x, nextY);
+            if (xWalkable && yWalkable) {
+                const xDist = Math.hypot(player.x - nextX, player.y - unit.y);
+                const yDist = Math.hypot(player.x - unit.x, player.y - nextY);
+                if (xDist <= yDist) unit.x = nextX;
+                else unit.y = nextY;
+            } else if (xWalkable) unit.x = nextX;
+            else if (yWalkable) unit.y = nextY;
+        }
+
+        const movedDistance = Math.hypot(unit.x - oldX, unit.y - oldY);
+        if (movedDistance > 0.001) {
+            unit.walkTimer = (unit.walkTimer || 0) + chaseSpeed * dt * 0.12;
+            unit.speed = chaseSpeed;
+        } else {
+            unit.speed = 0;
+        }
+    }
+}
 
 // --- STAGE 4A: REVISED POLICE RECOGNITION, WARNING, ARREST & CHASE SYSTEM ---
 function updatePoliceStage4A(dt, player, cars, npcs) {
-        if (!player) return;
+    if (!player) return;
     if (player.beingChased === undefined) player.beingChased = false;
 
     cars.forEach(c => {
@@ -1954,20 +1835,18 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
     const surrenderBtn = document.getElementById('surrenderBtn');
 
     // --- POLICE CHASE ESCAPE ---
-    // Only actively chasing police units count.
-    // Patrol units do NOT prevent the player from escaping the chase.
     if (player.beingChased) {
         const POLICE_ESCAPE_DISTANCE = 450;
 
         const nearbyChasingCar = cars.some(c =>
-    c &&
-    c.isPolice &&
-    c !== playerCar &&
-    !c.exploded &&
-    c.health > 0 &&
-    c.policeState === "CHASE" &&
-    Math.hypot(player.x - c.x, player.y - c.y) <= POLICE_ESCAPE_DISTANCE
-);
+            c &&
+            c.isPolice &&
+            c !== playerCar &&
+            !c.exploded &&
+            c.health > 0 &&
+            c.policeState === "CHASE" &&
+            Math.hypot(player.x - c.x, player.y - c.y) <= POLICE_ESCAPE_DISTANCE
+        );
 
         const nearbyChasingOfficer = npcs.some(n =>
             n &&
@@ -1977,16 +1856,12 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
         );
 
         if (!nearbyChasingCar && !nearbyChasingOfficer) {
-    player.beingChased = false;
-    player.wanted = true;
+            player.beingChased = false;
+            player.wanted = true;
 
-    // Player has escaped the active chase, but remains wanted.
-    if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
-        taxiManager.setMessage("You escaped! they are searching for you", 240);
-    }
-
-    // Keep player.wanted = true.
-            // Being out of the chase does NOT mean the player is no longer wanted.
+            if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
+                taxiManager.setMessage("You escaped! they are searching for you", 240);
+            }
 
             cars.forEach(c => {
                 if (c && c.isPolice && c.policeState === "CHASE") {
@@ -2023,7 +1898,13 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
     // 1. CLEAR ALL POLICE UNITS WHEN NOT WANTED
     if (!player.wanted && !player.beingChased) {
         cars.forEach(c => {
-            if (c.isPolice && c.policeState && c.policeState !== "PATROL") {
+            if (
+                c.isPolice &&
+                c.policeState &&
+                c.policeState !== "PATROL" &&
+                c.policeState !== "ASSAULT_RESPONSE" &&
+                c.policeState !== "ASSAULT_RESPONSE_PARKED"
+            ) {
                 if (typeof c.stopSiren === 'function') c.stopSiren();
                 else c.sirenState = 0;
                 c.isParked = false;
@@ -2038,7 +1919,12 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
         });
 
         npcs.forEach(n => {
-            if (n.isPolice && n.policeState && n.policeState !== "PATROL") {
+            if (
+                n.isPolice &&
+                n.policeState &&
+                n.policeState !== "PATROL" &&
+                n.policeState !== "ASSAULT_WITNESS"
+            ) {    
                 n.speed = 0.3 + Math.random() * 0.4;
                 n.policeState = "PATROL";
                 n.saidStepOut = false;
@@ -2064,14 +1950,14 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
 
         cars.forEach(c => {
             if (
-    c.isPolice &&
-    c !== playerCar &&
-    c.hasDriver &&
-    !c.isStolen &&
-    !c.exploded &&
-    c.health > 0 &&
-    (!c.policeState || c.policeState === "PATROL")
-) {
+                c.isPolice &&
+                c !== playerCar &&
+                c.hasDriver &&
+                !c.isStolen &&
+                !c.exploded &&
+                c.health > 0 &&
+                (!c.policeState || c.policeState === "PATROL")
+            ) {
                 let dist = Math.hypot(player.x - c.x, player.y - c.y);
                 if (dist < minDistance) {
                     minDistance = dist;
@@ -2080,13 +1966,13 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
             }
         });
 
-    npcs.forEach(npc => {
-    if (
-        npc.isPolice &&
-        !npc.isInjured &&
-        (!npc.policeState || npc.policeState === "PATROL")
-    ) {
-        let dist = Math.hypot(player.x - npc.x, player.y - npc.y);    
+        npcs.forEach(npc => {
+            if (
+                npc.isPolice &&
+                !npc.isInjured &&
+                (!npc.policeState || npc.policeState === "PATROL")
+            ) {
+                let dist = Math.hypot(player.x - npc.x, player.y - npc.y);    
                 if (dist < minDistance) {
                     minDistance = dist;
                     closestUnit = npc;
@@ -2165,69 +2051,64 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
                     taxiManager.setMessage("You are being chased!", 180);
                 }
             }
-    } else if (warningOrArrestingUnit.policeState === "ARRESTING") {
+        } else if (warningOrArrestingUnit.policeState === "ARRESTING") {
+            if (surrenderBtn) {
+                surrenderBtn.style.display = 'none';
+            }
 
-    if (surrenderBtn) {
-        surrenderBtn.style.display = 'none';
-    }
-
-    warningOrArrestingUnit.speed = 0;
-    return;
+            warningOrArrestingUnit.speed = 0;
+            return;
         }                
     }
 
-    // 4. JOIN CHASE MECHANIC FOR NEARBY UNITS (Within 240px | Max 3 Cars, 2 Officers)
+    // 4. JOIN CHASE MECHANIC FOR NEARBY UNITS
     if (player.beingChased) {
-        // SURRENDER BUTTON: only available when a chasing police unit is close
-if (surrenderBtn) {
-    surrenderBtn.style.display = isPlayerNearPoliceUnit(120) ? 'block' : 'none';
-}
+        if (surrenderBtn) {
+            surrenderBtn.style.display = isPlayerNearPoliceUnit(120) ? 'block' : 'none';
+        }
         let activeChasingCars = cars.filter(c => c.isPolice && c.policeState === "CHASE").length;
         let activeChasingOfficers = npcs.filter(n => n.isPolice && n.policeState === "CHASE").length;
 
-        // Check nearby police cars
         if (activeChasingCars < 3) {
-    cars.forEach(c => {
-        if (
-            activeChasingCars < 3 &&
-            c.isPolice &&
-            c !== playerCar &&
-            c.hasDriver &&
-            !c.isStolen &&
-            !c.exploded &&
-            c.health > 0 &&
-            (!c.policeState || c.policeState === "PATROL")
-        ) {
+            cars.forEach(c => {
+                if (
+                    activeChasingCars < 3 &&
+                    c.isPolice &&
+                    c !== playerCar &&
+                    c.hasDriver &&
+                    !c.isStolen &&
+                    !c.exploded &&
+                    c.health > 0 &&
+                    (!c.policeState || c.policeState === "PATROL")
+                ) {
                     if (Math.hypot(player.x - c.x, player.y - c.y) <= 240) {
                         c.policeState = "CHASE";
                         c.isParked = false;
                         activeChasingCars++;
-    if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
-                    taxiManager.setMessage("A police car joined the chase!", 180);
+                        if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
+                            taxiManager.setMessage("A police car joined the chase!", 180);
+                        }
                     }
                 }
-            }
-        });
-     }
+            });
+        }
 
-        // Check nearby police officer NPCs
-      if (activeChasingOfficers < 2) {
-    npcs.forEach(n => {
-        if (
-            activeChasingOfficers < 2 &&
-            n.isPolice &&
-            !n.isInjured &&
-            (!n.policeState || n.policeState === "PATROL")
-        ) {  
+        if (activeChasingOfficers < 2) {
+            npcs.forEach(n => {
+                if (
+                    activeChasingOfficers < 2 &&
+                    n.isPolice &&
+                    !n.isInjured &&
+                    (!n.policeState || n.policeState === "PATROL")
+                ) {  
                     if (Math.hypot(player.x - n.x, player.y - n.y) <= 240) {
                         n.policeState = "CHASE";
                         activeChasingOfficers++;
-                          // --- HUD MESSAGE FOR NEW OFFICER JOINING ---
-                            if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
-                                taxiManager.setMessage("A police unit joined the chase!", 180);
-
+                        if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
+                            taxiManager.setMessage("A police unit joined the chase!", 180);
+                        }
                     }
-                }}
+                }
             });
         }
 
