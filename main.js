@@ -1,4 +1,4 @@
-console.log("punch");
+console.log("punched");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1465,19 +1465,26 @@ function updateStolenCarsStorage() {
     // A stolen-car crime is now gone.
     // Keep the player wanted only if another crime still exists
     // or police are actively chasing the player.
-    const hasHitRunCase =
-        typeof playerHitRunCases !== "undefined" &&
-        playerHitRunCases > 0;
+  const hasHitRunCase =
+    typeof playerHitRunCases !== "undefined" &&
+    playerHitRunCases > 0;
 
-    if (!player.beingChased && !hasHitRunCase) {
-        player.wanted = false;
-        player.beingChased = false;
+const hasAssaultCase =
+    typeof playerAssaultCases !== "undefined" &&
+    playerAssaultCases > 0;
 
-        localStorage.setItem(
-            "gma_player_wanted",
-            "false"
-        );
-    }
+if (
+    !player.beingChased &&
+    !hasHitRunCase &&
+    !hasAssaultCase
+) {
+    player.wanted = false;
+    player.beingChased = false;
+    localStorage.setItem(
+        "gma_player_wanted",
+        "false"
+    );
+}  
 }
 // ============================================================
 // PUNCH / BASIC MELEE COMBAT
