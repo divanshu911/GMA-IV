@@ -13,7 +13,7 @@ let fullMapAnimationFrom = 0;
 let fullMapAnimationTo = 0;
 let fullMapAnimationStartTime = 0;
 let fullMapAnimationDuration = 350;
-console.log("fried");
+console.log("🍟");
 // ============================================================
 // FIRST-PLAY OPENING CUTSCENE
 // ============================================================
@@ -130,12 +130,17 @@ function startOpeningCutscene() {
         });
     }, 7600);
 
-    // Scene 6: Close Phone & Show Title "STREETBOUND"
-    setTimeout(() => {
-        closePlayerPhone();
-        hidePhoneCutsceneMessage();
+    // Scene 6 — Title
+setTimeout(() => {
+
+    // Fade the black title background in.
+    openingCutscene.classList.add("title-screen");
+
+    openingClearText(() => {
         openingShowText("STREETBOUND", "title");
-    }, 10400);
+    });
+
+}, 10300);
 
     // Scene 7: Subtitle
     setTimeout(() => {
@@ -150,6 +155,7 @@ function startOpeningCutscene() {
     }, 13800);
 }
 function finishOpeningCutscene() {
+
     openingCutsceneActive = false;
     gameActive = true;
 
@@ -159,10 +165,20 @@ function finishOpeningCutscene() {
         gameContainer.classList.remove("opening-cutscene");
     }
 
+    // Fade out the title black screen.
     if (openingCutscene) {
-        openingCutscene.classList.remove("active");
-        openingCutscene.setAttribute("aria-hidden", "true");
+        openingCutscene.classList.remove("title-screen");
     }
+
+    // Wait for the fade before removing the cutscene completely.
+    setTimeout(() => {
+
+        if (openingCutscene) {
+            openingCutscene.classList.remove("active");
+            openingCutscene.setAttribute("aria-hidden", "true");
+        }
+
+    }, 800);
 
     if (openingText) {
         openingText.className = "";

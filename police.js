@@ -1,4 +1,4 @@
-console.log("javascript");
+console.log("c#");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -802,7 +802,7 @@ function moveArrestPoliceCar(
         for (let i = 0; i < cars.length; i++) {
             const otherCar = cars[i];
             if (otherCar !== car && otherCar !== playerCar && !otherCar.exploded) {
-                if (Math.hypot(otherCar.x - frontCheckX, otherCar.y - frontCheckY) < 25) {
+        if (Math.hypot(otherCar.x - frontCheckX, otherCar.y - frontCheckY) < 20) { 
                     pathBlockedByCar = true;
                     break;
                 }
@@ -877,7 +877,7 @@ function moveArrestPoliceCar(
 
     let avoidX = 0;
     let avoidY = 0;
-    const avoidanceRadius = 55;
+    const avoidanceRadius = 35;
 
     if (typeof cars !== 'undefined') {
         cars.forEach(otherCar => {
@@ -913,14 +913,15 @@ function moveArrestPoliceCar(
     }
 
     const localAvoidance = getPoliceObstacleAvoidance(
-        car,
-        moveAngle,
-        cars
-    );
+    car,
+    moveAngle,
+    cars
+);
 
-    if (localAvoidance.blocked) {
-        moveAngle = localAvoidance.angle;
-    }
+if (localAvoidance.blocked) {
+    car.speed = 0;
+    return;
+}
 
     smoothlyTurnAIMovement(car, moveAngle, dt, true);
     car.speed = speed;
@@ -1732,18 +1733,16 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
         }
     }
 
-    if (isCar) {
-        const localAvoidance = getPoliceObstacleAvoidance(
-            unit,
-            moveAngle,
-            cars
-        );
+    const localAvoidance = getPoliceObstacleAvoidance(
+        car,
+        moveAngle,
+        cars
+    );
 
-        if (localAvoidance.blocked) {
-            moveAngle = localAvoidance.angle;
-        }
+    if (localAvoidance.blocked) {
+        car.speed = 0;
+        return;
     }
-
     smoothlyTurnAIMovement(unit, moveAngle, dt, isCar);
 
     if (isCar) {

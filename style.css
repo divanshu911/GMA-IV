@@ -832,3 +832,40 @@ canvas {
   line-height: 1.4;
   color: #eeeeee;
 }
+/* ============================================================
+   OPENING TITLE SCREEN
+   ============================================================ */
+
+#openingTitleBlackout {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 1;
+  transition: opacity 0.8s ease;
+}
+
+#openingCutscene.title-screen #openingTitleBlackout {
+  opacity: 1;
+}
+
+/* Put the title/subtitle above the black screen */
+#openingContent {
+  z-index: 2;
+}
+
+/* Only during scenes 6 and 7, move text to screen center */
+#openingCutscene.title-screen #openingContent {
+  top: 50%;
+  bottom: auto;
+  transform: translate(-50%, -50%);
+}
+
+/* Make title/subtitle animate smoothly into the center */
+#openingContent {
+  transition:
+    top 0.6s ease,
+    bottom 0.6s ease,
+    transform 0.6s ease;
+}
