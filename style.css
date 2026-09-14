@@ -657,3 +657,178 @@ canvas {
     font-size: 10px;
     color: #aaaaaa;
 }
+/* ============================================================
+   FIRST-PLAY OPENING CUTSCENE
+   ============================================================ */
+
+#openingCutscene {
+  position: absolute;
+  inset: 0;
+  z-index: 9000;
+  display: none;
+  pointer-events: all;
+  background: rgba(0, 0, 0, 0.15);
+  font-family: Arial, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#openingCutscene.active {
+  display: block;
+}
+
+#openingFade {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 1;
+  animation: openingFadeFromBlack 1.4s ease forwards;
+}
+
+#openingContent {
+  position: absolute;
+  left: 50%;
+  bottom: 13%;
+  transform: translateX(-50%);
+  width: min(760px, 82%);
+  text-align: center;
+  pointer-events: none;
+}
+
+#openingText {
+  min-height: 90px;
+  color: #ffffff;
+  font-family: Arial, sans-serif;
+  font-size: clamp(20px, 3vw, 34px);
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: 0.5px;
+  text-shadow:
+    0 2px 5px rgba(0, 0, 0, 0.9),
+    0 0 18px rgba(0, 0, 0, 0.8);
+  opacity: 0;
+}
+
+#openingText.show {
+  animation: openingTextIn 0.65s ease forwards;
+}
+
+#openingText.fade {
+  animation: openingTextOut 0.45s ease forwards;
+}
+
+#openingText.message {
+  font-size: clamp(18px, 2.6vw, 28px);
+}
+
+#openingText.message::before {
+  content: "NEW MESSAGE";
+  display: block;
+  margin-bottom: 14px;
+  color: #f1c40f;
+  font-size: 0.55em;
+  font-weight: 800;
+  letter-spacing: 2px;
+}
+
+#openingText.title {
+  color: #f1c40f;
+  font-size: clamp(38px, 7vw, 76px);
+  font-weight: 900;
+  letter-spacing: 5px;
+  text-shadow:
+    3px 3px 0 #c0392b,
+    0 5px 20px rgba(0, 0, 0, 0.9);
+}
+
+#openingText.subtitle {
+  margin-top: 8px;
+  color: #ffffff;
+  font-size: clamp(16px, 2.5vw, 26px);
+  letter-spacing: 1px;
+  font-weight: 400;
+}
+
+@keyframes openingFadeFromBlack {
+  0% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0.12;
+  }
+}
+
+@keyframes openingTextIn {
+  0% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes openingTextOut {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+/* Hide every normal gameplay control during the opening. */
+
+#gameContainer.opening-cutscene #joystickZone,
+#gameContainer.opening-cutscene #jackBtn,
+#gameContainer.opening-cutscene #taxiBtn,
+#gameContainer.opening-cutscene #restaurantBtn,
+#gameContainer.opening-cutscene #enterHomeBtn,
+#gameContainer.opening-cutscene #sleepBtn,
+#gameContainer.opening-cutscene #exitHomeBtn,
+#gameContainer.opening-cutscene #leaveHomeBtn,
+#gameContainer.opening-cutscene #blackMarketBtn,
+#gameContainer.opening-cutscene #truckBtn,
+#gameContainer.opening-cutscene #punchBtn,
+#gameContainer.opening-cutscene #exitBtn,
+#gameContainer.opening-cutscene #enterDealerBtn,
+#gameContainer.opening-cutscene #exitDealerBtn,
+#gameContainer.opening-cutscene #dealershipPanel,
+#gameContainer.opening-cutscene #desktopControlsModal,
+#gameContainer.opening-cutscene #respawnBtn {
+  display: none !important;
+}
+#phoneCutsceneMessage {
+  position: absolute;
+  inset: 0;
+  background: #121212;
+  color: #ffffff;
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  text-align: center;
+  z-index: 10;
+  box-sizing: border-box;
+}
+
+#phoneCutsceneMessage .msg-header {
+  color: #f1c40f;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  margin-bottom: 12px;
+}
+
+#phoneCutsceneMessage .msg-body {
+  font-size: 13px;
+  line-height: 1.4;
+  color: #eeeeee;
+}

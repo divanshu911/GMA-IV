@@ -1,4 +1,4 @@
-console.log("punched");
+console.log("air");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -38,7 +38,7 @@ const grassAudioPool = createAudioPool(grassWalkUrl, 0.6);
 const roadAudioPool = createAudioPool(roadWalkUrl, 1.0);
 
 // --- NEW VEHICLE & COLLISION AUDIO POOLS ---
-const npcHitUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/54c156cbfdbb75449f031cf44e5b16fbe0c3c475/personHit.wav";
+const npcHitUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/66f01202b08c57723436a17be8bbd267ea178cc0/punch.mp3";
 const carCrashUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/54c156cbfdbb75449f031cf44e5b16fbe0c3c475/CarCrash.wav";
 const engineDeadUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/54c156cbfdbb75449f031cf44e5b16fbe0c3c475/enginedying.wav";
 const explosionUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/54c156cbfdbb75449f031cf44e5b16fbe0c3c475/CarExplosion.mp3";
@@ -3913,7 +3913,7 @@ if (!isInsideHouse && !isInsideDealership) {
 }
 
 
-  ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+ if (!openingCutsceneActive) { ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
   ctx.fillRect(20, 20, 150, 45);
   ctx.fillStyle = "#2ecc71";
   ctx.font = "bold 20px Arial";
@@ -4049,7 +4049,7 @@ if (player && player.wanted) {
     ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(-5, 5); ctx.lineTo(5, 5); ctx.closePath(); ctx.fill(); ctx.stroke();
     ctx.restore();
     ctx.restore(); 
-  }
+  }}
     if (playerDamageVignette > 0) {
     ctx.save();
 

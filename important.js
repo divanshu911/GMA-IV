@@ -13,7 +13,185 @@ let fullMapAnimationFrom = 0;
 let fullMapAnimationTo = 0;
 let fullMapAnimationStartTime = 0;
 let fullMapAnimationDuration = 350;
-console.log("m5");
+console.log("fried");
+// ============================================================
+// FIRST-PLAY OPENING CUTSCENE
+// ============================================================
+
+let openingCutsceneActive = false;
+
+const openingCutscene = document.getElementById("openingCutscene");
+const openingText = document.getElementById("openingText");
+
+function openingShowText(text, className = "") {
+    if (!openingText) return;
+
+    openingText.className = "";
+    openingText.textContent = text;
+
+    if (className) {
+        openingText.classList.add(className);
+    }
+
+    void openingText.offsetWidth;
+    openingText.classList.add("show");
+}
+
+function openingClearText(callback) {
+    if (!openingText) {
+        if (callback) callback();
+        return;
+    }
+
+    openingText.classList.remove("show");
+    openingText.classList.add("fade");
+
+    setTimeout(() => {
+        openingText.className = "";
+        openingText.textContent = "";
+
+        if (callback) callback();
+    }, 450);
+}
+// Function helpers to control the on-phone message overlay
+function showPhoneCutsceneMessage(text) {
+    const msgLayer = document.getElementById("phoneCutsceneMessage");
+    const msgText = document.getElementById("phoneCutsceneMessageText");
+    if (msgLayer && msgText) {
+        msgText.textContent = text;
+        msgLayer.style.display = "flex";
+    }
+}
+
+function hidePhoneCutsceneMessage() {
+    const msgLayer = document.getElementById("phoneCutsceneMessage");
+    if (msgLayer) {
+        msgLayer.style.display = "none";
+    }
+}
+function startOpeningCutscene() {
+    if (!openingCutscene) {
+        gameActive = true;
+        return;
+    }
+
+    openingCutsceneActive = true;
+    gameActive = false;
+    showFullMap = false;
+    fullMapAnimating = false;
+    playerPhoneOpen = false;
+
+    if (typeof closePlayerPhone === "function") {
+        closePlayerPhone();
+    }
+
+    const gameContainer = document.getElementById("gameContainer");
+    if (gameContainer) {
+        gameContainer.classList.add("opening-cutscene");
+    }
+
+    openingCutscene.classList.add("active");
+    openingCutscene.setAttribute("aria-hidden", "false");
+
+    if (typeof resizeCanvas === "function") resizeCanvas();
+    if (typeof drawGame === "function") drawGame();
+
+    // Scene 1
+    setTimeout(() => {
+        openingShowText("So... this is it.");
+    }, 900);
+
+    // Scene 2
+    setTimeout(() => {
+        openingClearText(() => {
+            openingShowText("A new city.");
+        });
+    }, 2600);
+
+    // Scene 3
+    setTimeout(() => {
+        openingClearText(() => {
+            openingShowText("A new start.");
+        });
+    }, 4200);
+
+    // Scene 4: Need a job
+    setTimeout(() => {
+        openingClearText(() => {
+            openingShowText("Just need a job.");
+        });
+    }, 5800);
+
+    // Scene 5: Open Phone & Show Message Layer
+    setTimeout(() => {
+        openingClearText(() => {
+            showPhoneCutsceneMessage("You said you were looking for work. Call me.");
+            openPlayerPhone();
+        });
+    }, 7600);
+
+    // Scene 6: Close Phone & Show Title "STREETBOUND"
+    setTimeout(() => {
+        closePlayerPhone();
+        hidePhoneCutsceneMessage();
+        openingShowText("STREETBOUND", "title");
+    }, 10400);
+
+    // Scene 7: Subtitle
+    setTimeout(() => {
+        openingClearText(() => {
+            openingShowText("Your life starts here.", "subtitle");
+        });
+    }, 12000);
+
+    // Enter gameplay
+    setTimeout(() => {
+        finishOpeningCutscene();
+    }, 13800);
+}
+function finishOpeningCutscene() {
+    openingCutsceneActive = false;
+    gameActive = true;
+
+    const gameContainer = document.getElementById("gameContainer");
+
+    if (gameContainer) {
+        gameContainer.classList.remove("opening-cutscene");
+    }
+
+    if (openingCutscene) {
+        openingCutscene.classList.remove("active");
+        openingCutscene.setAttribute("aria-hidden", "true");
+    }
+
+    if (openingText) {
+        openingText.className = "";
+        openingText.textContent = "";
+    }
+
+    // Start normal gameplay tips AFTER the introduction.
+    setTimeout(() => {
+        if (gameActive && typeof taxiManager !== "undefined") {
+            taxiManager.setMessage(
+                "Tip: swipe down from the top to use phone",
+                300
+            );
+        }
+    }, 10000);
+
+    setTimeout(() => {
+        if (gameActive && typeof taxiManager !== "undefined") {
+            taxiManager.setMessage(
+                "Tip: open minimap to see locations on map",
+                240
+            );
+        }
+    }, 17000);
+
+    if (typeof drawGame === "function") {
+        drawGame();
+    }
+}
                      
 
 // ============================================================
@@ -365,7 +543,7 @@ if (hour >= 20 || hour < 5) {
    } else if (hour >= 5.5 && hour <= 6.0 && typeof rentPaidForDayCycle !== 'undefined' && !rentPaidForDayCycle) {
        if (typeof player !== 'undefined') {
            if (player.isEvicted) {
-               // Already evicted â€” skip rent entirely
+               // Already evicted — skip rent entirely
            } else if (player.rentDebtActive) {
                // Had unpaid debt from yesterday â†’ evict now
                player.isEvicted = true;
@@ -693,9 +871,6 @@ startBtn.addEventListener('click', () => {
 
     startScreen.style.display = 'none';
 
-    const taxiBtn = document.getElementById('taxiBtn');
-    const restaurantBtn = document.getElementById('restaurantBtn');
-
     const docEl = document.documentElement;
 
     if (docEl.requestFullscreen) {
@@ -714,8 +889,32 @@ startBtn.addEventListener('click', () => {
 
     resizeCanvas();
 
-    gameActive = true;
     showFullMap = false;
+
+    /*
+     * hasPlayedBefore was calculated when the loading screen
+     * initialized, so this remains true only for the first
+     * actual play.
+     */
+    if (!hasPlayedBefore) {
+
+        // Freeze the actual game during the introduction.
+        gameActive = false;
+
+        // Mark the game as played immediately so refreshing
+        // during the introduction does not make it play again.
+        localStorage.setItem("gma_has_played", "true");
+
+        startOpeningCutscene();
+
+        return;
+    }
+
+    // ========================================================
+    // RETURNING PLAYER — NORMAL GAME START
+    // ========================================================
+
+    gameActive = true;
 
     if (typeof taxiManager !== 'undefined') {
         taxiManager.setMessage(
@@ -726,31 +925,25 @@ startBtn.addEventListener('click', () => {
 
     // Show phone tip 10 seconds after starting the game.
     setTimeout(() => {
-
-        if (typeof taxiManager !== 'undefined') {
+        if (gameActive && typeof taxiManager !== 'undefined') {
             taxiManager.setMessage(
                 "Tip: swipe down from the top to use phone",
                 300
             );
         }
-
     }, 10000);
+
     setTimeout(() => {
-    if (typeof taxiManager !== 'undefined') {
-        taxiManager.setMessage(
-            "Tip: open minimap to see locations on map",
-            240
-        );
-    }
-}, 17000);
+        if (gameActive && typeof taxiManager !== 'undefined') {
+            taxiManager.setMessage(
+                "Tip: open minimap to see locations on map",
+                240
+            );
+        }
+    }, 17000);
 
     localStorage.setItem("gma_has_played", "true");
-
-    if (typeof gameLoop !== 'undefined') {
-        requestAnimationFrame(gameLoop);
-    }
 });
-
 // --- 3. DYNAMIC RESIZE FUNCTION ---
 
 function resizeCanvas() {

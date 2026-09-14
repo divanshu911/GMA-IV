@@ -5,9 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>StreetBound</title>
   <link rel="stylesheet" href="./style.css">
-</head><script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-<script>eruda.init();</script>
-  
+</head>
   
   
 <body>
@@ -21,8 +19,7 @@
 
     <div id="phoneFrame">
     <div id="phoneFrontCamera"></div>
-
-    <div id="phoneScreen">
+       <div id="phoneScreen">
 
         <!-- PHONE HOME -->
         <div id="phoneHomeScreen">
@@ -84,11 +81,18 @@
             </div>
         </div>
 
+        <!-- ADD THIS NEW MESSAGE OVERLAY LAYER INSIDE #phoneScreen -->
+        <div id="phoneCutsceneMessage">
+            <div class="msg-header">NEW MESSAGE</div>
+            <div class="msg-body" id="phoneCutsceneMessageText"></div>
+        </div>
+
     </div>
 
     <div id="phoneHomeButton"></div>
     </div>
 </div>
+    
     <div id="rotateMessageOverlay">ROTATE DEVICE TO PLAY!                 
   </div>
     <div id="startScreen">
@@ -96,6 +100,13 @@
       <div class="menu-box">
         <button id="startButton">START GAME</button>
       </div>
+    </div>
+    <div id="openingCutscene" aria-hidden="true">
+  <div id="openingFade"></div>
+
+  <div id="openingContent">
+    <div id="openingText"></div>
+  </div>
     </div>
     <div id="desktopControlsModal">
   <div id="desktopControlsBox">
