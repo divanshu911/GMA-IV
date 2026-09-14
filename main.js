@@ -1,4 +1,4 @@
-console.log("air");
+console.log("opr");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -205,8 +205,9 @@ function updateBuildingLightSequence() {
     const currentHour = (gameSeconds / DAY_LENGTH) * 24;
 
 
-    // Past 10 PM, immediately turn every remaining light ON.
-    if (currentHour >= 22) {
+    // Past 10 PM, including the after-midnight part of the same night,
+    // immediately turn every remaining light ON.
+    if (currentHour >= 22 || currentHour < 5) {
         for (let i = 0; i < lights.length; i++) {
             lights[i].enabled = true;
         }

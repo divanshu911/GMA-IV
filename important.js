@@ -13,7 +13,7 @@ let fullMapAnimationFrom = 0;
 let fullMapAnimationTo = 0;
 let fullMapAnimationStartTime = 0;
 let fullMapAnimationDuration = 350;
-console.log("🍟");
+console.log("🐋");
 // ============================================================
 // FIRST-PLAY OPENING CUTSCENE
 // ============================================================
@@ -130,17 +130,26 @@ function startOpeningCutscene() {
         });
     }, 7600);
 
-    // Scene 6 — Title
+   // Scene 6 — Title
 setTimeout(() => {
+
+    // Close the phone and remove its cutscene message.
+    hidePhoneCutsceneMessage();
+
+    if (typeof closePlayerPhone === "function") {
+        closePlayerPhone();
+    }
 
     // Fade the black title background in.
     openingCutscene.classList.add("title-screen");
 
     openingClearText(() => {
+
         openingShowText("STREETBOUND", "title");
+
     });
 
-}, 10300);
+}, 10300); 
 
     // Scene 7: Subtitle
     setTimeout(() => {
@@ -155,6 +164,11 @@ setTimeout(() => {
     }, 13800);
 }
 function finishOpeningCutscene() {
+        hidePhoneCutsceneMessage();
+
+    if (typeof closePlayerPhone === "function") {
+        closePlayerPhone();
+    }
 
     openingCutsceneActive = false;
     gameActive = true;
