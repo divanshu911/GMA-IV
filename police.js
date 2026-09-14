@@ -1,4 +1,4 @@
-console.log("o#");
+console.log("p#");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -1468,7 +1468,6 @@ function smoothlyTurnAIMovement(unit, moveAngle, dt, isCar) {
 
     unit.angle += Math.sign(angleDiff) * Math.min(turnAmount, maxTurn);
 }
-
 function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
     const isCar = unit.length !== undefined;
 
@@ -1733,14 +1732,15 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
         }
     }
 
+    // Pass unit to local avoidance check and stop unit if blocked
     const localAvoidance = getPoliceObstacleAvoidance(
-        car,
+        unit,
         moveAngle,
         cars
     );
 
     if (localAvoidance.blocked) {
-        car.speed = 0;
+        unit.speed = 0;
         return;
     }
     smoothlyTurnAIMovement(unit, moveAngle, dt, isCar);
@@ -1796,7 +1796,7 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
         }
     }
 }
-
+          
 // --- STAGE 4A: REVISED POLICE RECOGNITION, WARNING, ARREST & CHASE SYSTEM ---
 function updatePoliceStage4A(dt, player, cars, npcs) {
     if (!player) return;
