@@ -919,7 +919,7 @@ function moveArrestPoliceCar(
 );
 
 if (localAvoidance.blocked) {
-    car.speed = 0;
+    unit.speed = 0;
     return;
 }
 
