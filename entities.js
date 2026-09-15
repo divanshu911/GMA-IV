@@ -2711,7 +2711,7 @@ if (this.exploded) {
 }
 
 //---NPC & CAR INITIALIZATION ---
-let player = new Player(300, 300);
+let player = new Player(3008, 970);
 
 let savedX = localStorage.getItem("gma_player_x");
 let savedY = localStorage.getItem("gma_player_y");
