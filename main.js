@@ -1,4 +1,4 @@
-console.log("opr");
+console.log("coupé");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -128,8 +128,370 @@ collisionMapImage.crossOrigin = "Anonymous";
 // ============================================================
 
 window.buildingLightShapes = [];
+window.detectedBuildings = [];
+
 const BUILDING_LIGHT_MIN_PIXELS = 12;
 
+// ============================================================
+// LOCATION BOARDS
+// Important gameplay locations only.
+// Home and all other locations are intentionally excluded.
+// ============================================================
+
+const locationBoardDefinitions = [
+    {
+        x: 2908,
+        y: 950,
+        text: "TAXI DEPOT"
+    },
+    {
+        x: 2748,
+        y: 295,
+        text: "CAR DEALERSHIP"
+    },
+    {
+        x: 3412,
+        y: 1435,
+        text: "BLACK MARKET"
+    },
+    {
+        x: 2491,
+        y: 2206,
+        text: "TRUCK DEPOT"
+    },
+    {
+        x: 1454,
+        y: 765,
+        text: "RESTAURANT"
+    },
+    {
+        x: 869,
+        y: 702,
+        text: "REPAIR GARAGE"
+    }
+];
+
+window.locationBoards = [];
+
+
+// Find the detected building closest to a gameplay location.
+function findNearestLocationBuilding(locationX, locationY) {
+    const buildings = window.detectedBuildings || [];
+
+    let nearest = null;
+    let nearestDistance = Infinity;
+
+    for (let i = 0; i < buildings.length; i++) {
+        const building = buildings[i];
+
+        const dx = building.centerX - locationX;
+        const dy = building.centerY - locationY;
+        const distance = Math.hypot(dx, dy);
+
+        if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearest = building;
+        }
+    }
+
+    return nearest;
+}
+
+
+// Determine whether the nearest road runs horizontally or vertically.
+//
+// The game currently uses cardinal road detection, so this deliberately
+// keeps the sign aligned to the actual road rather than trying to invent
+// arbitrary diagonal angles.
+function getNearestRoadBoardAngle(x, y) {
+    const maxSearchDistance = 350;
+    const searchStep = 8;
+
+    let bestRoadX = x;
+    let bestRoadY = y;
+    let bestDistance = Infinity;
+
+    const directions = [
+        { dx: 1, dy: 0 },
+        { dx: -1, dy: 0 },
+        { dx: 0, dy: 1 },
+        { dx: 0, dy: -1 }
+    ];
+
+    for (let d = 0; d < directions.length; d++) {
+        const dir = directions[d];
+
+        for (
+            let distance = searchStep;
+            distance <= maxSearchDistance;
+            distance += searchStep
+        ) {
+            const roadX = x + dir.dx * distance;
+            const roadY = y + dir.dy * distance;
+
+            if (typeof isRoadColor === "function" &&
+                isRoadColor(roadX, roadY)) {
+
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    bestRoadX = roadX;
+                    bestRoadY = roadY;
+                }
+
+                break;
+            }
+        }
+    }
+
+    if (bestDistance === Infinity) {
+        return 0;
+    }
+
+    // Check the local road shape.
+    const horizontalRoad =
+        typeof isRoadColor === "function" &&
+        isRoadColor(bestRoadX - 20, bestRoadY) &&
+        isRoadColor(bestRoadX + 20, bestRoadY);
+
+    const verticalRoad =
+        typeof isRoadColor === "function" &&
+        isRoadColor(bestRoadX, bestRoadY - 20) &&
+        isRoadColor(bestRoadX, bestRoadY + 20);
+
+    if (horizontalRoad && !verticalRoad) {
+        return 0;
+    }
+
+    if (verticalRoad && !horizontalRoad) {
+        return Math.PI / 2;
+    }
+
+    // If the road intersection is ambiguous, use the direction
+    // from the building toward the nearest road.
+    const dx = bestRoadX - x;
+    const dy = bestRoadY - y;
+
+    if (Math.abs(dx) > Math.abs(dy)) {
+        return 0;
+    }
+
+    return Math.PI / 2;
+}
+
+
+// Resolve every gameplay location to its nearest detected building.
+// This is called once after building detection, NOT every frame.
+function generateLocationBoards() {
+    window.locationBoards.length = 0;
+
+    const buildings = window.detectedBuildings || [];
+
+    if (!buildings.length) {
+        console.warn("Location boards: no detected buildings available.");
+        return;
+    }
+
+    for (let i = 0; i < locationBoardDefinitions.length; i++) {
+        const location = locationBoardDefinitions[i];
+
+        const building = findNearestLocationBuilding(
+            location.x,
+            location.y
+        );
+
+        if (!building) {
+            console.warn(
+                `Location board skipped: ${location.text}`
+            );
+            continue;
+        }
+
+        const buildingWidth =
+            Math.max(20, building.maxX - building.minX);
+
+        const buildingHeight =
+            Math.max(20, building.maxY - building.minY);
+
+        // Board size follows building size.
+        const boardWidth = Math.max(
+            90,
+            Math.min(
+                280,
+                buildingWidth * 0.62
+            )
+        );
+
+        const boardHeight = Math.max(
+            28,
+            Math.min(
+                72,
+                buildingHeight * 0.16
+            )
+        );
+
+        const angle = getNearestRoadBoardAngle(
+            building.centerX,
+            building.centerY
+        );
+
+        // Put the board slightly toward the nearest gameplay location
+        // so it sits on the relevant face of the building.
+        let boardX = building.centerX;
+        let boardY = building.centerY;
+
+        const locationDX = location.x - building.centerX;
+        const locationDY = location.y - building.centerY;
+        const locationDistance = Math.hypot(
+            locationDX,
+            locationDY
+        );
+
+        if (locationDistance > 0) {
+            boardX +=
+                (locationDX / locationDistance) *
+                Math.min(buildingWidth, buildingHeight) *
+                0.22;
+
+            boardY +=
+                (locationDY / locationDistance) *
+                Math.min(buildingWidth, buildingHeight) *
+                0.22;
+        }
+
+        window.locationBoards.push({
+            text: location.text,
+
+            x: boardX,
+            y: boardY,
+
+            width: boardWidth,
+            height: boardHeight,
+
+            angle: angle,
+
+            buildingWidth: buildingWidth,
+            buildingHeight: buildingHeight
+        });
+    }
+
+    console.log(
+        `Location boards: generated ${window.locationBoards.length}`
+    );
+}
+
+
+// Draw the physical board BEFORE the night overlay.
+function drawLocationBoards(ctx) {
+    const boards = window.locationBoards || [];
+
+    if (!boards.length) return;
+
+    for (let i = 0; i < boards.length; i++) {
+        const board = boards[i];
+
+        ctx.save();
+
+        ctx.translate(board.x, board.y);
+        ctx.rotate(board.angle);
+
+        // Dark backing / wooden-metal board.
+        ctx.fillStyle = "rgba(25, 25, 25, 0.96)";
+        ctx.fillRect(
+            -board.width / 2,
+            -board.height / 2,
+            board.width,
+            board.height
+        );
+
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.72)";
+        ctx.lineWidth = 3;
+
+        ctx.strokeRect(
+            -board.width / 2,
+            -board.height / 2,
+            board.width,
+            board.height
+        );
+
+        // Small mounting posts.
+        const postHeight = Math.max(
+            12,
+            board.height * 0.55
+        );
+
+        ctx.fillStyle = "rgba(20, 20, 20, 0.95)";
+
+        ctx.fillRect(
+            -board.width * 0.30,
+            board.height / 2,
+            Math.max(4, board.height * 0.10),
+            postHeight
+        );
+
+        ctx.fillRect(
+            board.width * 0.20,
+            board.height / 2,
+            Math.max(4, board.height * 0.10),
+            postHeight
+        );
+
+        ctx.restore();
+    }
+}
+
+
+// Draw the lettering AFTER the night overlay.
+// This deliberately makes the text remain bright at night.
+function drawLocationBoardText(ctx) {
+    const boards = window.locationBoards || [];
+
+    if (!boards.length) return;
+
+    const isNight =
+        typeof ambientBrightness !== "undefined" &&
+        ambientBrightness < 0.75;
+
+    for (let i = 0; i < boards.length; i++) {
+        const board = boards[i];
+
+        ctx.save();
+
+        ctx.translate(board.x, board.y);
+        ctx.rotate(board.angle);
+
+        const fontSize = Math.max(
+            10,
+            Math.min(
+                24,
+                board.height * 0.48
+            )
+        );
+
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = `bold ${fontSize}px Arial`;
+
+        if (isNight) {
+            ctx.shadowColor = "rgba(255, 220, 90, 0.95)";
+            ctx.shadowBlur = 12;
+        } else {
+            ctx.shadowColor = "transparent";
+            ctx.shadowBlur = 0;
+        }
+
+        ctx.fillStyle = isNight
+            ? "#ffe66b"
+            : "#ffffff";
+
+        ctx.fillText(
+            board.text,
+            0,
+            0
+        );
+
+        ctx.restore();
+    }
+}
 // ============================================================
 // BUILDING LIGHT SEQUENCING
 // Lights turn on/off one at a time every 0.5 real seconds.
@@ -610,8 +972,32 @@ function generateBuildingLightShapes() {
         ) {
             continue;
         }
+// --------------------------------------------------------
+// Save this detected building for gameplay location boards.
+// One connected yellow region = one building.
+// --------------------------------------------------------
 
-        buildingCount++;
+const buildingMinX = minX * scaleX;
+const buildingMaxX = (maxX + 1) * scaleX;
+const buildingMinY = minY * scaleY;
+const buildingMaxY = (maxY + 1) * scaleY;
+
+window.detectedBuildings.push({
+    minX: buildingMinX,
+    maxX: buildingMaxX,
+    minY: buildingMinY,
+    maxY: buildingMaxY,
+
+    centerX: (buildingMinX + buildingMaxX) * 0.5,
+    centerY: (buildingMinY + buildingMaxY) * 0.5,
+
+    width: buildingMaxX - buildingMinX,
+    height: buildingMaxY - buildingMinY,
+
+    area: area
+});
+
+buildingCount++;
 
         let desiredLights = 1;
 
@@ -748,7 +1134,7 @@ collisionMapImage.addEventListener('load', () => {
     // Detect buildings and calculate their light positions
     // exactly once when CollisionMap2 is loaded.
     generateBuildingLightShapes();
-
+generateLocationBoards();
     collisionMapAssetLoaded = true;
     tryEnableStartButton();
 });
@@ -3841,6 +4227,9 @@ ctx.translate(
       taxiManager.drawWorldMarkers(ctx);
       truckManager.drawWorldMarkers(ctx);
   }
+if (!isInsideHouse && !isInsideDealership) {
+    drawLocationBoards(ctx);
+}    
 
   // 1. Draw tyre marks on the ground (underneath vehicles)
   drawTyreMarks(ctx);
@@ -3881,6 +4270,29 @@ if (!isInsideHouse && !isInsideDealership && typeof drawNightOverlay === 'functi
     drawNightOverlay();
     
 }
+ if (!isInsideHouse && !isInsideDealership) {
+    ctx.save();
+
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate(-camera.angle);
+
+    const boardCameraTarget =
+        player.isArrestPassenger &&
+        arrestTransportCar
+            ? arrestTransportCar
+            : player;
+
+    ctx.translate(
+        -boardCameraTarget.x -
+            (boardCameraTarget.size || player.size) / 2,
+        -boardCameraTarget.y -
+            (boardCameraTarget.size || player.size) / 2
+    );
+
+    drawLocationBoardText(ctx);
+
+    ctx.restore();
+ }   
     
 if (!isInsideHouse && !isInsideDealership) {
     ctx.save();

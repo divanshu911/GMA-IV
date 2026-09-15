@@ -1,4 +1,4 @@
-console.log("amg")
+console.log("am")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -2711,7 +2711,7 @@ if (this.exploded) {
 }
 
 //---NPC & CAR INITIALIZATION ---
-let player = new Player(3008, 970);
+let player = new Player(3058, 970);
 
 let savedX = localStorage.getItem("gma_player_x");
 let savedY = localStorage.getItem("gma_player_y");
