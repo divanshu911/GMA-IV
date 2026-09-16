@@ -1,4 +1,4 @@
-console.log("5");
+console.log("5o");
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -545,8 +545,8 @@ window.addEventListener('load', () => {
         <h3 style="margin-top:0; color:#1abc9c;">CONFIRM?</h3>
         <p id="repairModalText" style="margin:15px 0; font-size:14px; color:#ddd;"></p>
         <div style="display:flex; justify-content:center; gap:15px; margin-top:15px;">
-            <button id="confirmRepairBtn" style="padding:8px 18px; background:#2ecc71; color:#fff; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">ðŸ”§</button>
-            <button id="cancelRepairBtn" style="padding:8px 18px; background:#e74c3c; color:#fff; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">âœ–ï¸</button>
+            <button id="confirmRepairBtn" style="padding:8px 18px; background:#2ecc71; color:#fff; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">✔️</button>
+            <button id="cancelRepairBtn" style="padding:8px 18px; background:#e74c3c; color:#fff; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">❌</button>
         </div>
     `;
     (document.getElementById('gameContainer') || document.body).appendChild(repairModal);
@@ -1187,7 +1187,6 @@ respawnBtn.addEventListener('click', () => {
     }
 });
 
-
 function updateRespawnButtonUI() {
     if (
         typeof showFullMap !== 'undefined' &&
@@ -1195,7 +1194,6 @@ function updateRespawnButtonUI() {
     ) {
         respawnBtn.style.display = 'block';
 
-        // Fade the respawn button together with the full-map animation.
         const fadeProgress =
             typeof fullMapAnimationProgress !== 'undefined'
                 ? Math.max(0, Math.min(1, fullMapAnimationProgress))
@@ -1205,7 +1203,7 @@ function updateRespawnButtonUI() {
         respawnBtn.style.pointerEvents =
             fadeProgress > 0.95 ? 'auto' : 'none';
 
-        let status = getRespawnStatus();
+        const status = getRespawnStatus();
 
         if (status.active) {
             respawnBtn.style.backgroundColor = '#f1c40f';
@@ -1219,11 +1217,10 @@ function updateRespawnButtonUI() {
         respawnBtn.style.opacity = '0';
         respawnBtn.style.pointerEvents = 'none';
     }
-
-    requestAnimationFrame(updateRespawnButtonUI);
 }
-updateRespawnButtonUI();
 
+setInterval(updateRespawnButtonUI, 100);
+updateRespawnButtonUI();
 function spawnPlayerOwnedCars() {
     if (typeof cars === "undefined") return;
 

@@ -1,4 +1,4 @@
-console.log("coupé");
+console.log("é");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -88,6 +88,45 @@ mapImage.crossOrigin = "Anonymous";
 
 window.mapWidth = window.mapWidth || 0;
 window.mapHeight = window.mapHeight || 0;
+// ===== MINIMAP STATIC MAP CACHE =====
+// The world map never changes, so the minimap uses a small cached copy
+// instead of resampling the full 4096x2286 map every frame.
+const minimapMapCache = document.createElement("canvas");
+const minimapMapCacheCtx = minimapMapCache.getContext("2d");
+
+const MINIMAP_CACHE_WIDTH = 512;
+let minimapCacheReady = false;
+
+function buildMinimapMapCache() {
+    if (!mapImage.complete || !mapImage.naturalWidth || !mapImage.naturalHeight) {
+        return;
+    }
+
+    const aspectRatio = mapImage.naturalHeight / mapImage.naturalWidth;
+
+    minimapMapCache.width = MINIMAP_CACHE_WIDTH;
+    minimapMapCache.height = Math.max(
+        1,
+        Math.round(MINIMAP_CACHE_WIDTH * aspectRatio)
+    );
+
+    minimapMapCacheCtx.clearRect(
+        0,
+        0,
+        minimapMapCache.width,
+        minimapMapCache.height
+    );
+
+    minimapMapCacheCtx.drawImage(
+        mapImage,
+        0,
+        0,
+        minimapMapCache.width,
+        minimapMapCache.height
+    );
+
+    minimapCacheReady = true;
+}
 window.collisionData = window.collisionData || null;
 
 mapWidth = window.mapWidth;
@@ -108,6 +147,9 @@ const restaurantZone = {
 mapImage.addEventListener('load', () => {
     mapWidth = mapImage.width;
     mapHeight = mapImage.height;
+
+    // Build the low-resolution static minimap copy once.
+    buildMinimapMapCache();
 
     // Tell the loading screen that the visual map is ready.
     mapAssetLoaded = true;
@@ -4384,9 +4426,24 @@ if (player && player.wanted) {
 
     ctx.fillStyle = "#2c3e50"; ctx.fillRect(mmX - radarRadius, mmY - radarRadius, radarRadius * 2, radarRadius * 2);
 
-    ctx.save();
-    ctx.translate(mmX, mmY); ctx.scale(radarZoom, radarZoom); ctx.translate(-(player.x + player.size / 2), -(player.y + player.size / 2));
-    ctx.globalAlpha = 0.9; 
+  ctx.save();
+
+const minimapScaleX =
+    radarZoom * (mapWidth / minimapMapCache.width);
+
+const minimapScaleY =
+    radarZoom * (mapHeight / minimapMapCache.height);
+
+ctx.translate(mmX, mmY);
+ctx.scale(minimapScaleX, minimapScaleY);
+ctx.translate(
+    -(player.x + player.size / 2) *
+        (minimapMapCache.width / mapWidth),
+    -(player.y + player.size / 2) *
+        (minimapMapCache.height / mapHeight)
+);
+
+ctx.globalAlpha = 0.9;  
 
     if (isInsideHouse) {
       if (houseImage.complete && houseMapWidth > 0) ctx.drawImage(houseImage, 0, 0, houseMapWidth, houseMapHeight);
@@ -4397,9 +4454,22 @@ if (player && player.wanted) {
       drawDealershipFloor(ctx, dW, dH);
       dealershipCars.forEach(car => car.draw(ctx)); 
     }
-    else if (mapImage.complete && mapWidth > 0) {
-      ctx.drawImage(mapImage, 0, 0, mapWidth, mapHeight);
-    } else { 
+ else if (minimapCacheReady) {
+  ctx.drawImage(
+      minimapMapCache,
+      0,
+      0,
+      minimapMapCache.width,
+      minimapMapCache.height
+  );
+} else if (mapImage.complete && mapWidth > 0) {
+    if (!window.minimapFallbackLogged) {
+        console.warn("[MINIMAP] Using fallback: static map cache is not ready.");
+        window.minimapFallbackLogged = true;
+    }
+
+    ctx.drawImage(mapImage, 0, 0, mapWidth, mapHeight);
+} else {
       ctx.fillStyle = "#e0deca"; 
       ctx.fillRect(player.x - 400, player.y - 400, 800, 800); 
     }
