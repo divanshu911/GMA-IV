@@ -889,7 +889,7 @@ function moveArrestPoliceCar(
 
     let avoidX = 0;
     let avoidY = 0;
-    const avoidanceRadius = 35;
+    const avoidanceRadius = 25;
 
     if (typeof cars !== 'undefined') {
         cars.forEach(otherCar => {
@@ -1171,7 +1171,7 @@ function updateArrestTransport(dt) {
             player.y - arrestTransportCar.y
         );
 
-        if (distance <= 42) {
+        if (distance <= 71) {
             arrestTransportState = "CARRYING";
 
             player.isArrestPassenger = true;
