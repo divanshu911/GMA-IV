@@ -1366,6 +1366,7 @@ function damagePlayer(amount) {
 
  // --- SPATIAL GRID FOR COLLISION BROAD-PHASE ---
 const collisionGrid = new Map();
+const collisionNearbyCache = new Map();
 const COLLISION_CELL_SIZE = 80;
 
 function getCollisionCell(x, y) {
@@ -1374,6 +1375,7 @@ function getCollisionCell(x, y) {
 
 function buildCollisionGrid() {
     collisionGrid.clear();
+    collisionNearbyCache.clear();
 
     // Add cars
     for (let i = 0; i < cars.length; i++) {
@@ -1417,6 +1419,11 @@ function buildCollisionGrid() {
 }
 
 function getNearbyCollisionEntities(entity) {
+    const cachedNearby = collisionNearbyCache.get(entity);
+    if (cachedNearby) {
+        return cachedNearby;
+    }
+
     const nearby = [];
 
     const cellX = Math.floor(entity.x / COLLISION_CELL_SIZE);
@@ -1439,6 +1446,7 @@ function getNearbyCollisionEntities(entity) {
         }
     }
 
+    collisionNearbyCache.set(entity, nearby);
     return nearby;
 }       
 function handlePhysicsAndCollisions(dt) {
@@ -1865,10 +1873,25 @@ cars.forEach(car => {
   }
 }
 // --- HELPER TO SYNC ALL STOLEN CARS & WANTED STATUS ---
-function updateStolenCarsStorage() {
+let stolenCarsStorageLastWrite = -Infinity;
+let stolenCarsStorageNeedsCleanup = true;
+const STOLEN_CARS_STORAGE_INTERVAL = 500;
+
+function updateStolenCarsStorage(forceWrite = false) {
     const stolenCars = cars.filter(c => c && c.isStolen);
 
     if (stolenCars.length > 0) {
+        const now = performance.now();
+
+        // localStorage is synchronous. Avoid serializing and writing moving
+        // stolen cars every animation frame while keeping state fresh.
+        if (
+            !forceWrite &&
+            now - stolenCarsStorageLastWrite < STOLEN_CARS_STORAGE_INTERVAL
+        ) {
+            return;
+        }
+
         const stolenDataList = stolenCars.map(c => ({
             id: c.id,
             x: c.x,
@@ -1883,13 +1906,18 @@ function updateStolenCarsStorage() {
             "stolen_cars",
             JSON.stringify(stolenDataList)
         );
+        stolenCarsStorageLastWrite = now;
+        stolenCarsStorageNeedsCleanup = true;
 
         return;
     }
 
     // No stolen cars remain.
-    localStorage.removeItem("stolen_cars");
-    localStorage.removeItem("stolen car");
+    if (stolenCarsStorageNeedsCleanup) {
+        localStorage.removeItem("stolen_cars");
+        localStorage.removeItem("stolen car");
+        stolenCarsStorageNeedsCleanup = false;
+    }
 
     // A stolen-car crime is now gone.
     // Keep the player wanted only if another crime still exists
@@ -1902,7 +1930,8 @@ const hasAssaultCase =
     typeof playerAssaultCases !== "undefined" &&
     playerAssaultCases > 0;
 
-if (
+    if (
+        player.wanted &&
     !player.beingChased &&
     !hasHitRunCase &&
     !hasAssaultCase
@@ -3426,7 +3455,7 @@ if (!isInsideHouse && angryDrivers.length > 0) {
     saveCrimeCaseCounts();
             player.wanted = true;
             localStorage.setItem("gma_player_wanted", "true");
-            updateStolenCarsStorage();
+            updateStolenCarsStorage(true);
 
             if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
                 taxiManager.setMessage("Stolen car was reported to police", 180);
@@ -3651,7 +3680,7 @@ cars.forEach(car => {
           }
       });
       if (typeof taxiBtn !== 'undefined' && taxiBtn) taxiBtn.style.display = 'none';
-      if (document.getElementById('truckBtn')) document.getElementById('truckBtn').style.display = 'none';
+      if (truckBtn) truckBtn.style.display = 'none';
   }
 
   let distToRest = Math.sqrt(Math.pow(player.x - restaurantZone.x, 2) + Math.pow(player.y - restaurantZone.y, 2));
@@ -3671,9 +3700,8 @@ cars.forEach(car => {
   }
 
   let distToBM = Math.sqrt(Math.pow(player.x - blackMarketZone.x, 2) + Math.pow(player.y - blackMarketZone.y, 2));
-  let bmBtn = document.getElementById('blackMarketBtn');
-  if (bmBtn) {
-      bmBtn.style.display = (!isInsideHouse && !isInsideDealership && distToBM < blackMarketZone.radius && !playerCar) ? 'flex' : 'none';
+  if (blackMarketBtn) {
+    blackMarketBtn.style.display = (!isInsideHouse && !isInsideDealership && distToBM < blackMarketZone.radius && !playerCar) ? 'flex' : 'none';
   }
 
   if (!isInsideHouse && !isInsideDealership) {

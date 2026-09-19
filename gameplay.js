@@ -317,7 +317,7 @@ if (blackMarketBtn) {
         if (carIndex > -1) cars.splice(carIndex, 1);
 
         // Sync stolen array and recalculate wanted state
-        updateStolenCarsStorage();
+        updateStolenCarsStorage(true);
 
         blackMarketZone.soldTimes.push(currentHour);
         localStorage.setItem(

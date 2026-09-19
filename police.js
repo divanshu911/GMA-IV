@@ -1661,14 +1661,20 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
 
         unit.repathTimer -= dt;
 
-        unit.policePath = navigationSystem.findPath(
-            unit.x,
-            unit.y,
-            chaseTarget.x,
-            chaseTarget.y
-        );
+        if (
+            unit.repathTimer <= 0 ||
+            !unit.policePath ||
+            unit.policePath.length === 0
+        ) {
+            unit.policePath = navigationSystem.findPath(
+                unit.x,
+                unit.y,
+                chaseTarget.x,
+                chaseTarget.y
+            );
 
-        unit.repathTimer = 0.33;
+            unit.repathTimer = 0.33;
+        }
     }
 
     const path = unit.policePath;
@@ -1831,8 +1837,6 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
         updateArrestTransport(dt);
         return;
     }
-
-    const surrenderBtn = document.getElementById('surrenderBtn');
 
     // --- POLICE CHASE ESCAPE ---
     if (player.beingChased) {
