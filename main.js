@@ -1,4 +1,4 @@
-console.log("é");
+console.log("ui");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1547,12 +1547,27 @@ function handlePhysicsAndCollisions(dt) {
           if (isPlayerInvolved) {
             let dmg1 = relSpeed * 5 * (c2.weightMultiplier || 1.0);
             let dmg2 = relSpeed * 5 * (c1.weightMultiplier || 1.0);
+            let stolenCarStateChanged = false;
 
-            if (c1.health > 0)
+            if (c1.health > 0) {
+              const previousHealth = c1.health;
               c1.health = Math.max(0, c1.health - dmg1);
+              stolenCarStateChanged =
+                stolenCarStateChanged ||
+                (c1.isStolen && c1.health !== previousHealth);
+            }
 
-            if (c2.health > 0)
+            if (c2.health > 0) {
+              const previousHealth = c2.health;
               c2.health = Math.max(0, c2.health - dmg2);
+              stolenCarStateChanged =
+                stolenCarStateChanged ||
+                (c2.isStolen && c2.health !== previousHealth);
+            }
+
+            if (stolenCarStateChanged) {
+              updateStolenCarsStorage(true);
+            }
           }
 
           let tryExplode = (car, strikingCar, speed) => {
@@ -1584,6 +1599,10 @@ function handlePhysicsAndCollisions(dt) {
 
               car.health = 0;
               car.exploded = true;
+
+              if (car.isStolen) {
+                updateStolenCarsStorage(true);
+              }
         // ------------------------------------------------------------
 // PLAYER BLASTED A CAR WITH A DRIVER
 
@@ -1899,7 +1918,9 @@ function updateStolenCarsStorage(forceWrite = false) {
             color: c.color,
             type: c.type,
             angle: c.angle,
-            isPolice: Boolean(c.isPolice)
+            isPolice: Boolean(c.isPolice),
+            health: c.health,
+            exploded: Boolean(c.exploded)
         }));
 
         localStorage.setItem(
@@ -3849,7 +3870,14 @@ if (playerCar.health <= 0) {
                 playSpatialSound(carCrashPool, playerCar.x, playerCar.y, 1.0);
                 playerCar.crashCooldown = 30;
             }
-            playerCar.health = Math.max(0, playerCar.health - playerCar.speed * 3); 
+            const previousPlayerCarHealth = playerCar.health;
+            playerCar.health = Math.max(0, playerCar.health - playerCar.speed * 3);
+            if (
+                playerCar.isStolen &&
+                playerCar.health !== previousPlayerCarHealth
+            ) {
+                updateStolenCarsStorage(true);
+            }
             playerCar.speed *= 0.4; 
         }
     } else {
