@@ -1,4 +1,4 @@
-console.log("kkk");
+console.log("jjjj");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -822,7 +822,7 @@ function moveArrestPoliceCar(
         }
     }
 
-    if (!car.arrestTransportPath || (pathBlockedByCar && car.arrestTransportRepathTimer <= 0)) {
+ if (!car.arrestTransportPath || (pathBlockedByCar && car.arrestTransportRepathTimer <= 0)) {
         const newPath = navigationSystem.findPath(
             car.x,
             car.y,
@@ -889,7 +889,7 @@ function moveArrestPoliceCar(
 
     let avoidX = 0;
     let avoidY = 0;
-    const avoidanceRadius = 25;
+    const avoidanceRadius = 10;
 
     if (typeof cars !== 'undefined') {
         cars.forEach(otherCar => {
@@ -1541,7 +1541,7 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
         }
     }
 
-    if (isCar) {
+ if (isCar) {
         const playerIsMoving = Math.abs(player.speed || 0) > 0.05;
         const policeCarIsNearPlayer = isPlayerNearPoliceUnit(120, unit);
 
@@ -1690,7 +1690,7 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
         ); 
     }
 
-    let avoidX = 0;
+ let avoidX = 0;
     let avoidY = 0;
     const avoidanceRadius = isCar ? 55 : 35;
 
