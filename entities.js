@@ -1,4 +1,4 @@
-console.log("am")
+console.log("opm")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -1188,25 +1188,48 @@ update(dt) {
                         this.angle - Math.PI / 2
                     ) *
                     moveDistance;
+// Final safety check:
+// Fleeing NPCs MUST remain on roads.
+// Try the full movement first, then recover
+// with axis-separated movement if the diagonal
+// step clips the road edge.
+let moved = false;
 
-                // Final safety check:
-                // fleeing NPCs MUST remain on roads.
-                if (
-                    typeof isRoadColor ===
-                        "function" &&
-                    isRoadColor(
-                        nextX,
-                        nextY
-                    )
-                ) {
-                    this.x = nextX;
-                    this.y = nextY;
-                }
+if (
+    typeof isRoadColor === "function" &&
+    isRoadColor(nextX, nextY)
+) {
+    this.x = nextX;
+    this.y = nextY;
+    moved = true;
+}
 
-                this.walkTimer +=
-                    runSpeed *
-                    dt *
-                    0.3;
+// If the combined movement is blocked,
+// try horizontal movement only.
+if (
+    !moved &&
+    typeof isRoadColor === "function" &&
+    isRoadColor(nextX, this.y)
+) {
+    this.x = nextX;
+    moved = true;
+}
+
+// If horizontal movement is also blocked,
+// try vertical movement only.
+if (
+    !moved &&
+    typeof isRoadColor === "function" &&
+    isRoadColor(this.x, nextY)
+) {
+    this.y = nextY;
+    moved = true;
+}
+
+this.walkTimer +=
+    runSpeed *
+    dt *
+    0.3;
             }
         }
 
