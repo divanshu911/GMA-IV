@@ -1718,23 +1718,23 @@ car.isParked = true;
               if (isWalkableColor(player.x, targetY, player.size)) player.y = targetY;
           }
 
-          if (
+        if (
     !playerCar &&
     !player.isArrestPassenger &&
     !player.isInvulnerable &&
-car.health > 0 &&
-!car.exploded &&
-(() => {
-    const previous = previousCarPositions.get(car.id);
-    return previous &&
-        Math.hypot(car.x - previous.x, car.y - previous.y) > 1.5;
-})()
+    car.hasDriver &&
+    car.health > 0 &&
+    !car.exploded &&
+    (() => {
+        const previous = previousCarPositions.get(car.id);
+        return previous &&
+            Math.hypot(car.x - previous.x, car.y - previous.y) > 1.5;
+    })()
 ) {
     damagePlayer(35);
     player.isInvulnerable = true;
     player.invulnerabilityTimer = 60;
-    
-          }
+        }  
         }
       });
   }
