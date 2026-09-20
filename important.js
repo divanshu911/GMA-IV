@@ -13,7 +13,7 @@ let fullMapAnimationFrom = 0;
 let fullMapAnimationTo = 0;
 let fullMapAnimationStartTime = 0;
 let fullMapAnimationDuration = 350;
-console.log("🐋");
+console.log("🤯");
 // ============================================================
 // FIRST-PLAY OPENING CUTSCENE
 // ============================================================
@@ -1108,15 +1108,47 @@ function isStrictRoadColor(x, y) {
 }
 
 function getRandomRoadPosition() {
-    let spawned = false;
-    let carX = 0, carY = 0, attempts = 0;
-    while (!spawned && attempts < 3000) {
-        carX = Math.floor(Math.random() * mapWidth);
-        carY = Math.floor(Math.random() * mapHeight);
+    let attempts = 0;
+
+    // Require enough road around the spawn point so NPCs/cars
+    // don't spawn on building/river edges.
+    const spawnRadius = 12;
+
+    while (attempts < 3000) {
+        const x = Math.floor(Math.random() * mapWidth);
+        const y = Math.floor(Math.random() * mapHeight);
         attempts++;
-        if (isRoadColor(carX, carY)) spawned = true;
+
+        if (
+            isRoadColor(x, y) &&
+            isRoadColor(x - spawnRadius, y) &&
+            isRoadColor(x + spawnRadius, y) &&
+            isRoadColor(x, y - spawnRadius) &&
+            isRoadColor(x, y + spawnRadius) &&
+            isRoadColor(x - spawnRadius, y - spawnRadius) &&
+            isRoadColor(x + spawnRadius, y - spawnRadius) &&
+            isRoadColor(x - spawnRadius, y + spawnRadius) &&
+            isRoadColor(x + spawnRadius, y + spawnRadius)
+        ) {
+            return { x, y };
+        }
     }
-    return { x: carX, y: carY };
+
+    // Fallback: preserve the old behavior if a safe position
+    // cannot be found after many attempts.
+    for (let i = 0; i < 3000; i++) {
+        const x = Math.floor(Math.random() * mapWidth);
+        const y = Math.floor(Math.random() * mapHeight);
+
+        if (isRoadColor(x, y)) {
+            return { x, y };
+        }
+    }
+
+    return {
+        x: Math.floor(mapWidth / 2),
+        y: Math.floor(mapHeight / 2)
+    };
 }
 
 function getRandomStrictRoadPosition() {
