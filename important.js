@@ -2,6 +2,37 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
+// Screen-space UI is authored against a 1280x720 reference canvas. On larger
+// desktop displays, scale the whole UI layer uniformly instead of letting
+// fixed pixel text become visually smaller.
+const RESPONSIVE_UI_BASE_WIDTH = 1280;
+const RESPONSIVE_UI_BASE_HEIGHT = 720;
+const RESPONSIVE_UI_MAX_SCALE = 2;
+
+function getResponsiveUiLayout() {
+    const scale = Math.max(
+        1,
+        Math.min(
+            RESPONSIVE_UI_MAX_SCALE,
+            canvas.width / RESPONSIVE_UI_BASE_WIDTH,
+            canvas.height / RESPONSIVE_UI_BASE_HEIGHT
+        )
+    );
+
+    return {
+        scale,
+        width: canvas.width / scale,
+        height: canvas.height / scale
+    };
+}
+
+function beginResponsiveUi(context = ctx) {
+    const layout = getResponsiveUiLayout();
+    context.save();
+    context.scale(layout.scale, layout.scale);
+    return layout;
+}
+
 let gameActive = false;
 let showFullMap = false;
 let desktopControlsOpen = false;
@@ -13,7 +44,7 @@ let fullMapAnimationFrom = 0;
 let fullMapAnimationTo = 0;
 let fullMapAnimationStartTime = 0;
 let fullMapAnimationDuration = 350;
-console.log("🫠");
+console.log("b");
 // ============================================================
 // FIRST-PLAY OPENING CUTSCENE
 // ============================================================
@@ -824,14 +855,16 @@ function drawNightOverlay() {
     ctx.restore();
 }
                      
-function drawClock(){
+function drawClock(uiLayout = null){
     const totalMinutes=Math.floor(gameSeconds/DAY_LENGTH*24*60);
     const h=Math.floor(totalMinutes/60);
     const m=totalMinutes%60;
+    const ownsUiTransform = !uiLayout;
+    const layout = uiLayout || beginResponsiveUi(ctx);
 
     ctx.save();
     ctx.fillStyle="rgba(0,0,0,.65)";
-    const clockX = canvas.width - 730;
+    const clockX = layout.width / 2 - 72.5;
     const clockY = 150;
 
     ctx.fillRect(clockX, clockY, 145, 40);
@@ -845,6 +878,10 @@ function drawClock(){
         clockY + 27
     );
     ctx.restore();
+
+    if (ownsUiTransform) {
+        ctx.restore();
+    }
 }
 
 // --- 2. START BUTTON LOGIC ---
@@ -979,6 +1016,10 @@ startBtn.addEventListener('click', () => {
 function resizeCanvas() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
+  document.documentElement.style.setProperty(
+      "--responsive-ui-scale",
+      getResponsiveUiLayout().scale
+  );
   if (
     (gameActive || showFullMap || fullMapAnimating) &&
     typeof drawGame !== 'undefined'
@@ -1413,6 +1454,7 @@ const joystickZone = document.getElementById('joystickZone');
 const joystickBase = document.getElementById('joystickBase');
 const joystickKnob = document.getElementById('joystickKnob');
 let joystickActive = false, joystickStartX = 0, joystickStartY = 0;
+let joystickUiScale = 1;
 let joystickInputX = 0, joystickInputY = 0, joystickTouchId = null;
 
 if (joystickZone) {
@@ -1422,11 +1464,13 @@ if (joystickZone) {
       const touch = e.changedTouches[0];
       joystickTouchId = touch.identifier; joystickActive = true;
       joystickStartX = touch.clientX; joystickStartY = touch.clientY;
+      joystickUiScale = getResponsiveUiLayout().scale;
 
-      joystickBase.style.left = `${joystickStartX - 50}px`;
-      joystickBase.style.top = `${joystickStartY - 50}px`;
+      joystickBase.style.left = `${joystickStartX - 50 * joystickUiScale}px`;
+      joystickBase.style.top = `${joystickStartY - 50 * joystickUiScale}px`;
       joystickBase.style.display = 'block';
-      joystickKnob.style.left = '30px'; joystickKnob.style.top = '30px';
+      joystickKnob.style.left = `${30 * joystickUiScale}px`;
+      joystickKnob.style.top = `${30 * joystickUiScale}px`;
     });
 
     joystickZone.addEventListener('touchmove', (e) => {
@@ -1436,9 +1480,10 @@ if (joystickZone) {
         if (touch.identifier === joystickTouchId) {
           let deltaX = touch.clientX - joystickStartX, deltaY = touch.clientY - joystickStartY;
           let distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-          const maxRadius = 40; 
+          const maxRadius = 40 * joystickUiScale;
           if (distance > maxRadius) { deltaX = (deltaX / distance) * maxRadius; deltaY = (deltaY / distance) * maxRadius; }
-          joystickKnob.style.left = `${30 + deltaX}px`; joystickKnob.style.top = `${30 + deltaY}px`;
+          joystickKnob.style.left = `${30 * joystickUiScale + deltaX}px`;
+          joystickKnob.style.top = `${30 * joystickUiScale + deltaY}px`;
           joystickInputX = deltaX / maxRadius; joystickInputY = deltaY / maxRadius;
         }
       }
@@ -2048,30 +2093,3 @@ function isEntityOnScreen(entity, margin = 150) {
 
     return dx * dx + dy * dy <= maxDistance * maxDistance;
 }
-// --- MOBILE TRACKING TOOL: Temporarily copy to the bottom of script.js ---
-canvas.addEventListener('touchstart', (e) => {
-  if (!gameActive || showFullMap) return;
-
-  // Track the first finger touch point
-  const touch = e.touches[0];
-  const rect = canvas.getBoundingClientRect();
-  const touchX = touch.clientX - rect.left;
-  const touchY = touch.clientY - rect.top;
-
-  // 1. Reverse the screen center translation matrix
-  let dx = touchX - canvas.width / 2;
-  let dy = touchY - canvas.height / 2;
-
-  // 2. Reverse the camera angle rotation matrix
-  let cos = Math.cos(camera.angle);
-  let sin = Math.sin(camera.angle);
-  let rotatedX = dx * cos - dy * sin;
-  let rotatedY = dx * sin + dy * cos;
-
-  // 3. Reverse the player tracking camera offsets to get precise image coordinates
-  let finalMapX = Math.floor(rotatedX + player.x + player.size / 2);
-  let finalMapY = Math.floor(rotatedY + player.y + player.size / 2);
-
-  // 4. Send an alert popup to your phone screen so you can see it without dev-tools
-  alert(`Door Coordinates:\nX: ${finalMapX}\nY: ${finalMapY}`);
-});

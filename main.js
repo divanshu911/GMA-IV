@@ -1,4 +1,4 @@
-console.log("ui");
+console.log("b");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1734,7 +1734,7 @@ car.isParked = true;
     damagePlayer(35);
     player.isInvulnerable = true;
     player.invulnerabilityTimer = 60;
-        }  
+        }
         }
       });
   }
@@ -3957,6 +3957,18 @@ if (playerCar.health <= 0) {
 }
 
 function drawGame() {
+     // Desktop camera zoom:
+  // Keep the full canvas resolution, but show less world on larger screens.
+  const cameraZoom = Math.min(
+      1.5,
+      Math.max(
+          1,
+          Math.min(
+              canvas.width / 1280,
+              canvas.height / 720
+          )
+      )
+  );
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.imageSmoothingEnabled = true;
 
@@ -4196,6 +4208,7 @@ ctx.globalAlpha = 1;
 // The legend and BACK button remain screen-space UI.
 ctx.restore();
 
+const fullMapUi = beginResponsiveUi(ctx);
 const legendItems = [
         { color: "#f1c40f", label: "Taxi / Pickup" },
         { color: "#2ecc71", label: "Drop-off" },
@@ -4212,8 +4225,8 @@ const legendItems = [
       const lPad = 8;
       const lW = 140;
       const lH = lPad * 2 + 16 + legendItems.length * lRowH;
-      const lX = canvas.width - lW - 12;
-      const lY = canvas.height / 2 - lH / 2;
+      const lX = fullMapUi.width - lW - 12;
+      const lY = fullMapUi.height / 2 - lH / 2;
 
       ctx.save();
 
@@ -4291,13 +4304,15 @@ ctx.fillText(
 );
 
 ctx.restore();
+ctx.restore();
 
 return;
   }
   // Camera transform setup
   ctx.save();
-  ctx.translate(canvas.width / 2, canvas.height / 2);
-  ctx.rotate(-camera.angle);
+ctx.translate(canvas.width / 2, canvas.height / 2);
+ctx.rotate(-camera.angle);
+ctx.scale(cameraZoom, cameraZoom);
   const cameraTarget =
     player.isArrestPassenger &&
     arrestTransportCar
@@ -4360,9 +4375,20 @@ if (!isInsideHouse && !isInsideDealership) {
 
   ctx.restore();
 
-  if (!playerCar && !player.ispassenger) {
-  player.draw(ctx, isInsideDealership ? 0 : camera.angle);
-}
+ if (!playerCar && !player.ispassenger) {
+  ctx.save();
+
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.scale(cameraZoom, cameraZoom);
+  ctx.translate(-canvas.width / 2, -canvas.height / 2);
+
+  player.draw(
+      ctx,
+      isInsideDealership ? 0 : camera.angle
+  );
+
+  ctx.restore();
+ }
 
 if (!isInsideHouse && !isInsideDealership && typeof drawNightOverlay === 'function') {
     drawNightOverlay();
@@ -4372,9 +4398,9 @@ if (!isInsideHouse && !isInsideDealership && typeof drawNightOverlay === 'functi
     ctx.save();
 
     ctx.translate(canvas.width / 2, canvas.height / 2);
-    ctx.rotate(-camera.angle);
-
-    const boardCameraTarget =
+ctx.rotate(-camera.angle);
+ctx.scale(cameraZoom, cameraZoom);
+const boardCameraTarget =
         player.isArrestPassenger &&
         arrestTransportCar
             ? arrestTransportCar
@@ -4395,9 +4421,10 @@ if (!isInsideHouse && !isInsideDealership && typeof drawNightOverlay === 'functi
 if (!isInsideHouse && !isInsideDealership) {
     ctx.save();
     ctx.translate(canvas.width / 2, canvas.height / 2);
-    ctx.rotate(-camera.angle);
+ctx.rotate(-camera.angle);
+ctx.scale(cameraZoom, cameraZoom);
 
-    const lightCameraTarget =
+const lightCameraTarget =
         player.isArrestPassenger &&
         arrestTransportCar
             ? arrestTransportCar
@@ -4424,7 +4451,10 @@ if (!isInsideHouse && !isInsideDealership) {
 }
 
 
- if (!openingCutsceneActive) { ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+ if (!openingCutsceneActive) {
+   const hudUi = beginResponsiveUi(ctx);
+
+   ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
   ctx.fillRect(20, 20, 150, 45);
   ctx.fillStyle = "#2ecc71";
   ctx.font = "bold 20px Arial";
@@ -4457,7 +4487,7 @@ if (!isInsideHouse && !isInsideDealership) {
 
   taxiManager.drawUI(ctx);
   truckManager.drawUI(ctx); 
-  if (typeof drawClock === 'function') drawClock();
+   if (typeof drawClock === 'function') drawClock(hudUi);
 
 if (player && player.wanted) {
     ctx.save();
@@ -4466,16 +4496,16 @@ if (player && player.wanted) {
     ctx.textBaseline = "top";
     // Drop shadow
     ctx.fillStyle = "#000000";
-    ctx.fillText("⚠ WANTED ⚠", canvas.width / 2 + 2, 12);
+     ctx.fillText("⚠ WANTED ⚠", hudUi.width / 2 + 2, 12);
     // Red text
     ctx.fillStyle = "#e74c3c";
-    ctx.fillText("⚠ WANTED ⚠", canvas.width / 2, 10);
+     ctx.fillText("⚠ WANTED ⚠", hudUi.width / 2, 10);
     ctx.restore();
 }
     
 
   if (mapImage.complete && mapWidth > 0) {
-    const radarRadius = 80, padding = 20, mmX = canvas.width - radarRadius - padding, mmY = radarRadius + padding, radarZoom = 0.12; 
+     const radarRadius = 80, padding = 20, mmX = hudUi.width - radarRadius - padding, mmY = radarRadius + padding, radarZoom = 0.12;
     ctx.save();
     ctx.beginPath(); ctx.arc(mmX, mmY, radarRadius, 0, Math.PI * 2); ctx.closePath();
     ctx.save(); ctx.clip(); 
@@ -4587,8 +4617,12 @@ ctx.globalAlpha = 0.9;
     ctx.fillStyle = "#f1c40f"; ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(-5, 5); ctx.lineTo(5, 5); ctx.closePath(); ctx.fill(); ctx.stroke();
     ctx.restore();
-    ctx.restore(); 
-  }}
+     ctx.restore();
+   }
+
+   // Close the responsive screen-space HUD transform.
+   ctx.restore();
+ }
     if (playerDamageVignette > 0) {
     ctx.save();
 

@@ -1,4 +1,4 @@
-console.log("5o");
+console.log("b");
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -196,13 +196,15 @@ class TaxiJobManager {
   }
 
   drawUI(ctx) {
+    const ui = getResponsiveUiLayout();
+
     if (this.messageTimer > 0 && this.messageText) {
       ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
-      ctx.fillRect(canvas.width / 2 - 250, 40, 500, 45);
+      ctx.fillRect(ui.width / 2 - 250, 40, 500, 45);
       ctx.fillStyle = "#ffffff";
       ctx.font = "bold 16px Arial";
       ctx.textAlign = "center";
-      ctx.fillText(this.messageText, canvas.width / 2, 68);
+      ctx.fillText(this.messageText, ui.width / 2, 68);
     }
 
     if (this.isJobActive) {
@@ -470,13 +472,15 @@ class TruckJobManager {
   }
 
   drawUI(ctx) {
+    const ui = getResponsiveUiLayout();
+
     if (this.messageTimer > 0 && this.messageText) {
       ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
-      ctx.fillRect(canvas.width / 2 - 250, 95, 500, 45);
+      ctx.fillRect(ui.width / 2 - 250, 95, 500, 45);
       ctx.fillStyle = "#e67e22";
       ctx.font = "bold 15px Arial";
       ctx.textAlign = "center";
-      ctx.fillText(this.messageText, canvas.width / 2, 123);
+      ctx.fillText(this.messageText, ui.width / 2, 123);
     }
   }
 
