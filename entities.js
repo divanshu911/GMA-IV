@@ -1,4 +1,4 @@
-console.log("opm")
+console.log("mmm")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -2828,11 +2828,22 @@ cars.push(stolenCar);
 }
 
 
-if (mapImage.complete && mapWidth > 0) {
+function tryInitSpawns() {
+  if (
+    !mapImage.complete ||
+    mapWidth <= 0 ||
+    !window.collisionData ||
+    window.collisionData.length === 0
+  ) {
+    return;
+  }
+
   initSpawns();
-} else {
-  mapImage.addEventListener('load', initSpawns);
 }
+
+tryInitSpawns();
+
+mapImage.addEventListener('load', tryInitSpawns);
 
 
 // --- SPATIAL SOUND HELPER ---

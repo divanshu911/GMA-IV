@@ -1,4 +1,4 @@
-console.log("ui");
+console.log("😅");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1168,6 +1168,7 @@ collisionMapImage.addEventListener('load', () => {
         mapWidth,
         mapHeight
     ).data;
+    window.collisionData = collisionData;
 
     //do not touch
     navigationSystem.buildGrid();
@@ -1179,6 +1180,9 @@ collisionMapImage.addEventListener('load', () => {
 generateLocationBoards();
     collisionMapAssetLoaded = true;
     tryEnableStartButton();
+    if (typeof initSpawns === "function") {
+    initSpawns();
+    }
 });
 
 collisionMapImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/CollisionMap2.png";
