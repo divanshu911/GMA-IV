@@ -13,7 +13,7 @@ let fullMapAnimationFrom = 0;
 let fullMapAnimationTo = 0;
 let fullMapAnimationStartTime = 0;
 let fullMapAnimationDuration = 350;
-console.log("😂");
+console.log("😭");
 // ============================================================
 // FIRST-PLAY OPENING CUTSCENE
 // ============================================================
@@ -976,8 +976,8 @@ startBtn.addEventListener('click', () => {
 });
 // --- 3. DYNAMIC RESIZE FUNCTION ---
 
-const GAME_WIDTH = 1280;
-const GAME_HEIGHT = 720;
+const GAME_WIDTH = 896;
+const GAME_HEIGHT = 504;
 
 function resizeCanvas() {
     // Keep StreetBound's logical rendering surface fixed.
