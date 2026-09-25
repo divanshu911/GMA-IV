@@ -13,7 +13,7 @@ let fullMapAnimationFrom = 0;
 let fullMapAnimationTo = 0;
 let fullMapAnimationStartTime = 0;
 let fullMapAnimationDuration = 350;
-console.log("🫠");
+console.log("😂");
 // ============================================================
 // FIRST-PLAY OPENING CUTSCENE
 // ============================================================
@@ -976,15 +976,37 @@ startBtn.addEventListener('click', () => {
 });
 // --- 3. DYNAMIC RESIZE FUNCTION ---
 
+const GAME_WIDTH = 1280;
+const GAME_HEIGHT = 720;
+
 function resizeCanvas() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-  if (
-    (gameActive || showFullMap || fullMapAnimating) &&
-    typeof drawGame !== 'undefined'
-) {
-    drawGame();
-}
+    // Keep StreetBound's logical rendering surface fixed.
+    canvas.width = GAME_WIDTH;
+    canvas.height = GAME_HEIGHT;
+
+    // Fit the 1280×720 game surface into the available screen
+    // without changing its aspect ratio.
+    const scale = Math.min(
+        window.innerWidth / GAME_WIDTH,
+        window.innerHeight / GAME_HEIGHT
+    );
+
+    const displayWidth = GAME_WIDTH * scale;
+    const displayHeight = GAME_HEIGHT * scale;
+
+    // Center the fitted game surface.
+    canvas.style.width = `${displayWidth}px`;
+    canvas.style.height = `${displayHeight}px`;
+    canvas.style.position = "absolute";
+    canvas.style.left = `${(window.innerWidth - displayWidth) / 2}px`;
+    canvas.style.top = `${(window.innerHeight - displayHeight) / 2}px`;
+
+    if (
+        (gameActive || showFullMap || fullMapAnimating) &&
+        typeof drawGame !== 'undefined'
+    ) {
+        drawGame();
+    }
 }
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas(); 
@@ -1372,9 +1394,15 @@ window.addEventListener('blur', () => {
 });       
 
 canvas.addEventListener('pointerdown', (e) => {
-  const rect = canvas.getBoundingClientRect();
-  const mouseX = e.clientX - rect.left;
-  const mouseY = e.clientY - rect.top;
+ const rect = canvas.getBoundingClientRect();
+
+const mouseX =
+    (e.clientX - rect.left) *
+    (canvas.width / rect.width);
+
+const mouseY =
+    (e.clientY - rect.top) *
+    (canvas.height / rect.height); 
 
 if (showFullMap || fullMapAnimating) {
     if (
@@ -2055,8 +2083,13 @@ canvas.addEventListener('touchstart', (e) => {
   // Track the first finger touch point
   const touch = e.touches[0];
   const rect = canvas.getBoundingClientRect();
-  const touchX = touch.clientX - rect.left;
-  const touchY = touch.clientY - rect.top;
+  const touchX =
+    (touch.clientX - rect.left) *
+    (canvas.width / rect.width);
+
+const touchY =
+    (touch.clientY - rect.top) *
+    (canvas.height / rect.height);
 
   // 1. Reverse the screen center translation matrix
   let dx = touchX - canvas.width / 2;
