@@ -13,7 +13,7 @@ let fullMapAnimationFrom = 0;
 let fullMapAnimationTo = 0;
 let fullMapAnimationStartTime = 0;
 let fullMapAnimationDuration = 350;
-console.log("🏎️");
+console.log("🏎️o");
 // ============================================================
 // FIRST-PLAY OPENING CUTSCENE
 // ============================================================

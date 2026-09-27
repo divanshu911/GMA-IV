@@ -1,3 +1,4 @@
+console.log("50");
 // ============================================================
 // STREETBOUND RACE EVENTS MANAGER
 // ============================================================
@@ -51,6 +52,25 @@ class RaceEventsManager {
         this.generateAttempts = 0;
 
         this.createJoinButton();
+        const messageClose =
+            document.getElementById(
+                "phoneCutsceneMessageClose"
+            );
+
+        if (messageClose) {
+            messageClose.addEventListener(
+                "pointerdown",
+                e => {
+                    e.preventDefault();
+
+                    if (
+                        this.state === "SCHEDULED"
+                    ) {
+                        this.dismissPhoneRaceMessage();
+                    }
+                }
+            );
+        }
 
         // Collision map is already loaded before this is called.
         this.waitForWorldAndGenerate();

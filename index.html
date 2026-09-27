@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>StreetBound</title>
   <link rel="stylesheet" href="./style.css">
-</head>
+</head><script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+<script>eruda.init();</script>
+  
   
    
 <body>
@@ -82,10 +84,21 @@
         </div>
 
         <!-- ADD THIS NEW MESSAGE OVERLAY LAYER INSIDE #phoneScreen -->
-        <div id="phoneCutsceneMessage">
-            <div class="msg-header">NEW MESSAGE</div>
-            <div class="msg-body" id="phoneCutsceneMessageText"></div>
-        </div>
+<div id="phoneCutsceneMessage">
+    <button
+        id="phoneCutsceneMessageClose"
+        type="button"
+        aria-label="Close message"
+    >
+        ×
+    </button>
+
+    <div class="msg-header">NEW MESSAGE</div>
+    <div
+        class="msg-body"
+        id="phoneCutsceneMessageText"
+    ></div>
+</div>
 
     </div>
 
