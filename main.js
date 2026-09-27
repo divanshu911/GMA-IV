@@ -3377,8 +3377,18 @@ if (punchBtn) {
     punchBtn.addEventListener("click", punchNPC);
 }
 function updateGame(dt) {
-  if (typeof gameActive !== 'undefined' && !gameActive) return;
-  if (typeof updateDayNight === 'function') updateDayNight(dt);
+    if (typeof gameActive !== 'undefined' && !gameActive) return;
+
+    if (typeof updateDayNight === 'function') {
+        updateDayNight(dt);
+    }
+
+    if (
+        typeof raceEventManager !== "undefined" &&
+        raceEventManager
+    ) {
+        raceEventManager.update(dt);
+    }
     updateHitRunIncidents();    updateAssaultWitnessSystem(dt);
         if (playerPhoneOpen && player.isArrestPassenger) {
         closePlayerPhone();
@@ -4108,7 +4118,65 @@ ctx.globalAlpha = 1;
         
         
 
-      if (taxiManager.isJobActive && taxiManager.hasPassenger) {
+   // ========================================================
+// RACE EVENT MARKERS
+// ========================================================
+
+if (
+    typeof raceEventManager !== "undefined" &&
+    raceEventManager
+) {
+    const raceStart =
+        raceEventManager.getStartMarker();
+
+    if (raceStart) {
+        ctx.fillStyle = "#e74c3c";
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 3;
+
+        ctx.beginPath();
+        ctx.arc(
+            raceStart.x,
+            raceStart.y,
+            45,
+            0,
+            Math.PI * 2
+        );
+        ctx.fill();
+        ctx.stroke();
+    }
+
+    const raceMarkers =
+        raceEventManager.getRaceMarkers();
+
+    for (let i = 0; i < raceMarkers.length; i++) {
+        const marker =
+            raceMarkers[i];
+
+        const isFinish =
+            i === raceMarkers.length - 1;
+
+        ctx.fillStyle =
+            isFinish
+                ? "#e74c3c"
+                : "#9b59b6";
+
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 3;
+
+        ctx.beginPath();
+        ctx.arc(
+            marker.x,
+            marker.y,
+            38,
+            0,
+            Math.PI * 2
+        );
+        ctx.fill();
+        ctx.stroke();
+    }
+}
+        if (taxiManager.isJobActive && taxiManager.hasPassenger) {
         ctx.fillStyle = "#2ecc71"; 
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 2.5;
