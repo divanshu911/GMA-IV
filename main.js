@@ -1,4 +1,4 @@
-console.log("60");
+console.log("80");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -4136,8 +4136,8 @@ if (
 
         ctx.beginPath();
         ctx.arc(
-            raceStart.x,
-            raceStart.y,
+            fullX + raceStart.x * scale,
+            fullY + raceStart.y * scale,
             45,
             0,
             Math.PI * 2
@@ -4603,7 +4603,7 @@ ctx.globalAlpha = 0.9;
     }
 
     // ========================================================
-// RACE EVENT FULL-MAP MARKERS
+    // RACE EVENT MINIMAP MARKERS
 // ========================================================
 
 if (
@@ -4620,8 +4620,8 @@ if (
 
         ctx.beginPath();
         ctx.arc(
-            fullX + raceStart.x * scale,
-            fullY + raceStart.y * scale,
+            raceStart.x,
+            raceStart.y,
             14,
             0,
             Math.PI * 2
@@ -4654,8 +4654,8 @@ if (
 
         ctx.beginPath();
         ctx.arc(
-            fullX + marker.x * scale,
-            fullY + marker.y * scale,
+            marker.x,
+            marker.y,
             12,
             0,
             Math.PI * 2
