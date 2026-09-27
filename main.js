@@ -1,4 +1,4 @@
-console.log("😅");
+console.log("60");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -4602,7 +4602,70 @@ ctx.globalAlpha = 0.9;
       ctx.fillRect(player.x - 400, player.y - 400, 800, 800); 
     }
 
-    if (taxiManager.isJobActive && taxiManager.hasPassenger) {
+    // ========================================================
+// RACE EVENT FULL-MAP MARKERS
+// ========================================================
+
+if (
+    typeof raceEventManager !== "undefined" &&
+    raceEventManager
+) {
+    const raceStart =
+        raceEventManager.getStartMarker();
+
+    if (raceStart) {
+        ctx.fillStyle = "#e74c3c";
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 3;
+
+        ctx.beginPath();
+        ctx.arc(
+            fullX + raceStart.x * scale,
+            fullY + raceStart.y * scale,
+            14,
+            0,
+            Math.PI * 2
+        );
+        ctx.fill();
+        ctx.stroke();
+    }
+
+    const raceMarkers =
+        raceEventManager.getRaceMarkers();
+
+    for (
+        let i = 0;
+        i < raceMarkers.length;
+        i++
+    ) {
+        const marker =
+            raceMarkers[i];
+
+        const isFinish =
+            i === raceMarkers.length - 1;
+
+        ctx.fillStyle =
+            isFinish
+                ? "#e74c3c"
+                : "#9b59b6";
+
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 3;
+
+        ctx.beginPath();
+        ctx.arc(
+            fullX + marker.x * scale,
+            fullY + marker.y * scale,
+            12,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fill();
+        ctx.stroke();
+    }
+}
+      if (taxiManager.isJobActive && taxiManager.hasPassenger) {
       ctx.fillStyle = "#2ecc71";
       ctx.beginPath(); ctx.arc(taxiManager.destinationX, taxiManager.destinationY, 35, 0, Math.PI * 2); ctx.fill();
     } else if (taxiManager.isJobActive && !taxiManager.hasPassenger && taxiManager.pickupX !== 0) {
