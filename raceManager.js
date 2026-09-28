@@ -1,4 +1,4 @@
-console.log("50");
+console.log("50000");
 // ============================================================
 // STREETBOUND RACE EVENTS MANAGER
 // ============================================================
@@ -1133,6 +1133,7 @@ class RaceEventsManager {
     getStartMarker() {
         if (
             !this.startMarkerVisible ||
+            !this.phoneMessageDismissed ||
             !this.start
         ) {
             return null;

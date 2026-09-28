@@ -1,4 +1,4 @@
-console.log("100");
+console.log("1u00");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -4132,13 +4132,13 @@ if (
     if (raceStart) {
         ctx.fillStyle = "#e74c3c";
         ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2.5;
 
         ctx.beginPath();
         ctx.arc(
             fullX + raceStart.x * scale,
             fullY + raceStart.y * scale,
-            45,
+            12,
             0,
             Math.PI * 2
         );
@@ -4162,12 +4162,12 @@ for (let i = 0; i < raceMarkers.length; i++) {
             : "#9b59b6";
 
     ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
     ctx.arc(
         fullX + marker.x * scale,
         fullY + marker.y * scale,
-        38,
+            12,
         0,
         Math.PI * 2
     );
@@ -4572,6 +4572,11 @@ ctx.translate(
 
 ctx.globalAlpha = 0.9;  
 
+const minimapWorldToCacheX = worldX =>
+    worldX * (minimapMapCache.width / mapWidth);
+const minimapWorldToCacheY = worldY =>
+    worldY * (minimapMapCache.height / mapHeight);
+
     if (isInsideHouse) {
       if (houseImage.complete && houseMapWidth > 0) ctx.drawImage(houseImage, 0, 0, houseMapWidth, houseMapHeight);
     } else if (isInsideDealership) {
@@ -4619,10 +4624,8 @@ if (
 
         ctx.beginPath();
         ctx.arc(
-            raceStart.x *
-                (minimapMapCache.width / mapWidth),
-            raceStart.y *
-                (minimapMapCache.height / mapHeight),
+            minimapWorldToCacheX(raceStart.x),
+            minimapWorldToCacheY(raceStart.y),
             14,
             0,
             Math.PI * 2
@@ -4646,12 +4649,10 @@ for (
         i === raceMarkers.length - 1;
 
     const markerX =
-        marker.x *
-        (minimapMapCache.width / mapWidth);
+        minimapWorldToCacheX(marker.x);
 
     const markerY =
-        marker.y *
-        (minimapMapCache.height / mapHeight);
+        minimapWorldToCacheY(marker.y);
 
     ctx.fillStyle =
         isFinish
@@ -4672,49 +4673,54 @@ for (
     ctx.stroke();
 }
 }
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 3;
       if (taxiManager.isJobActive && taxiManager.hasPassenger) {
       ctx.fillStyle = "#2ecc71";
-      ctx.beginPath(); ctx.arc(taxiManager.destinationX, taxiManager.destinationY, 35, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(minimapWorldToCacheX(taxiManager.destinationX), minimapWorldToCacheY(taxiManager.destinationY), 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     } else if (taxiManager.isJobActive && !taxiManager.hasPassenger && taxiManager.pickupX !== 0) {
       ctx.fillStyle = "#f1c40f"; 
-      ctx.beginPath(); ctx.arc(taxiManager.pickupX, taxiManager.pickupY, 35, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(minimapWorldToCacheX(taxiManager.pickupX), minimapWorldToCacheY(taxiManager.pickupY), 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     } else if (!taxiManager.isJobActive) {
       ctx.fillStyle = "#f1c40f";
-      ctx.beginPath(); ctx.arc(taxiManager.depotX, taxiManager.depotY, 30, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(minimapWorldToCacheX(taxiManager.depotX), minimapWorldToCacheY(taxiManager.depotY), 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     } 
 
     if (truckManager.isJobActive && truckManager.stage === 2) {
       ctx.fillStyle = "#2ecc71";
-      ctx.beginPath(); ctx.arc(truckManager.destinationX, truckManager.destinationY, 35, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(minimapWorldToCacheX(truckManager.destinationX), minimapWorldToCacheY(truckManager.destinationY), 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     } else if (truckManager.isJobActive && truckManager.stage === 1) {
       ctx.fillStyle = "#e67e22"; 
-      ctx.beginPath(); ctx.arc(truckManager.pickupX, truckManager.pickupY, 35, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(minimapWorldToCacheX(truckManager.pickupX), minimapWorldToCacheY(truckManager.pickupY), 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     } else if (!truckManager.isJobActive || truckManager.stage === 3) {
       ctx.fillStyle = "#e67e22";
-      ctx.beginPath(); ctx.arc(truckManager.companyX, truckManager.companyY, 30, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(minimapWorldToCacheX(truckManager.companyX), minimapWorldToCacheY(truckManager.companyY), 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
 
     ctx.fillStyle = "#d35400";
     ctx.beginPath();
-    ctx.arc(restaurantZone.x, restaurantZone.y, 30, 0, Math.PI * 2); ctx.fill();
+    ctx.arc(minimapWorldToCacheX(restaurantZone.x), minimapWorldToCacheY(restaurantZone.y), 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
 
     ctx.fillStyle = "#1abc9c";
-    ctx.beginPath(); ctx.arc(repairGarageZone.x, repairGarageZone.y, 30, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(minimapWorldToCacheX(repairGarageZone.x), minimapWorldToCacheY(repairGarageZone.y), 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
 
     ctx.fillStyle = "#3498db";
     ctx.beginPath();
-    ctx.arc(homeZone.x, homeZone.y, 30, 0, Math.PI * 2);
+    ctx.arc(minimapWorldToCacheX(homeZone.x), minimapWorldToCacheY(homeZone.y), 12, 0, Math.PI * 2);
     ctx.fill();
+    ctx.stroke();
 
     ctx.fillStyle = "#8e44ad";
     ctx.beginPath();
-    ctx.arc(blackMarketZone.x, blackMarketZone.y, 30, 0, Math.PI * 2);
+    ctx.arc(minimapWorldToCacheX(blackMarketZone.x), minimapWorldToCacheY(blackMarketZone.y), 12, 0, Math.PI * 2);
     ctx.fill();
+    ctx.stroke();
 
     ctx.fillStyle = "#00bcd4";
     ctx.beginPath();
-    ctx.arc(dealershipZone.x, dealershipZone.y, 30, 0, Math.PI * 2);
+    ctx.arc(minimapWorldToCacheX(dealershipZone.x), minimapWorldToCacheY(dealershipZone.y), 12, 0, Math.PI * 2);
     ctx.fill();
+    ctx.stroke();
 
     ctx.globalAlpha = 1.0;
 
