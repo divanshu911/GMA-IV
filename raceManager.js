@@ -1,4 +1,4 @@
-console.log("50000");
+console.log("600");
 // ============================================================
 // STREETBOUND RACE EVENTS MANAGER
 // ============================================================
@@ -18,7 +18,8 @@ console.log("50000");
 // - Finish message
 //
 // NPC racers are NOT implemented yet.
-// Checkpoint completion is NOT tracked yet.
+// Checkpoint progression is tracked in order; the race
+// finishes when the finish is reached with all checkpoints done.
 // ============================================================
 
 class RaceEventsManager {
@@ -34,6 +35,12 @@ class RaceEventsManager {
         this.route = [];
 
         this.joinRadius = 90;
+
+        // Checkpoint progression
+        this.checkpointRadius = 70;
+        this.finishRadius = 70;
+        this.checkpointsDone = [];
+        this.zonesWarned = {};
 
         this.phoneMessageActive = false;
         this.phoneMessageDismissed = false;
@@ -556,6 +563,8 @@ class RaceEventsManager {
                 this.raceEndHour
             ) {
                 this.finishRace();
+            } else {
+                this.updateCheckpointProgress();
             }
         }
 
@@ -904,6 +913,10 @@ class RaceEventsManager {
         this.raceStarted = true;
         this.state = "RACING";
 
+        this.checkpointsDone =
+            this.checkpoints.map(() => false);
+        this.zonesWarned = {};
+
         this.startMarkerVisible = false;
         this.raceMarkersVisible = true;
 
@@ -965,12 +978,35 @@ class RaceEventsManager {
         });
 
         setTimeout(() => {
-            if (playerCar) {
-                // Car sprites use angle - PI/2
-                // as their forward direction.
-                playerCar.angle =
-                    routeAngle +
-                    Math.PI / 2;
+
+        // Advance the in-game clock to the scheduled race time
+        // while the screen is completely black.
+        if (
+            typeof gameSeconds !== "undefined" &&
+            typeof DAY_LENGTH !== "undefined"
+        ) {
+            gameSeconds =
+                (
+                    (
+                        this.raceStartHour * 60 +
+                        this.raceStartMinute
+                    ) /
+                    (24 * 60)
+                ) *
+                DAY_LENGTH;
+
+            localStorage.setItem(
+                "gameTime",
+                gameSeconds
+            );
+        }
+
+        if (playerCar) {
+            // Car sprites use angle - PI/2
+            // as their forward direction.
+            playerCar.angle =
+                routeAngle +
+                Math.PI / 2;
 
                 player.angle =
                     playerCar.angle;
@@ -991,6 +1027,115 @@ class RaceEventsManager {
                 transition.remove();
             }, 300);
         }, 300);
+    }
+
+    // --------------------------------------------------------
+    // CHECKPOINT PROGRESSION
+    // --------------------------------------------------------
+
+    updateCheckpointProgress() {
+        if (
+            this.state !== "RACING" ||
+            typeof player === "undefined" ||
+            !player
+        ) {
+            return;
+        }
+
+        // Checkpoints, in order.
+        for (
+            let i = 0;
+            i < this.checkpoints.length;
+            i++
+        ) {
+            if (this.checkpointsDone[i]) {
+                continue;
+            }
+
+            const checkpoint =
+                this.checkpoints[i];
+
+            const inside =
+                Math.hypot(
+                    player.x - checkpoint.x,
+                    player.y - checkpoint.y
+                ) <= this.checkpointRadius;
+
+            const key = "cp" + i;
+
+            if (!inside) {
+                this.zonesWarned[key] = false;
+                continue;
+            }
+
+            let previousDone = true;
+
+            for (let j = 0; j < i; j++) {
+                if (!this.checkpointsDone[j]) {
+                    previousDone = false;
+                    break;
+                }
+            }
+
+            if (previousDone) {
+                this.checkpointsDone[i] = true;
+
+                console.log(
+                    "[RACE] Checkpoint " +
+                    (i + 1) +
+                    " completed."
+                );
+            } else if (!this.zonesWarned[key]) {
+                // Warn once per visit to the zone,
+                // not every frame.
+                this.zonesWarned[key] = true;
+                this.showIncompleteWarning();
+            }
+        }
+
+        // Finish.
+        if (this.finish) {
+            const insideFinish =
+                Math.hypot(
+                    player.x - this.finish.x,
+                    player.y - this.finish.y
+                ) <= this.finishRadius;
+
+            if (!insideFinish) {
+                this.zonesWarned.finish = false;
+            } else if (this.allCheckpointsDone()) {
+                this.finishRace();
+            } else if (!this.zonesWarned.finish) {
+                this.zonesWarned.finish = true;
+                this.showIncompleteWarning();
+            }
+        }
+    }
+
+    allCheckpointsDone() {
+        for (
+            let i = 0;
+            i < this.checkpoints.length;
+            i++
+        ) {
+            if (!this.checkpointsDone[i]) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    showIncompleteWarning() {
+        if (
+            typeof taxiManager !== "undefined" &&
+            taxiManager.setMessage
+        ) {
+            taxiManager.setMessage(
+                "complete previous checkpoints!",
+                180
+            );
+        }
     }
 
     // --------------------------------------------------------
@@ -1149,8 +1294,13 @@ class RaceEventsManager {
             return [];
         }
 
+        // Completed checkpoints are removed; the finish
+        // always stays last so the maps still draw it
+        // as the finish marker.
         return [
-            ...this.checkpoints,
+            ...this.checkpoints.filter(
+                (cp, i) => !this.checkpointsDone[i]
+            ),
             this.finish
         ].filter(Boolean);
     }
@@ -1163,6 +1313,8 @@ class RaceEventsManager {
         this.start = null;
         this.finish = null;
         this.checkpoints = [];
+        this.checkpointsDone = [];
+        this.zonesWarned = {};
         this.route = [];
 
         this.startMarkerVisible = false;
