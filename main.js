@@ -3796,6 +3796,7 @@ cars.forEach(car => {
     } else if (!isInsideHouse) {
         cars.forEach(car => {
           if (car.recentlyJackedTimer > 0) return; 
+          if (car.isRaceOpponent) return;
           let dist = Math.sqrt(Math.pow(car.x - player.x, 2) + Math.pow(car.y - player.y, 2));
           if (dist < minCarDist) { minCarDist = dist; closestCar = car; }
         });

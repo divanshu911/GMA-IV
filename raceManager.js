@@ -17,10 +17,570 @@ console.log("600");
 // - Automatic 1-hour race ending
 // - Finish message
 //
-// NPC racers are NOT implemented yet.
+// Race opponents (4 cars, own A* driving AI) are handled by
+// RaceOpponentManager; there is no ranking / prize system yet.
 // Checkpoint progression is tracked in order; the race
 // finishes when the finish is reached with all checkpoints done.
 // ============================================================
+
+// ============================================================
+// RACE OPPONENTS
+// ============================================================
+// Opponent cars live in the shared `cars` array (so they draw,
+// collide and make sound like any other car), but their
+// movement is driven ONLY by RaceOpponentManager below.
+// Their instance `updateAI` is replaced with a no-op, so the
+// normal NPC-car AI never touches them.
+//
+// To change which car opponents use for a race type, edit
+// RACE_OPPONENT_CAR_BY_RACE_TYPE / RACE_OPPONENT_CAR_PRESETS.
+// ============================================================
+
+const RACE_OPPONENT_COUNT = 4;
+
+// Preset key used when a race type has no entry of its own.
+const RACE_OPPONENT_DEFAULT_CAR = "Commuter Sedan";
+
+// raceType -> preset key. The race manager sets `this.raceType`
+// ("street" for now); add entries here when new race types exist.
+const RACE_OPPONENT_CAR_BY_RACE_TYPE = {
+    street: "Commuter Sedan"
+};
+
+// Preset key -> stats applied to the created Car.
+// `type` is the exact string the game uses for that car.
+// NOTE: width/length/baseSpeed mirror the values the existing
+// "Commuter, Sedan" police car in main.js uses. Adjust them if
+// your Commuter Sedan definition differs.
+const RACE_OPPONENT_CAR_PRESETS = {
+    "Commuter Sedan": {
+        type: "Commuter, Sedan",
+        width: 16,
+        length: 28,
+        baseSpeed: 3.2
+    }
+};
+
+// AI tuning. Time values are in frames (dt is ~1 per frame).
+const RACE_OPPONENT_AI = {
+    startDelay: 60,            // wait after the fade before driving off
+
+    topSpeedFactorMin: 0.85,   // top speed = baseSpeed * 3 * factor
+    topSpeedFactorMax: 0.95,   // (the player's cap is baseSpeed * 3)
+    acceleration: 0.08,
+    braking: 0.25,
+    turnRate: 0.06,
+
+    waypointReach: 36,         // px to count a path waypoint as reached
+    checkpointReach: 50,       // px to count a checkpoint as reached
+    finishReach: 50,           // px to count the finish as reached
+
+    repathMinInterval: 90,     // never repath more often than this
+    offPathDistance: 150,      // repath if pushed this far off the path
+    stuckCheckInterval: 60,
+    stuckDistance: 10,         // moved less than this = stuck
+    recoverFrames: 45,         // beeline/side-step time after being stuck
+
+    separationRadius: 48,      // keep this far from other racers/player
+    separationWeight: 1.0,
+    frontSlowDistance: 46,     // ease off if a racer is right ahead
+
+    buildingProbeRadius: 18,   // small building avoidance radius
+    buildingAvoidWeight: 0.5
+};
+
+function raceHslToHex(h, s, l) {
+    h = ((h % 360) + 360) % 360;
+    s /= 100;
+    l /= 100;
+
+    const k = n => (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const f = n =>
+        l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+
+    const toHex = v =>
+        Math.round(v * 255).toString(16).padStart(2, "0");
+
+    return "#" + toHex(f(0)) + toHex(f(8)) + toHex(f(4));
+}
+
+class RaceOpponent {
+    constructor(car, index) {
+        const cfg = RACE_OPPONENT_AI;
+
+        this.car = car;
+        this.index = index;
+
+        this.topSpeedFactor =
+            cfg.topSpeedFactorMin +
+            Math.random() *
+            (cfg.topSpeedFactorMax - cfg.topSpeedFactorMin);
+
+        this.targetIndex = 0;      // index into checkpoints + finish
+        this.path = null;
+        this.pathIndex = 0;
+        this.repathCooldown = index * 4;   // staggers first A* calls
+        this.forceRepath = false;
+
+        this.startDelay = cfg.startDelay;
+        this.finished = false;
+
+        this.stuckTimer = 0;
+        this.stuckX = car.x;
+        this.stuckY = car.y;
+        this.recoverTimer = 0;
+        this.recoverSide = 1;
+    }
+}
+
+class RaceOpponentManager {
+    constructor(race) {
+        this.race = race;
+        this.opponents = [];
+        this.pathBudget = 1;
+    }
+
+    hasOpponents() {
+        return this.opponents.length > 0;
+    }
+
+    // ----------------------------------------------------
+    // SPAWN / CLEAR
+    // ----------------------------------------------------
+
+    createCar(id, slot, angle, color, preset) {
+        const car = new Car(id, slot.x, slot.y, color, true);
+
+        car.type = preset.type;
+
+        if (preset.width !== undefined) car.width = preset.width;
+        if (preset.length !== undefined) car.length = preset.length;
+        if (preset.baseSpeed !== undefined) car.baseSpeed = preset.baseSpeed;
+
+        car.ownerType = "raceOpponent";
+        car.isRaceOpponent = true;
+
+        car.isParked = false;
+        car.hasDriver = true;
+
+        car.angle = angle;
+        car.speed = 0;
+
+        // Opponents never use the NPC car AI.
+        car.updateAI = function () {};
+
+        return car;
+    }
+
+    spawn(slots, routeAngle, carKey) {
+        this.clear();
+
+        if (
+            typeof Car !== "function" ||
+            typeof cars === "undefined"
+        ) {
+            console.warn("[RACE] Cannot spawn opponents: Car/cars missing.");
+            return;
+        }
+
+        const preset =
+            RACE_OPPONENT_CAR_PRESETS[carKey] ||
+            RACE_OPPONENT_CAR_PRESETS[RACE_OPPONENT_DEFAULT_CAR];
+
+        const carAngle = routeAngle + Math.PI / 2;
+        const baseHue = Math.random() * 360;
+        const baseId = Date.now() + 920000;
+
+        for (let i = 0; i < slots.length; i++) {
+            // Spread hues so opponents look different from each other.
+            const hue =
+                baseHue +
+                i * (360 / slots.length) +
+                (Math.random() - 0.5) * 30;
+
+            const color = raceHslToHex(hue, 70 + Math.random() * 20, 45 + Math.random() * 15);
+
+            const car = this.createCar(
+                baseId + i * 137 + Math.floor(Math.random() * 100),
+                slots[i],
+                carAngle,
+                color,
+                preset
+            );
+
+            cars.push(car);
+            this.opponents.push(new RaceOpponent(car, i));
+        }
+    }
+
+    clear() {
+        if (
+            this.opponents.length > 0 &&
+            typeof cars !== "undefined"
+        ) {
+            for (const opp of this.opponents) {
+                const car = opp.car;
+
+                if (car.humAudio) {
+                    car.humAudio.pause();
+                    car.humAudio = null;
+                }
+
+                const idx = cars.indexOf(car);
+
+                if (idx >= 0) {
+                    cars.splice(idx, 1);
+                }
+            }
+        }
+
+        this.opponents = [];
+    }
+
+    // ----------------------------------------------------
+    // UPDATE
+    // ----------------------------------------------------
+
+    update(dt) {
+        if (this.opponents.length === 0) {
+            return;
+        }
+
+        // NPC cars are frozen indoors; do the same here.
+        if (
+            (typeof isInsideHouse !== "undefined" && isInsideHouse) ||
+            (typeof isInsideDealership !== "undefined" && isInsideDealership)
+        ) {
+            return;
+        }
+
+        const targets = this.race.getOpponentTargets();
+
+        if (targets.length === 0) {
+            return;
+        }
+
+        this.pathBudget = 1;   // at most one A* search per frame
+
+        for (const opp of this.opponents) {
+            this.updateOpponent(opp, dt, targets);
+        }
+    }
+
+    requestPath(opp, target) {
+        const car = opp.car;
+
+        this.pathBudget--;
+
+        let path = null;
+
+        if (
+            typeof navigationSystem !== "undefined" &&
+            navigationSystem.ready
+        ) {
+            // preferRoads = true -> A* strongly favours road cells,
+            // but can still cross grass/transition cells.
+            path = navigationSystem.findPath(
+                car.x, car.y,
+                target.x, target.y,
+                true
+            );
+        }
+
+        // No path: head straight for the target over any surface.
+        opp.path =
+            path && path.length > 0
+                ? path
+                : [{ x: target.x, y: target.y }];
+
+        opp.pathIndex = 0;
+        opp.repathCooldown = RACE_OPPONENT_AI.repathMinInterval;
+        opp.forceRepath = false;
+    }
+
+    updateOpponent(opp, dt, targets) {
+        const cfg = RACE_OPPONENT_AI;
+        const car = opp.car;
+
+        if (opp.finished || car.health <= 0 || car.exploded) {
+            car.speed = 0;
+            return;
+        }
+
+        // ---- Target (next checkpoint, then finish) ----
+        const target = targets[opp.targetIndex];
+        const isFinish = opp.targetIndex >= targets.length - 1;
+
+        const targetDist = Math.hypot(
+            target.x - car.x,
+            target.y - car.y
+        );
+
+        if (targetDist <= (isFinish ? cfg.finishReach : cfg.checkpointReach)) {
+            if (isFinish) {
+                opp.finished = true;
+                car.speed = 0;
+                return;
+            }
+
+            opp.targetIndex++;
+            opp.path = null;
+            opp.pathIndex = 0;
+            opp.repathCooldown = 0;
+
+            return;
+        }
+
+        // ---- Path (only recomputed when needed) ----
+        opp.repathCooldown -= dt;
+
+        if (
+            opp.path &&
+            opp.repathCooldown <= 0 &&
+            Math.hypot(
+                opp.path[opp.pathIndex].x - car.x,
+                opp.path[opp.pathIndex].y - car.y
+            ) > cfg.offPathDistance
+        ) {
+            opp.forceRepath = true;
+        }
+
+        if (
+            (!opp.path || opp.forceRepath) &&
+            this.pathBudget > 0 &&
+            (opp.repathCooldown <= 0 || opp.forceRepath)
+        ) {
+            this.requestPath(opp, target);
+        }
+
+        // Wait at the line until the start delay is over.
+        if (opp.startDelay > 0) {
+            opp.startDelay -= dt;
+            car.speed = 0;
+            return;
+        }
+
+        // ---- Aim point ----
+        let aim;
+
+        if (opp.path) {
+            const path = opp.path;
+
+            while (
+                opp.pathIndex < path.length - 1 &&
+                Math.hypot(
+                    path[opp.pathIndex].x - car.x,
+                    path[opp.pathIndex].y - car.y
+                ) < cfg.waypointReach
+            ) {
+                opp.pathIndex++;
+            }
+
+            aim = path[Math.min(opp.pathIndex + 1, path.length - 1)];
+        } else {
+            aim = target;   // waiting for a path slot
+        }
+
+        // ---- Stuck detection ----
+        opp.stuckTimer += dt;
+
+        if (opp.stuckTimer >= cfg.stuckCheckInterval) {
+            const moved = Math.hypot(
+                car.x - opp.stuckX,
+                car.y - opp.stuckY
+            );
+
+            if (moved < cfg.stuckDistance) {
+                opp.recoverTimer = cfg.recoverFrames;
+                opp.recoverSide = -opp.recoverSide;
+                opp.forceRepath = true;
+            }
+
+            opp.stuckTimer = 0;
+            opp.stuckX = car.x;
+            opp.stuckY = car.y;
+        }
+
+        // ---- Steering ----
+        const heading = car.angle - Math.PI / 2;
+        const hx = Math.cos(heading);
+        const hy = Math.sin(heading);
+
+        let ax = aim.x - car.x;
+        let ay = aim.y - car.y;
+        const aLen = Math.hypot(ax, ay) || 1;
+        ax /= aLen;
+        ay /= aLen;
+
+        // After being stuck, veer off to one side for a moment.
+        if (opp.recoverTimer > 0) {
+            opp.recoverTimer -= dt;
+
+            const turn = 0.9 * opp.recoverSide;
+            const cos = Math.cos(turn);
+            const sin = Math.sin(turn);
+            const rx = ax * cos - ay * sin;
+            const ry = ax * sin + ay * cos;
+
+            ax = rx;
+            ay = ry;
+        }
+
+        // Keep distance from the other racers and the player.
+        let sx = 0;
+        let sy = 0;
+        let frontFactor = 1;
+
+        const others = this.getOtherRacers(opp);
+
+        for (const other of others) {
+            const ox = car.x - other.x;
+            const oy = car.y - other.y;
+            const d = Math.hypot(ox, oy);
+
+            if (d < 0.001 || d > cfg.separationRadius) {
+                continue;
+            }
+
+            const push = 1 - d / cfg.separationRadius;
+
+            sx += (ox / d) * push;
+            sy += (oy / d) * push;
+
+            // Racer roughly ahead: ease off and pick a side to pass on.
+            const fx = -ox;
+            const fy = -oy;
+            const ahead = (fx * hx + fy * hy) / d;
+
+            if (ahead > 0.5 && d < cfg.frontSlowDistance) {
+                frontFactor = Math.min(
+                    frontFactor,
+                    Math.max(
+                        0.25,
+                        Math.min(1, (d - 24) / (cfg.frontSlowDistance - 24))
+                    )
+                );
+
+                const side = (hx * fy - hy * fx) >= 0 ? -1 : 1;
+
+                sx += -hy * side * 0.6 * push;
+                sy += hx * side * 0.6 * push;
+            }
+        }
+
+        // Small-radius building avoidance.
+        let bx = 0;
+        let by = 0;
+
+        if (typeof isPlayerCarWalkable === "function") {
+            for (let k = 0; k < 8; k++) {
+                const a = k * (Math.PI / 4);
+                const c = Math.cos(a);
+                const s = Math.sin(a);
+
+                if (
+                    !isPlayerCarWalkable(
+                        car.x + c * cfg.buildingProbeRadius,
+                        car.y + s * cfg.buildingProbeRadius
+                    )
+                ) {
+                    bx -= c;
+                    by -= s;
+                }
+            }
+        }
+
+        let dx =
+            ax +
+            sx * cfg.separationWeight +
+            bx * cfg.buildingAvoidWeight;
+
+        let dy =
+            ay +
+            sy * cfg.separationWeight +
+            by * cfg.buildingAvoidWeight;
+
+        if (Math.hypot(dx, dy) < 0.001) {
+            dx = ax;
+            dy = ay;
+        }
+
+        const desiredHeading = Math.atan2(dy, dx);
+
+        let diff = desiredHeading - heading;
+
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+
+        car.angle += diff * (cfg.turnRate * dt);
+
+        // ---- Speed ----
+        const healthFactor =
+            car.maxHealth > 0
+                ? Math.max(0.2, car.health / car.maxHealth)
+                : 1;
+
+        const maxSpeed =
+            car.baseSpeed * 3 * opp.topSpeedFactor * healthFactor;
+
+        const cornerFactor =
+            1 - Math.min(1, Math.abs(diff) / 1.2) * 0.65;
+
+        let targetSpeed = maxSpeed * cornerFactor * frontFactor;
+
+        if (opp.recoverTimer > 0) {
+            targetSpeed *= 0.5;
+        }
+
+        if (car.speed < targetSpeed) {
+            car.speed = Math.min(targetSpeed, car.speed + cfg.acceleration * dt);
+        } else {
+            car.speed = Math.max(targetSpeed, car.speed - cfg.braking * dt);
+        }
+
+        // ---- Move (any drivable surface; buildings/water block) ----
+        const newHeading = car.angle - Math.PI / 2;
+        const nextX = car.x + Math.cos(newHeading) * (car.speed * dt);
+        const nextY = car.y + Math.sin(newHeading) * (car.speed * dt);
+
+        if (typeof isPlayerCarWalkable === "function") {
+            let hitWall = false;
+
+            if (isPlayerCarWalkable(nextX, car.y)) car.x = nextX; else hitWall = true;
+            if (isPlayerCarWalkable(car.x, nextY)) car.y = nextY; else hitWall = true;
+
+            if (hitWall) {
+                car.speed *= 0.4;
+            }
+        } else {
+            car.x = nextX;
+            car.y = nextY;
+        }
+    }
+
+    // Other racers to keep away from: the other opponents
+    // (including finished ones) and the player. Normal NPC cars
+    // and pedestrians are deliberately ignored.
+    getOtherRacers(self) {
+        const list = [];
+
+        for (const opp of this.opponents) {
+            if (opp !== self) {
+                list.push(opp.car);
+            }
+        }
+
+        if (typeof playerCar !== "undefined" && playerCar) {
+            list.push(playerCar);
+        } else if (typeof player !== "undefined" && player) {
+            list.push(player);
+        }
+
+        return list;
+    }
+}
+
 
 class RaceEventsManager {
     constructor() {
@@ -57,6 +617,10 @@ class RaceEventsManager {
         this.lastObservedHour = -1;
 
         this.generateAttempts = 0;
+
+        // Race type decides which car the opponents use.
+        this.raceType = "street";
+        this.opponentManager = new RaceOpponentManager(this);
 
         this.createJoinButton();
         const messageClose =
@@ -568,6 +1132,10 @@ class RaceEventsManager {
             }
         }
 
+        // Opponent AI keeps running (opponents that finished stay
+        // parked at 0 speed) until the race state is cleared.
+        this.opponentManager.update(dt);
+
         // Join button proximity.
         this.updateJoinButton();
     }
@@ -1001,6 +1569,10 @@ class RaceEventsManager {
             );
         }
 
+        // Line up the player and all opponents along the route
+        // direction (spawns the opponent cars while screen is black).
+        this.setupRaceParticipants(routeAngle);
+
         if (playerCar) {
             // Car sprites use angle - PI/2
             // as their forward direction.
@@ -1027,6 +1599,135 @@ class RaceEventsManager {
                 transition.remove();
             }, 300);
         }, 300);
+    }
+
+    // --------------------------------------------------------
+    // RACE OPPONENTS: STARTING GRID
+    // --------------------------------------------------------
+
+    getOpponentCarKey() {
+        return (
+            RACE_OPPONENT_CAR_BY_RACE_TYPE[this.raceType] ||
+            RACE_OPPONENT_DEFAULT_CAR
+        );
+    }
+
+    // Opponents drive to each checkpoint in order, then the finish.
+    getOpponentTargets() {
+        return [
+            ...this.checkpoints,
+            this.finish
+        ].filter(Boolean);
+    }
+
+    isGridSpotUsable(x, y, strict) {
+        if (
+            typeof isPlayerCarWalkable === "function" &&
+            !isPlayerCarWalkable(x, y)
+        ) {
+            return false;
+        }
+
+        if (!strict || typeof isRoadColor !== "function") {
+            return true;
+        }
+
+        const r = 10;
+
+        return (
+            isRoadColor(x, y) &&
+            isRoadColor(x + r, y) &&
+            isRoadColor(x - r, y) &&
+            isRoadColor(x, y + r) &&
+            isRoadColor(x, y - r)
+        );
+    }
+
+    // Two cars per row, rows going BACKWARDS from the start point,
+    // so everyone faces the direction of the calculated route.
+    // Returned slots are ordered front to back.
+    getStartingGridSlots(routeAngle, count) {
+        const laneOffset = 14;
+        const rowSpacing = 36;
+        const maxRows = 12;
+
+        const fx = Math.cos(routeAngle);
+        const fy = Math.sin(routeAngle);
+        const rx = -fy;
+        const ry = fx;
+
+        const strictSpots = [];
+        const looseSpots = [];
+
+        for (let row = 0; row < maxRows; row++) {
+            for (const lane of [-1, 1]) {
+                const x =
+                    this.start.x -
+                    fx * row * rowSpacing +
+                    rx * lane * laneOffset;
+
+                const y =
+                    this.start.y -
+                    fy * row * rowSpacing +
+                    ry * lane * laneOffset;
+
+                const spot = { x, y, row, lane };
+
+                if (this.isGridSpotUsable(x, y, true)) {
+                    strictSpots.push(spot);
+                } else if (this.isGridSpotUsable(x, y, false)) {
+                    looseSpots.push(spot);
+                }
+            }
+        }
+
+        // Prefer spots fully on the road; fill up with drivable ones.
+        const slots =
+            strictSpots
+                .concat(looseSpots)
+                .slice(0, count);
+
+        // Last resort: stack on the start point (collisions push apart).
+        while (slots.length < count) {
+            slots.push({
+                x: this.start.x,
+                y: this.start.y,
+                row: maxRows,
+                lane: 0
+            });
+        }
+
+        slots.sort((a, b) => a.row - b.row || a.lane - b.lane);
+
+        return slots;
+    }
+
+    setupRaceParticipants(routeAngle) {
+        if (!this.start) {
+            return;
+        }
+
+        const slots = this.getStartingGridSlots(
+            routeAngle,
+            RACE_OPPONENT_COUNT + 1
+        );
+
+        // Random grid position for the player.
+        const playerSlotIndex =
+            Math.floor(Math.random() * slots.length);
+
+        const playerSlot = slots.splice(playerSlotIndex, 1)[0];
+
+        if (playerCar) {
+            playerCar.x = playerSlot.x;
+            playerCar.y = playerSlot.y;
+        }
+
+        this.opponentManager.spawn(
+            slots,
+            routeAngle,
+            this.getOpponentCarKey()
+        );
     }
 
     // --------------------------------------------------------
@@ -1328,6 +2029,10 @@ class RaceEventsManager {
 
         this.phoneMessageActive = false;
         this.phoneMessageDismissed = false;
+
+        if (this.opponentManager) {
+            this.opponentManager.clear();
+        }
 
         this.hidePhoneRaceMessage();
         this.hideJoinButton();
