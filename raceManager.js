@@ -1,4 +1,4 @@
-console.log("900000");
+console.log("new");
 // ============================================================
 // STREETBOUND RACE EVENTS MANAGER
 // ============================================================
@@ -65,8 +65,8 @@ const RACE_OPPONENT_CAR_PRESETS = {
 const RACE_OPPONENT_AI = {
     startDelay: 60,            // wait after the fade before driving off
 
-    topSpeedFactorMin: 0.85,   // top speed = baseSpeed * 3 * factor
-    topSpeedFactorMax: 0.95,   // (the player's cap is baseSpeed * 3)
+    topSpeedFactorMin: 0.40,   // top speed = baseSpeed * 3 * factor
+    topSpeedFactorMax: 0.50,   // (the player's cap is baseSpeed * 3)
     acceleration: 0.08,
     braking: 0.25,
     turnRate: 0.06,
@@ -150,7 +150,7 @@ class RaceOpponentManager {
     // ----------------------------------------------------
 
     createCar(id, slot, angle, color, preset) {
-        const car = new Car(id, slot.x, slot.y, color, true);
+        const car = new Car(id, slot.x, slot.y, color, false, preset.type);
 
         car.type = preset.type;
 
