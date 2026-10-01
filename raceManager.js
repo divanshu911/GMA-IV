@@ -1,4 +1,4 @@
-console.log("new");
+console.log("new3");
 // ============================================================
 // STREETBOUND RACE EVENTS MANAGER
 // ============================================================
@@ -143,6 +143,14 @@ class RaceOpponentManager {
 
     hasOpponents() {
         return this.opponents.length > 0;
+    }
+    allFinished() {
+        return (
+            this.opponents.length === RACE_OPPONENT_COUNT &&
+            this.opponents.every(
+                opp => opp.finished
+            )
+        );
     }
 
     // ----------------------------------------------------
@@ -610,6 +618,7 @@ class RaceEventsManager {
 
         this.raceStarted = false;
         this.raceEndHour = null;
+        this.playerJoined = false;
 
         this.joinButton = null;
 
@@ -1123,12 +1132,24 @@ class RaceEventsManager {
             this.raceStarted
         ) {
             if (
-                currentHour >=
-                this.raceEndHour
+                this.getRaceElapsedHours(currentHour) >= 1
             ) {
-                this.finishRace();
+                if (this.playerJoined) {
+                    this.finishRace();
+                } else {
+                    this.finishNpcRace();
+                }
             } else {
-                this.updateCheckpointProgress();
+                if (this.playerJoined) {
+                    this.updateCheckpointProgress();
+                }
+
+                if (
+                    !this.playerJoined &&
+                    this.opponentManager.allFinished()
+                ) {
+                    this.finishNpcRace();
+                }
             }
         }
 
@@ -1144,7 +1165,24 @@ class RaceEventsManager {
     // RACE TIME
     // --------------------------------------------------------
 
-    getHoursUntilRace(currentHour) {
+    getRaceElapsedHours(currentHour) {
+        if (
+            this.raceStartHour === null ||
+            this.raceStartHour === undefined
+        ) {
+            return 0;
+        }
+
+        let elapsed =
+            currentHour - this.raceStartHour;
+
+        if (elapsed < 0) {
+            elapsed += 24;
+        }
+
+        return elapsed;
+    }
+getHoursUntilRace(currentHour) {
         let difference =
             this.raceStartHour -
             currentHour;
@@ -1163,20 +1201,10 @@ class RaceEventsManager {
             return;
         }
 
-        // Player didn't join.
-        // For this phase, simply remove the event.
-        // NPC racing will be added later.
-        this.state = "MISSED";
-
-        this.hidePhoneRaceMessage();
-        this.hideJoinButton();
-
-        this.startMarkerVisible = false;
-        this.raceMarkersVisible = false;
-
-        console.log(
-            "[RACE] Race time reached. Player did not join."
-        );
+        // The race happens whether or not the player joined.
+        // If the player joined, startPlayerRace() already changed
+        // the state to RACING, so this function won't run.
+        this.startNpcRace();
 
         // Do NOT generate another race immediately.
         // Wait until midnight.
@@ -1480,6 +1508,7 @@ class RaceEventsManager {
 
         this.raceStarted = true;
         this.state = "RACING";
+        this.playerJoined = true;
 
         this.checkpointsDone =
             this.checkpoints.map(() => false);
@@ -1508,6 +1537,70 @@ class RaceEventsManager {
 
         this.beginRaceTransition(
             routeAngle
+        );
+    }
+
+    // --------------------------------------------------------
+    // START NPC RACE (player did not join)
+    // --------------------------------------------------------
+
+    startNpcRace() {
+        if (
+            this.state !== "SCHEDULED" ||
+            !this.start ||
+            !this.route ||
+            this.route.length < 2
+        ) {
+            return;
+        }
+
+        this.hideJoinButton();
+        this.hidePhoneRaceMessage();
+
+        this.raceStarted = true;
+        this.state = "RACING";
+        this.playerJoined = false;
+
+        this.checkpointsDone =
+            this.checkpoints.map(() => false);
+        this.zonesWarned = {};
+
+        this.startMarkerVisible = false;
+        this.raceMarkersVisible = false;
+
+        // Race lasts exactly one in-game hour.
+        this.raceEndHour =
+            this.raceStartHour + 1;
+
+        if (this.raceEndHour >= 24) {
+            this.raceEndHour -= 24;
+        }
+
+        const nextPoint =
+            this.route[1];
+
+        const routeAngle =
+            Math.atan2(
+                nextPoint.y - this.start.y,
+                nextPoint.x - this.start.x
+            );
+
+        // Only opponents line up on the grid; the player's car
+        // is left exactly where it is.
+        const slots =
+            this.getStartingGridSlots(
+                routeAngle,
+                RACE_OPPONENT_COUNT
+            );
+
+        this.opponentManager.spawn(
+            slots,
+            routeAngle,
+            this.getOpponentCarKey()
+        );
+
+        console.log(
+            "[RACE] Autonomous race started without the player."
         );
     }
 
@@ -1843,6 +1936,27 @@ class RaceEventsManager {
     // FINISH
     // --------------------------------------------------------
 
+  finishNpcRace() {
+    if (
+        this.state !== "RACING" ||
+        this.playerJoined
+    ) {
+        return;
+    }
+
+    this.state = "FINISHED";
+    this.raceStarted = false;
+
+    this.hideJoinButton();
+    this.hidePhoneRaceMessage();
+
+    this.startMarkerVisible = false;
+    this.raceMarkersVisible = false;
+
+    console.log(
+        "[RACE] Autonomous race finished: all opponents reached the finish."
+    );
+  }
     finishRace() {
         if (
             this.state !== "RACING"
@@ -2022,6 +2136,7 @@ class RaceEventsManager {
         this.raceMarkersVisible = false;
 
         this.raceStarted = false;
+        this.playerJoined = false;
 
         this.raceStartHour = null;
         this.raceStartMinute = 0;
