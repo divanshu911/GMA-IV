@@ -1,4 +1,4 @@
-console.log("new3");
+console.log("new4");
 // ============================================================
 // STREETBOUND RACE EVENTS MANAGER
 // ============================================================
@@ -617,7 +617,9 @@ class RaceEventsManager {
         this.raceMarkersVisible = false;
 
         this.raceStarted = false;
+        this.raceClockStarted = false;
         this.raceEndHour = null;
+        this.raceStartedAtHour = null;
         this.playerJoined = false;
 
         this.joinButton = null;
@@ -1129,7 +1131,8 @@ class RaceEventsManager {
 
         if (
             this.state === "RACING" &&
-            this.raceStarted
+            this.raceStarted &&
+            this.raceClockStarted
         ) {
             if (
                 this.getRaceElapsedHours(currentHour) >= 1
@@ -1166,15 +1169,15 @@ class RaceEventsManager {
     // --------------------------------------------------------
 
     getRaceElapsedHours(currentHour) {
-        if (
-            this.raceStartHour === null ||
-            this.raceStartHour === undefined
-        ) {
+        const startHour =
+            this.raceStartedAtHour ?? this.raceStartHour;
+
+        if (startHour === null || startHour === undefined) {
             return 0;
         }
 
         let elapsed =
-            currentHour - this.raceStartHour;
+            currentHour - startHour;
 
         if (elapsed < 0) {
             elapsed += 24;
@@ -1509,6 +1512,8 @@ getHoursUntilRace(currentHour) {
         this.raceStarted = true;
         this.state = "RACING";
         this.playerJoined = true;
+        this.raceClockStarted = false;
+        this.raceStartedAtHour = null;
 
         this.checkpointsDone =
             this.checkpoints.map(() => false);
@@ -1517,13 +1522,9 @@ getHoursUntilRace(currentHour) {
         this.startMarkerVisible = false;
         this.raceMarkersVisible = true;
 
-        // Race lasts exactly one in-game hour.
-        this.raceEndHour =
-            this.raceStartHour + 1;
-
-        if (this.raceEndHour >= 24) {
-            this.raceEndHour -= 24;
-        }
+        // The race timer starts after the transition advances the
+        // in-game clock to the scheduled event time.
+        this.raceEndHour = null;
 
         // First path segment determines the starting direction.
         const nextPoint =
@@ -1560,6 +1561,9 @@ getHoursUntilRace(currentHour) {
         this.raceStarted = true;
         this.state = "RACING";
         this.playerJoined = false;
+        this.raceStartedAtHour =
+            (gameSeconds / DAY_LENGTH) * 24;
+        this.raceClockStarted = true;
 
         this.checkpointsDone =
             this.checkpoints.map(() => false);
@@ -1568,9 +1572,9 @@ getHoursUntilRace(currentHour) {
         this.startMarkerVisible = false;
         this.raceMarkersVisible = false;
 
-        // Race lasts exactly one in-game hour.
+        // NPC race starts at the scheduled event time.
         this.raceEndHour =
-            this.raceStartHour + 1;
+            this.raceStartedAtHour + 1;
 
         if (this.raceEndHour >= 24) {
             this.raceEndHour -= 24;
@@ -1660,6 +1664,17 @@ getHoursUntilRace(currentHour) {
                 "gameTime",
                 gameSeconds
             );
+
+            this.raceStartedAtHour =
+                (gameSeconds / DAY_LENGTH) * 24;
+            this.raceEndHour =
+                this.raceStartedAtHour + 1;
+
+            if (this.raceEndHour >= 24) {
+                this.raceEndHour -= 24;
+            }
+
+            this.raceClockStarted = true;
         }
 
         // Line up the player and all opponents along the route
@@ -1946,6 +1961,7 @@ getHoursUntilRace(currentHour) {
 
     this.state = "FINISHED";
     this.raceStarted = false;
+    this.raceClockStarted = false;
 
     this.hideJoinButton();
     this.hidePhoneRaceMessage();
@@ -1966,6 +1982,7 @@ getHoursUntilRace(currentHour) {
 
         this.state = "FINISHED";
         this.raceStarted = false;
+        this.raceClockStarted = false;
 
         this.hideJoinButton();
         this.hidePhoneRaceMessage();
@@ -2136,11 +2153,13 @@ getHoursUntilRace(currentHour) {
         this.raceMarkersVisible = false;
 
         this.raceStarted = false;
+        this.raceClockStarted = false;
         this.playerJoined = false;
 
         this.raceStartHour = null;
         this.raceStartMinute = 0;
         this.raceEndHour = null;
+        this.raceStartedAtHour = null;
 
         this.phoneMessageActive = false;
         this.phoneMessageDismissed = false;

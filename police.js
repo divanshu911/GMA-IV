@@ -1,4 +1,4 @@
-console.log("jjjj");
+console.log("2323");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -921,6 +921,71 @@ function moveArrestPoliceCar(
 
         if (Math.hypot(finalX, finalY) > 0.001) {
             moveAngle = Math.atan2(finalY, finalX);
+        }
+    }
+
+    // --- SMALL NON-ROAD AVOIDANCE (keeps transport near road center) ---
+    // Samples a small ring around the car and nudges it away from
+    // non-road pixels (buildings, river, trees, grass). Grass is only
+    // avoided while the A* route is still on road; if the car or its
+    // current waypoint is already on grass, grass is ignored (solid
+    // obstacles like buildings/river/trees are still avoided).
+    if (
+        typeof collisionData !== "undefined" &&
+        collisionData &&
+        typeof mapWidth !== "undefined" &&
+        mapWidth > 0 &&
+        typeof getTerrainType === "function"
+    ) {
+        const terrainAt = (x, y) => {
+            const px = Math.floor(x);
+            const py = Math.floor(y);
+            if (px < 0 || py < 0 || px >= mapWidth || py >= mapHeight) return "BLOCKED";
+            const i = (py * mapWidth + px) * 4;
+            return getTerrainType(collisionData[i], collisionData[i + 1], collisionData[i + 2]);
+        };
+
+        const pathWaypoint =
+            car.arrestTransportPath &&
+            car.arrestTransportPath[car.arrestTransportPathIndex];
+
+        const routeOnGrass =
+            terrainAt(car.x, car.y) === "GRASS" ||
+            (pathWaypoint && terrainAt(pathWaypoint.x, pathWaypoint.y) === "GRASS");
+
+        const edgeRadius = 15;
+        const edgeSamples = 8;
+        let edgePushX = 0;
+        let edgePushY = 0;
+
+        for (let i = 0; i < edgeSamples; i++) {
+            const a = (i / edgeSamples) * Math.PI * 2;
+            const dirX = Math.cos(a);
+            const dirY = Math.sin(a);
+
+            const t = terrainAt(
+                car.x + dirX * edgeRadius,
+                car.y + dirY * edgeRadius
+            );
+
+            const isBad =
+                t === "BLOCKED" ||
+                (t === "GRASS" && !routeOnGrass);
+
+            if (isBad) {
+                edgePushX -= dirX;
+                edgePushY -= dirY;
+            }
+        }
+
+        const edgePushLen = Math.hypot(edgePushX, edgePushY);
+        if (edgePushLen > 0.001) {
+            const edgeStrength = Math.min(0.3, edgePushLen * 0.1);
+            const fx = Math.cos(moveAngle) * (1 - edgeStrength) + (edgePushX / edgePushLen) * edgeStrength;
+            const fy = Math.sin(moveAngle) * (1 - edgeStrength) + (edgePushY / edgePushLen) * edgeStrength;
+            if (Math.hypot(fx, fy) > 0.001) {
+                moveAngle = Math.atan2(fy, fx);
+            }
         }
     }
 
