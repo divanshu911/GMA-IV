@@ -1,4 +1,4 @@
-console.log("new4");
+console.log("new5");
 // ============================================================
 // STREETBOUND RACE EVENTS MANAGER
 // ============================================================
@@ -89,6 +89,18 @@ const RACE_OPPONENT_AI = {
     buildingAvoidWeight: 0.5
 };
 
+// Pre-race staging: opponents spawn on roads when the race
+// notification is sent and drive to the start with the same
+// A* navigation / AI the arrest transport car uses.
+const RACE_OPPONENT_STAGING = {
+    travelSpeed: 3.2,          // same speed the arrest transport drives at
+    arriveRadius: 60,          // px from the start that counts as "arrived"
+    minDistFromStart: 250,     // preferred spawn distance from the start
+    minDistFromPlayer: 500,    // preferred spawn distance from the player
+    minDistBetween: 200,       // preferred spacing between opponents
+    spawnAttempts: 40
+};
+
 function raceHslToHex(h, s, l) {
     h = ((h % 360) + 360) % 360;
     s /= 100;
@@ -126,6 +138,12 @@ class RaceOpponent {
         this.startDelay = cfg.startDelay;
         this.finished = false;
 
+        // "TRAVELING" -> "ARRIVED" (before the race), "RACING"
+        // (lined up / driving the race). `eliminated` is set if the
+        // car breaks down / explodes before the race starts.
+        this.phase = "RACING";
+        this.eliminated = false;
+
         this.stuckTimer = 0;
         this.stuckX = car.x;
         this.stuckY = car.y;
@@ -148,7 +166,7 @@ class RaceOpponentManager {
         return (
             this.opponents.length === RACE_OPPONENT_COUNT &&
             this.opponents.every(
-                opp => opp.finished
+                opp => opp.finished || opp.eliminated
             )
         );
     }
@@ -222,6 +240,289 @@ class RaceOpponentManager {
         }
     }
 
+    // ----------------------------------------------------
+    // PRE-RACE STAGING
+    // ----------------------------------------------------
+
+    pickStagingSpawn(taken) {
+        const cfg = RACE_OPPONENT_STAGING;
+        const start = this.race.start;
+        const hasPlayer =
+            typeof player !== "undefined" && player;
+
+        let fallback = null;
+
+        for (let attempt = 0; attempt < cfg.spawnAttempts; attempt++) {
+            const candidate = getRandomStrictRoadPosition();
+
+            if (
+                !candidate ||
+                !Number.isFinite(candidate.x) ||
+                !Number.isFinite(candidate.y)
+            ) {
+                continue;
+            }
+
+            if (!fallback) {
+                fallback = candidate;
+            }
+
+            if (
+                start &&
+                Math.hypot(candidate.x - start.x, candidate.y - start.y) < cfg.minDistFromStart
+            ) {
+                continue;
+            }
+
+            if (
+                hasPlayer &&
+                Math.hypot(candidate.x - player.x, candidate.y - player.y) < cfg.minDistFromPlayer
+            ) {
+                continue;
+            }
+
+            if (
+                taken.some(
+                    t => Math.hypot(candidate.x - t.x, candidate.y - t.y) < cfg.minDistBetween
+                )
+            ) {
+                continue;
+            }
+
+            return candidate;
+        }
+
+        return fallback || getRandomStrictRoadPosition();
+    }
+
+    // Called once, when the race notification is sent to the player.
+    // Spawns the opponents at road positions around the map; they then
+    // drive to the start location (see updateStagingOpponent).
+    spawnRoadOpponents(carKey) {
+        if (
+            this.opponents.length > 0 ||
+            !this.race.start ||
+            typeof Car !== "function" ||
+            typeof cars === "undefined" ||
+            typeof getRandomStrictRoadPosition !== "function"
+        ) {
+            return;
+        }
+
+        const preset =
+            RACE_OPPONENT_CAR_PRESETS[carKey] ||
+            RACE_OPPONENT_CAR_PRESETS[RACE_OPPONENT_DEFAULT_CAR];
+
+        const baseHue = Math.random() * 360;
+        const baseId = Date.now() + 920000;
+        const taken = [];
+
+        for (let i = 0; i < RACE_OPPONENT_COUNT; i++) {
+            const pos = this.pickStagingSpawn(taken);
+
+            taken.push(pos);
+
+            const hue =
+                baseHue +
+                i * (360 / RACE_OPPONENT_COUNT) +
+                (Math.random() - 0.5) * 30;
+
+            const color = raceHslToHex(hue, 70 + Math.random() * 20, 45 + Math.random() * 15);
+
+            // Car sprites use angle - PI/2 as their forward direction.
+            const angle =
+                Math.atan2(
+                    this.race.start.y - pos.y,
+                    this.race.start.x - pos.x
+                ) + Math.PI / 2;
+
+            const car = this.createCar(
+                baseId + i * 137 + Math.floor(Math.random() * 100),
+                pos,
+                angle,
+                color,
+                preset
+            );
+
+            car.arrestTransportPath = null;
+            car.arrestTransportPathIndex = 1;
+            car.arrestTransportRepathTimer = 0;
+
+            const opp = new RaceOpponent(car, i);
+
+            opp.phase = "TRAVELING";
+
+            cars.push(car);
+            this.opponents.push(opp);
+        }
+    }
+
+    isCarDestroyed(car) {
+        return (
+            car.health <= 0 ||
+            car.exploded ||
+            (typeof cars !== "undefined" && cars.indexOf(car) < 0)
+        );
+    }
+
+    // Marks pre-race opponents that broke down / exploded.
+    refreshEliminations() {
+        for (const opp of this.opponents) {
+            if (
+                !opp.eliminated &&
+                opp.phase !== "RACING" &&
+                this.isCarDestroyed(opp.car)
+            ) {
+                opp.eliminated = true;
+                opp.phase = "ELIMINATED";
+                opp.car.speed = 0;
+            }
+        }
+    }
+
+    // Number of opponents that will be on the grid.
+    getLineUpCount() {
+        if (this.opponents.length === 0) {
+            return RACE_OPPONENT_COUNT;
+        }
+
+        this.refreshEliminations();
+
+        return this.opponents.filter(opp => !opp.eliminated).length;
+    }
+
+    despawnOpponent(opp) {
+        const car = opp.car;
+
+        if (car.humAudio) {
+            car.humAudio.pause();
+            car.humAudio = null;
+        }
+
+        if (typeof cars !== "undefined") {
+            const idx = cars.indexOf(car);
+
+            if (idx >= 0) {
+                cars.splice(idx, 1);
+            }
+        }
+    }
+
+    // Race start: puts the already-existing opponents on the grid
+    // (wherever they are, even if still driving to the start) and
+    // removes eliminated ones. Never creates duplicates; only falls
+    // back to a fresh spawn if nothing was staged.
+    lineUp(slots, routeAngle, carKey) {
+        if (this.opponents.length === 0) {
+            this.spawn(slots, routeAngle, carKey);
+            return;
+        }
+
+        this.refreshEliminations();
+
+        const cfg = RACE_OPPONENT_AI;
+        const carAngle = routeAngle + Math.PI / 2;
+        const start = this.race.start;
+        let slotIndex = 0;
+
+        for (const opp of this.opponents) {
+            if (opp.eliminated) {
+                this.despawnOpponent(opp);
+                continue;
+            }
+
+            const slot =
+                slots[slotIndex++] ||
+                { x: start.x, y: start.y };
+
+            const car = opp.car;
+
+            car.x = slot.x;
+            car.y = slot.y;
+            car.angle = carAngle;
+            car.speed = 0;
+            car.velocityX = 0;
+            car.velocityY = 0;
+
+            car.arrestTransportPath = null;
+            car.arrestTransportPathIndex = 1;
+            car.arrestTransportRepathTimer = 0;
+
+            opp.phase = "RACING";
+            opp.targetIndex = 0;
+            opp.path = null;
+            opp.pathIndex = 0;
+            opp.repathCooldown = opp.index * 4;
+            opp.forceRepath = false;
+            opp.startDelay = cfg.startDelay;
+            opp.finished = false;
+            opp.stuckTimer = 0;
+            opp.stuckX = car.x;
+            opp.stuckY = car.y;
+            opp.recoverTimer = 0;
+        }
+    }
+
+    // Drives a pre-race opponent to the start with the arrest
+    // transport car's navigation (A*, AI, non-road avoidance).
+    // The transport's stuck-recovery watchdog is deliberately not used.
+    updateStagingOpponent(opp, dt) {
+        const car = opp.car;
+        const start = this.race.start;
+
+        if (opp.eliminated) {
+            return;
+        }
+
+        if (this.isCarDestroyed(car)) {
+            this.refreshEliminations();
+            return;
+        }
+
+        if (!start) {
+            return;
+        }
+
+        if (opp.phase === "ARRIVED") {
+            car.speed = 0;
+            return;
+        }
+
+        const dist = Math.hypot(start.x - car.x, start.y - car.y);
+
+        if (dist <= RACE_OPPONENT_STAGING.arriveRadius) {
+            opp.phase = "ARRIVED";
+            car.speed = 0;
+            car.arrestTransportPath = null;
+            return;
+        }
+
+        if (
+            typeof moveArrestPoliceCar !== "function" ||
+            typeof navigationSystem === "undefined" ||
+            !navigationSystem.ready
+        ) {
+            return;
+        }
+
+        // At most one fresh A* search per frame across opponents.
+        if (!car.arrestTransportPath) {
+            if (this.pathBudget <= 0) {
+                return;
+            }
+
+            this.pathBudget--;
+        }
+
+        moveArrestPoliceCar(
+            car,
+            start.x,
+            start.y,
+            dt,
+            RACE_OPPONENT_STAGING.travelSpeed
+        );
+    }
+
     clear() {
         if (
             this.opponents.length > 0 &&
@@ -265,14 +566,21 @@ class RaceOpponentManager {
 
         const targets = this.race.getOpponentTargets();
 
-        if (targets.length === 0) {
-            return;
-        }
-
         this.pathBudget = 1;   // at most one A* search per frame
 
         for (const opp of this.opponents) {
-            this.updateOpponent(opp, dt, targets);
+            if (opp.eliminated) {
+                continue;
+            }
+
+            if (opp.phase === "RACING") {
+                if (targets.length > 0) {
+                    this.updateOpponent(opp, dt, targets);
+                }
+            } else {
+                // Not on the grid yet: still driving to / parked at the start.
+                this.updateStagingOpponent(opp, dt);
+            }
         }
     }
 
@@ -574,7 +882,7 @@ class RaceOpponentManager {
         const list = [];
 
         for (const opp of this.opponents) {
-            if (opp !== self) {
+            if (opp !== self && !opp.eliminated) {
                 list.push(opp.car);
             }
         }
@@ -1104,6 +1412,11 @@ class RaceEventsManager {
                 ) {
                     this.startMarkerVisible = true;
 
+                    // Opponents appear on roads now and drive to the start.
+                    this.opponentManager.spawnRoadOpponents(
+                        this.getOpponentCarKey()
+                    );
+
                     if (
                         typeof taxiManager !== "undefined" &&
                         taxiManager.setMessage
@@ -1594,10 +1907,10 @@ getHoursUntilRace(currentHour) {
         const slots =
             this.getStartingGridSlots(
                 routeAngle,
-                RACE_OPPONENT_COUNT
+                this.opponentManager.getLineUpCount()
             );
 
-        this.opponentManager.spawn(
+        this.opponentManager.lineUp(
             slots,
             routeAngle,
             this.getOpponentCarKey()
@@ -1817,7 +2130,7 @@ getHoursUntilRace(currentHour) {
 
         const slots = this.getStartingGridSlots(
             routeAngle,
-            RACE_OPPONENT_COUNT + 1
+            this.opponentManager.getLineUpCount() + 1
         );
 
         // Random grid position for the player.
@@ -1831,7 +2144,7 @@ getHoursUntilRace(currentHour) {
             playerCar.y = playerSlot.y;
         }
 
-        this.opponentManager.spawn(
+        this.opponentManager.lineUp(
             slots,
             routeAngle,
             this.getOpponentCarKey()
