@@ -1,4 +1,4 @@
-console.log("new5");
+console.log("racee");
 // ============================================================
 // STREETBOUND RACE EVENTS MANAGER
 // ============================================================
@@ -14,7 +14,7 @@ console.log("new5");
 // - Player-owned-car validation
 // - Race transition / car orientation
 // - Race markers
-// - Automatic 1-hour race ending
+// - Automatic race ending (3h player / 1h NPC)
 // - Finish message
 //
 // Race opponents (4 cars, own A* driving AI) are handled by
@@ -137,6 +137,7 @@ class RaceOpponent {
 
         this.startDelay = cfg.startDelay;
         this.finished = false;
+        this.place = null;         // 1 = first to finish, 2 = second...
 
         // "TRAVELING" -> "ARRIVED" (before the race), "RACING"
         // (lined up / driving the race). `eliminated` is set if the
@@ -456,6 +457,7 @@ class RaceOpponentManager {
             opp.forceRepath = false;
             opp.startDelay = cfg.startDelay;
             opp.finished = false;
+            opp.place = null;
             opp.stuckTimer = 0;
             opp.stuckX = car.x;
             opp.stuckY = car.y;
@@ -574,6 +576,18 @@ class RaceOpponentManager {
             }
 
             if (opp.phase === "RACING") {
+                // An opponent that explodes mid-race is eliminated
+                // (one that already finished keeps its place).
+                if (
+                    !opp.finished &&
+                    (opp.car.health <= 0 || opp.car.exploded)
+                ) {
+                    opp.eliminated = true;
+                    opp.phase = "ELIMINATED";
+                    opp.car.speed = 0;
+                    continue;
+                }
+
                 if (targets.length > 0) {
                     this.updateOpponent(opp, dt, targets);
                 }
@@ -636,6 +650,7 @@ class RaceOpponentManager {
         if (targetDist <= (isFinish ? cfg.finishReach : cfg.checkpointReach)) {
             if (isFinish) {
                 opp.finished = true;
+                opp.place = this.race.claimFinishPlace();
                 car.speed = 0;
                 return;
             }
@@ -929,6 +944,13 @@ class RaceEventsManager {
         this.raceEndHour = null;
         this.raceStartedAtHour = null;
         this.playerJoined = false;
+
+        // Finish order / results
+        this.finishPlaceCounter = 0;
+        this.playerPlace = null;
+        this.finishResultsEl = null;
+        this.finishResultsHtml = "";
+        this.finishLive = false;
 
         this.joinButton = null;
 
@@ -1439,7 +1461,7 @@ class RaceEventsManager {
         }
 
         // ----------------------------------------------------
-        // ACTIVE PLAYER RACE
+        // ACTIVE PLAYER / NPC RACE
         // ----------------------------------------------------
 
         if (
@@ -1447,11 +1469,13 @@ class RaceEventsManager {
             this.raceStarted &&
             this.raceClockStarted
         ) {
+            const maxDurationHours = this.playerJoined ? 3 : 1;
+
             if (
-                this.getRaceElapsedHours(currentHour) >= 1
+                this.getRaceElapsedHours(currentHour) >= maxDurationHours
             ) {
                 if (this.playerJoined) {
-                    this.finishRace();
+                    this.finishRace(true);
                 } else {
                     this.finishNpcRace();
                 }
@@ -1472,6 +1496,9 @@ class RaceEventsManager {
         // Opponent AI keeps running (opponents that finished stay
         // parked at 0 speed) until the race state is cleared.
         this.opponentManager.update(dt);
+
+        // Finish message positions update live until "continue".
+        this.updateFinishResults();
 
         // Join button proximity.
         this.updateJoinButton();
@@ -1498,7 +1525,7 @@ class RaceEventsManager {
 
         return elapsed;
     }
-getHoursUntilRace(currentHour) {
+    getHoursUntilRace(currentHour) {
         let difference =
             this.raceStartHour -
             currentHour;
@@ -1828,6 +1855,9 @@ getHoursUntilRace(currentHour) {
         this.raceClockStarted = false;
         this.raceStartedAtHour = null;
 
+        this.finishPlaceCounter = 0;
+        this.playerPlace = null;
+
         this.checkpointsDone =
             this.checkpoints.map(() => false);
         this.zonesWarned = {};
@@ -1885,7 +1915,7 @@ getHoursUntilRace(currentHour) {
         this.startMarkerVisible = false;
         this.raceMarkersVisible = false;
 
-        // NPC race starts at the scheduled event time.
+        // NPC race starts at the scheduled event time (lasts 1 hour).
         this.raceEndHour =
             this.raceStartedAtHour + 1;
 
@@ -1980,8 +2010,10 @@ getHoursUntilRace(currentHour) {
 
             this.raceStartedAtHour =
                 (gameSeconds / DAY_LENGTH) * 24;
+
+            // Player race lasts 3 hours.
             this.raceEndHour =
-                this.raceStartedAtHour + 1;
+                this.raceStartedAtHour + 3;
 
             if (this.raceEndHour >= 24) {
                 this.raceEndHour -= 24;
@@ -2264,33 +2296,44 @@ getHoursUntilRace(currentHour) {
     // FINISH
     // --------------------------------------------------------
 
-  finishNpcRace() {
-    if (
-        this.state !== "RACING" ||
-        this.playerJoined
-    ) {
-        return;
+    finishNpcRace() {
+        if (
+            this.state !== "RACING" ||
+            this.playerJoined
+        ) {
+            return;
+        }
+
+        console.log(
+            "[RACE] Autonomous race finished."
+        );
+
+        // Despawn NPC cars and clear markers/route
+        this.clearRaceState();
+
+        // Put the manager into waiting state until midnight
+        this.state = "WAITING_FOR_MIDNIGHT";
+        this.midnightWaitActive = true;
     }
 
-    this.state = "FINISHED";
-    this.raceStarted = false;
-    this.raceClockStarted = false;
+    // Next finishing position (1 = first across the line).
+    claimFinishPlace() {
+        this.finishPlaceCounter++;
 
-    this.hideJoinButton();
-    this.hidePhoneRaceMessage();
+        return this.finishPlaceCounter;
+    }
 
-    this.startMarkerVisible = false;
-    this.raceMarkersVisible = false;
-
-    console.log(
-        "[RACE] Autonomous race finished: all opponents reached the finish."
-    );
-  }
-    finishRace() {
+    // timedOut = true when the 3 hour timer ended the race
+    // (the player did not reach the finish).
+    finishRace(timedOut = false) {
         if (
             this.state !== "RACING"
         ) {
             return;
+        }
+
+        if (!timedOut) {
+            this.playerPlace = this.claimFinishPlace();
         }
 
         this.state = "FINISHED";
@@ -2303,14 +2346,118 @@ getHoursUntilRace(currentHour) {
         this.startMarkerVisible = false;
         this.raceMarkersVisible = false;
 
-        this.showFinishMessage();
+        this.showFinishMessage(timedOut);
 
         console.log(
             "[RACE] Player race ended at scheduled finish time."
         );
     }
 
-    showFinishMessage() {
+    // --------------------------------------------------------
+    // FINISH RESULTS
+    // --------------------------------------------------------
+
+    getOrdinal(n) {
+        const mod100 = n % 100;
+
+        if (mod100 >= 11 && mod100 <= 13) {
+            return n + "th";
+        }
+
+        switch (n % 10) {
+            case 1: return n + "st";
+            case 2: return n + "nd";
+            case 3: return n + "rd";
+            default: return n + "th";
+        }
+    }
+
+    // Order: finishers by position, then eliminated, then DNF.
+    buildFinishResultsHtml() {
+        const rows = [];
+
+        rows.push({
+            label: "You",
+            place: this.playerPlace,
+            eliminated: false,
+            isPlayer: true
+        });
+
+        for (const opp of this.opponentManager.opponents) {
+            rows.push({
+                label: "Racer " + (opp.index + 1),
+                place: opp.finished ? opp.place : null,
+                eliminated: Boolean(opp.eliminated && !opp.finished),
+                isPlayer: false
+            });
+        }
+
+        const rank = r =>
+            r.place !== null ? 0 : (r.eliminated ? 1 : 2);
+
+        rows.sort((a, b) =>
+            rank(a) - rank(b) ||
+            (a.place || 0) - (b.place || 0)
+        );
+
+        return rows.map(r => {
+            const status =
+                r.place !== null
+                    ? this.getOrdinal(r.place)
+                    : (r.eliminated ? "Eliminated" : "DNF");
+
+            return `
+                <div style="
+                    display:flex;
+                    justify-content:space-between;
+                    padding:6px 12px;
+                    margin:4px 0;
+                    border-radius:6px;
+                    background:${r.isPlayer ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.06)"};
+                    font-weight:${r.isPlayer ? "bold" : "normal"};
+                ">
+                    <span>${r.label}</span>
+                    <span>${status}</span>
+                </div>
+            `;
+        }).join("");
+    }
+
+    updateFinishResults() {
+        if (!this.finishLive) {
+            return;
+        }
+
+        // Stop once the message is gone, the state moved on, or the
+        // 3 hour race window is over.
+        if (
+            this.state !== "FINISHED" ||
+            !this.finishResultsEl ||
+            !this.finishResultsEl.isConnected ||
+            this.getRaceElapsedHours(
+                (gameSeconds / DAY_LENGTH) * 24
+            ) >= 3
+        ) {
+            this.finishLive = false;
+            return;
+        }
+
+        const html = this.buildFinishResultsHtml();
+
+        if (html !== this.finishResultsHtml) {
+            this.finishResultsHtml = html;
+            this.finishResultsEl.innerHTML = html;
+        }
+    }
+
+    showFinishMessage(timedOut = false) {
+        // Timer ended the race and nobody reached the finish.
+        const noResults =
+            timedOut &&
+            !this.opponentManager.opponents.some(
+                opp => opp.finished
+            );
+
         const overlay =
             document.createElement("div");
 
@@ -2367,9 +2514,7 @@ getHoursUntilRace(currentHour) {
                 RACE FINISHED
             </h2>
 
-            <p>
-                The race event has ended.
-            </p>
+            <div id="raceFinishResults" style="margin:16px 0;"></div>
 
             <button
                 id="raceFinishContinue"
@@ -2389,6 +2534,32 @@ getHoursUntilRace(currentHour) {
             overlay
         );
 
+        this.finishResultsEl =
+            document.getElementById(
+                "raceFinishResults"
+            );
+
+        if (noResults) {
+            this.finishLive = false;
+
+            if (this.finishResultsEl) {
+                this.finishResultsEl.textContent =
+                    "Race ended, no results";
+            }
+        } else {
+            this.finishResultsHtml =
+                this.buildFinishResultsHtml();
+
+            if (this.finishResultsEl) {
+                this.finishResultsEl.innerHTML =
+                    this.finishResultsHtml;
+            }
+
+            // Positions keep updating live only when the player
+            // crossed the line; after a timer end they are final.
+            this.finishLive = !timedOut;
+        }
+
         const continueButton =
             document.getElementById(
                 "raceFinishContinue"
@@ -2399,6 +2570,9 @@ getHoursUntilRace(currentHour) {
                 "pointerdown",
                 e => {
                     e.preventDefault();
+
+                    this.finishLive = false;
+                    this.finishResultsEl = null;
 
                     overlay.remove();
 
@@ -2467,7 +2641,11 @@ getHoursUntilRace(currentHour) {
 
         this.raceStarted = false;
         this.raceClockStarted = false;
+
         this.playerJoined = false;
+
+        this.finishPlaceCounter = 0;
+        this.playerPlace = null;
 
         this.raceStartHour = null;
         this.raceStartMinute = 0;
