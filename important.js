@@ -1,7 +1,7 @@
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-
+console.log("💀");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
@@ -120,7 +120,7 @@ let fullMapAnimationFrom = 0;
 let fullMapAnimationTo = 0;
 let fullMapAnimationStartTime = 0;
 let fullMapAnimationDuration = 350;
-console.log("🏎️o");
+
 // ============================================================
 // FIRST-PLAY OPENING CUTSCENE
 // ============================================================
@@ -945,7 +945,7 @@ function drawClock(){
 
     ctx.save();
     ctx.fillStyle="rgba(0,0,0,.65)";
-    const clockX = canvas.width - 730;
+    const clockX = canvas.width - 625;
     const clockY = 150;
 
     ctx.fillRect(clockX, clockY, 145, 40);

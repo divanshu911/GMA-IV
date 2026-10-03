@@ -207,7 +207,7 @@ class RaceOpponentManager {
             typeof Car !== "function" ||
             typeof cars === "undefined"
         ) {
-            console.warn("[RACE] Cannot spawn opponents: Car/cars missing.");
+            
             return;
         }
 
@@ -1096,20 +1096,7 @@ class RaceEventsManager {
             )}`
         );
 
-        console.log(
-            "[RACE] Start:",
-            this.start
-        );
-
-        console.log(
-            "[RACE] Finish:",
-            this.finish
-        );
-
-        console.log(
-            "[RACE] Checkpoints:",
-            this.checkpoints
-        );
+        
     }
 
     // --------------------------------------------------------
@@ -2011,9 +1998,6 @@ class RaceEventsManager {
             this.getOpponentCarKey()
         );
 
-        console.log(
-            "[RACE] Autonomous race started without the player."
-        );
     }
 
     beginRaceTransition(routeAngle) {
@@ -2299,11 +2283,6 @@ class RaceEventsManager {
             if (previousDone) {
                 this.checkpointsDone[i] = true;
 
-                console.log(
-                    "[RACE] Checkpoint " +
-                    (i + 1) +
-                    " completed."
-                );
             } else if (!this.zonesWarned[key]) {
                 // Warn once per visit to the zone,
                 // not every frame.
