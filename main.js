@@ -1,4 +1,4 @@
-console.log("1p00");
+console.log("1o00");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1544,36 +1544,45 @@ function handlePhysicsAndCollisions(dt) {
             addTyreMarks(c2);
           }
 
-          const isPlayerInvolved =
-            playerCar &&
-            (c1.id === playerCar.id || c2.id === playerCar.id);
+            const isPlayerInvolved =
+              playerCar &&
+              (c1.id === playerCar.id || c2.id === playerCar.id);
 
-          if (isPlayerInvolved) {
-            let dmg1 = relSpeed * 5 * (c2.weightMultiplier || 1.0);
-            let dmg2 = relSpeed * 5 * (c1.weightMultiplier || 1.0);
-            let stolenCarStateChanged = false;
+            const playerRaceCollisionDamageDisabled =
+              isPlayerInvolved &&
+              typeof window.raceEventManager !== "undefined" &&
+              window.raceEventManager &&
+              window.raceEventManager.state === "RACING" &&
+              window.raceEventManager.playerJoined;
 
-            if (c1.health > 0) {
-              const previousHealth = c1.health;
-              c1.health = Math.max(0, c1.health - dmg1);
-              stolenCarStateChanged =
-                stolenCarStateChanged ||
-                (c1.isStolen && c1.health !== previousHealth);
+            if (
+              isPlayerInvolved &&
+              !playerRaceCollisionDamageDisabled
+            ) {
+              let dmg1 = relSpeed * 5 * (c2.weightMultiplier || 1.0);
+              let dmg2 = relSpeed * 5 * (c1.weightMultiplier || 1.0);
+              let stolenCarStateChanged = false;
+
+              if (c1.health > 0) {
+                const previousHealth = c1.health;
+                c1.health = Math.max(0, c1.health - dmg1);
+                stolenCarStateChanged =
+                  stolenCarStateChanged ||
+                  (c1.isStolen && c1.health !== previousHealth);
+              }
+
+              if (c2.health > 0) {
+                const previousHealth = c2.health;
+                c2.health = Math.max(0, c2.health - dmg2);
+                stolenCarStateChanged =
+                  stolenCarStateChanged ||
+                  (c2.isStolen && c2.health !== previousHealth);
+              }
+
+              if (stolenCarStateChanged) {
+                updateStolenCarsStorage(true);
+              }
             }
-
-            if (c2.health > 0) {
-              const previousHealth = c2.health;
-              c2.health = Math.max(0, c2.health - dmg2);
-              stolenCarStateChanged =
-                stolenCarStateChanged ||
-                (c2.isStolen && c2.health !== previousHealth);
-            }
-
-            if (stolenCarStateChanged) {
-              updateStolenCarsStorage(true);
-            }
-          }
-
           let tryExplode = (car, strikingCar, speed) => {
 
     // Remember whether this car had a driver BEFORE

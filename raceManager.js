@@ -1,4 +1,4 @@
-console.log("racee");
+console.log("racer");
 // ============================================================
 // STREETBOUND RACE EVENTS MANAGER
 // ============================================================
@@ -1289,6 +1289,97 @@ class RaceEventsManager {
 
         const checkpoints = [];
 
+        // Find the nearest point that is STRICTLY a road pixel.
+        // We deliberately do not use getRandomRoadPosition() here,
+        // because a random nearby road point can place a checkpoint
+        // away from the actual route.
+        const findStrictRoadPointNear = (routePoint) => {
+            if (
+                !routePoint ||
+                typeof isStrictRoadColor !== "function"
+            ) {
+                return null;
+            }
+
+            const baseX = Math.round(routePoint.x);
+            const baseY = Math.round(routePoint.y);
+
+            // First check the actual A* route point.
+            if (
+                isStrictRoadColor(baseX, baseY)
+            ) {
+                return {
+                    x: baseX,
+                    y: baseY
+                };
+            }
+
+            // Search outward from the route point for the nearest
+            // strictly-road pixel.
+            const maxRadius = 180;
+            const step = 4;
+
+            let best = null;
+            let bestDistance = Infinity;
+
+            for (
+                let radius = step;
+                radius <= maxRadius;
+                radius += step
+            ) {
+                for (
+                    let angle = 0;
+                    angle < Math.PI * 2;
+                    angle += Math.PI / 16
+                ) {
+                    const x = Math.round(
+                        baseX + Math.cos(angle) * radius
+                    );
+
+                    const y = Math.round(
+                        baseY + Math.sin(angle) * radius
+                    );
+
+                    if (
+                        x < 0 ||
+                        y < 0 ||
+                        x >= mapWidth ||
+                        y >= mapHeight
+                    ) {
+                        continue;
+                    }
+
+                    if (
+                        !isStrictRoadColor(x, y)
+                    ) {
+                        continue;
+                    }
+
+                    const distance =
+                        Math.hypot(
+                            x - baseX,
+                            y - baseY
+                        );
+
+                    if (distance < bestDistance) {
+                        bestDistance = distance;
+                        best = {
+                            x,
+                            y
+                        };
+                    }
+                }
+
+                // Once we found a road point in this ring,
+                // it is the closest ring available.
+                if (best) {
+                    break;
+                }
+            }
+
+            return best;
+        };
+
         for (
             let i = 1;
             i <= checkpointCount;
@@ -1319,41 +1410,13 @@ class RaceEventsManager {
                 continue;
             }
 
-            // Find a safe random road position around
-            // this section of the route.
-            let selected = null;
+            const selected =
+                findStrictRoadPointNear(routePoint);
 
-            for (
-                let attempt = 0;
-                attempt < 25;
-                attempt++
-            ) {
-                const candidate =
-                    getRandomStrictRoadPosition();
-
-                if (!candidate) {
-                    continue;
-                }
-
-                const distance =
-                    Math.hypot(
-                        candidate.x - routePoint.x,
-                        candidate.y - routePoint.y
-                    );
-
-                if (distance <= 180) {
-                    selected = candidate;
-                    break;
-                }
-            }
-
-            // If no nearby safe random point was found,
-            // use the route point itself.
+            // NEVER use routePoint as a fallback unless it has
+            // already been confirmed to be strictly road.
             if (!selected) {
-                selected = {
-                    x: routePoint.x,
-                    y: routePoint.y
-                };
+                continue;
             }
 
             // Avoid checkpoints becoming too close together.
@@ -1376,12 +1439,14 @@ class RaceEventsManager {
             checkpoints.push(selected);
         }
 
+        // If we couldn't create any valid road checkpoints,
+        // reject this race route so generateRaceRoute() can
+        // generate another one.
         return checkpoints;
     }
-
-    // --------------------------------------------------------
+    // ------------
     // UPDATE
-    // --------------------------------------------------------
+
 
     update(dt) {
         if (
