@@ -3981,6 +3981,7 @@ if (playerCar.health <= 0) {
 }
 
 function drawGame() {
+  applyViewportTransform();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.imageSmoothingEnabled = true;
 

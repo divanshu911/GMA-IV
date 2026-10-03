@@ -1245,8 +1245,9 @@ window.addEventListener('load', () => {
 function repositionSirenButton() {
     const exitBtn = document.getElementById('exitBtn');
     if (exitBtn) {
-        const exitRect = exitBtn.getBoundingClientRect();
-        sirenBtn.style.right = (window.innerWidth - exitRect.right) + 'px';
-        sirenBtn.style.bottom = (window.innerHeight - exitRect.top + 10) + 'px'; // 10px spacing above exitBtn
+        // Work in logical stage coordinates (the siren button must live in the stage).
+        if (sirenBtn.parentElement !== gameStage) gameStage.appendChild(sirenBtn);
+        sirenBtn.style.right = (GAME_WIDTH - (exitBtn.offsetLeft + exitBtn.offsetWidth)) + 'px';
+        sirenBtn.style.bottom = (GAME_HEIGHT - exitBtn.offsetTop + 10) + 'px'; // 10px spacing above exitBtn
     }
 }

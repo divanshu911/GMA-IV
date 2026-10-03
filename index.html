@@ -12,7 +12,9 @@
    
 <body>
 
-  <div id="gameContainer">
+  <!-- ==========================================================
+       FULL-SCREEN OVERLAYS (outside the scaled stage)
+       ========================================================== -->
     <!-- PLAYER PHONE -->
 <div id="playerPhone" aria-hidden="true">
     <div id="phoneSideButtonTop"></div>
@@ -172,26 +174,34 @@
   </div>
     </div>
 
+  <!-- ==========================================================
+       LOGICAL GAMEPLAY STAGE
+       Always GAME_WIDTH x GAME_HEIGHT CSS px, scaled/centred by
+       updateViewport() (important.js). The canvas and every
+       gameplay control live inside it so they scale together.
+       ========================================================== -->
+  <div id="gameContainer">
     <canvas id="gameCanvas"></canvas>
 
     <div id="joystickZone">
-      <div
-         id="joystickBase">
+      <div id="joystickBase">
         <div id="joystickKnob"></div>
       </div>
-    </div> <button id="jackBtn">🚘</button>
-     <button id="taxiBtn" class="interact-btn">🚕</button>
-    <button id="restaurantBtn" class="interact-btn">🍔</button>    <button id="enterHomeBtn" class="interact-btn">🏠</button>
+    </div>
+
+    <button id="jackBtn">🚘</button>
+    <button id="taxiBtn" class="interact-btn">🚕</button>
+    <button id="restaurantBtn" class="interact-btn">🍔</button>
+    <button id="enterHomeBtn" class="interact-btn">🏠</button>
     <button id="sleepBtn" class="interact-btn">🛌</button>
     <button id="exitHomeBtn" class="interact-btn">🚪</button>
-  </div>
-     <button id="blackMarketBtn" class="interact-btn">💸</button>
-<button id="truckBtn" class="interact-btn">🚚</button>
-<button id="punchBtn" type="button">👊</button> 
-  </div>
+    <button id="blackMarketBtn" class="interact-btn">💸</button>
+    <button id="truckBtn" class="interact-btn">🚚</button>
+    <button id="punchBtn" type="button">👊</button>
 
-  <div id="exitBtn">👟</div>
-  <!-- Dealership Action Buttons -->
+    <div id="exitBtn">👟</div>
+
+<!-- Dealership Action Buttons -->
 <button id="enterDealerBtn" style="display:none; position:absolute; bottom:20%; left:50%; transform:translateX(-50%); z-index:100; padding:10px; font-weight:bold;">ENTER DEALERSHIP</button>
 <button id="exitDealerBtn" style="display:none; position:absolute; bottom:15%; left:50%; transform:translateX(-50%); z-index:100; padding:10px; font-weight:bold;">EXIT DEALERSHIP</button>
 
@@ -207,14 +217,13 @@
     <button id="buyCarBtn" style="padding:10px 20px; background:#2ecc71; color:black; font-weight:bold; cursor:pointer;">BUY</button>
     <button id="closePanelBtn" style="padding:10px 20px; background:#e74c3c; color:white; font-weight:bold; cursor:pointer; margin-left:10px;">CANCEL</button>
 </div>
-  
+  </div>
 
   <script src="important.js"></script>
   <script src="gameplay.js"></script>
   <script src="police.js"></script>
 <script src="main.js"></script>
   <script src="entities.js"></script><script src="raceManager.js"></script>
-  
   
 </body>
 </html>

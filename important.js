@@ -2,6 +2,113 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
+// ============================================================
+// VIEWPORT SYSTEM  (the single authority for game size/scale)
+//
+//   WORLD SPACE (4096 x 2286)
+//        -> camera
+//   LOGICAL VIEWPORT (GAME_WIDTH x GAME_HEIGHT)   <- what the player sees
+//        -> one uniform scale (+ letterbox offset)
+//   PHYSICAL SCREEN
+//
+// - #gameContainer is the logical stage. It is always GAME_WIDTH x
+//   GAME_HEIGHT CSS pixels and is scaled/centred with a CSS transform,
+//   so the canvas AND all gameplay DOM UI scale together.
+// - canvas.width / canvas.height keep reporting the LOGICAL size to all
+//   game code (camera, HUD, minimap, culling...). Only the hidden
+//   backing-store resolution follows the physical size, for sharpness.
+// - World coordinates and gameplay distances are never scaled.
+// ============================================================
+const GAME_WIDTH = 640;
+const GAME_HEIGHT = 360;
+
+// Backing-store sharpness only. Never affects how much world is visible.
+// Touch devices keep 1:1 (same cost as before); desktops may use up to 2x.
+const MAX_RENDER_DPR = 2;
+const MAX_BACKING_WIDTH = 2560; // keeps hi-dpi desktops from allocating a huge canvas
+
+const gameStage = document.getElementById('gameContainer');
+
+const gameViewport = {
+    scale: 1,       // logical px -> CSS px
+    offsetX: 0,     // letterbox offset (CSS px)
+    offsetY: 0,
+    pixelScaleX: 1, // logical px -> canvas backing-store px
+    pixelScaleY: 1
+};
+
+const setCanvasBackingSize = (function () {
+    const nativeWidth = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'width');
+    const nativeHeight = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'height');
+
+    // Game code reads canvas.width/height as "screen size". Keep that
+    // meaning logical, regardless of the real backing-store resolution.
+    Object.defineProperty(canvas, 'width', { get: () => GAME_WIDTH, set() {}, configurable: true });
+    Object.defineProperty(canvas, 'height', { get: () => GAME_HEIGHT, set() {}, configurable: true });
+
+    return (w, h) => {
+        nativeWidth.set.call(canvas, w);
+        nativeHeight.set.call(canvas, h);
+    };
+})();
+
+// Recalculate scale, letterbox offset and backing-store size from scratch.
+function updateViewport() {
+    const hostW = window.innerWidth;
+    const hostH = window.innerHeight;
+    if (!hostW || !hostH) return;
+
+    const scale = Math.min(hostW / GAME_WIDTH, hostH / GAME_HEIGHT);
+    const offsetX = Math.round((hostW - GAME_WIDTH * scale) / 2);
+    const offsetY = Math.round((hostH - GAME_HEIGHT * scale) / 2);
+
+    gameViewport.scale = scale;
+    gameViewport.offsetX = offsetX;
+    gameViewport.offsetY = offsetY;
+
+    gameStage.style.width = GAME_WIDTH + 'px';
+    gameStage.style.height = GAME_HEIGHT + 'px';
+    gameStage.style.transform =
+        'translate(' + offsetX + 'px, ' + offsetY + 'px) scale(' + scale + ')';
+
+    const isTouchDevice = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    const dpr = isTouchDevice ? 1 : Math.max(1, Math.min(
+        window.devicePixelRatio || 1,
+        MAX_RENDER_DPR,
+        MAX_BACKING_WIDTH / (GAME_WIDTH * scale)
+    ));
+    const backingW = Math.max(1, Math.round(GAME_WIDTH * scale * dpr));
+    const backingH = Math.max(1, Math.round(GAME_HEIGHT * scale * dpr));
+
+    if (backingW !== canvas.__backingW || backingH !== canvas.__backingH) {
+        setCanvasBackingSize(backingW, backingH);
+        canvas.__backingW = backingW;
+        canvas.__backingH = backingH;
+    }
+
+    gameViewport.pixelScaleX = backingW / GAME_WIDTH;
+    gameViewport.pixelScaleY = backingH / GAME_HEIGHT;
+}
+
+// Call at the start of every frame: maps logical coordinates onto the
+// backing store. (Resizing the backing store resets the context state.)
+function applyViewportTransform() {
+    ctx.setTransform(gameViewport.pixelScaleX, 0, 0, gameViewport.pixelScaleY, 0, 0);
+}
+
+// Physical (client) coordinates -> logical gameplay coordinates.
+// Uses the stage's live bounding rectangle, so letterbox offsets are exact.
+function clientToLogical(clientX, clientY) {
+    const rect = gameStage.getBoundingClientRect();
+    const scale = rect.width / GAME_WIDTH || 1;
+    return {
+        x: (clientX - rect.left) / scale,
+        y: (clientY - rect.top) / scale
+    };
+}
+
+updateViewport();
+
 let gameActive = false;
 let showFullMap = false;
 let desktopControlsOpen = false;
@@ -984,8 +1091,7 @@ startBtn.addEventListener('click', () => {
 // --- 3. DYNAMIC RESIZE FUNCTION ---
 
 function resizeCanvas() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+  updateViewport();
   if (
     (gameActive || showFullMap || fullMapAnimating) &&
     typeof drawGame !== 'undefined'
@@ -994,6 +1100,7 @@ function resizeCanvas() {
 }
 }
 window.addEventListener('resize', resizeCanvas);
+window.addEventListener('orientationchange', resizeCanvas);
 resizeCanvas(); 
 
 // ===== 4. MAP & COLLISION DETECTORS =====
@@ -1379,9 +1486,7 @@ window.addEventListener('blur', () => {
 });       
 
 canvas.addEventListener('pointerdown', (e) => {
-  const rect = canvas.getBoundingClientRect();
-  const mouseX = e.clientX - rect.left;
-  const mouseY = e.clientY - rect.top;
+  const { x: mouseX, y: mouseY } = clientToLogical(e.clientX, e.clientY);
 
 if (showFullMap || fullMapAnimating) {
     if (
@@ -1428,7 +1533,8 @@ if (joystickZone) {
       e.preventDefault();
       const touch = e.changedTouches[0];
       joystickTouchId = touch.identifier; joystickActive = true;
-      joystickStartX = touch.clientX; joystickStartY = touch.clientY;
+      const startPoint = clientToLogical(touch.clientX, touch.clientY);
+      joystickStartX = startPoint.x; joystickStartY = startPoint.y;
 
       joystickBase.style.left = `${joystickStartX - 50}px`;
       joystickBase.style.top = `${joystickStartY - 50}px`;
@@ -1441,7 +1547,8 @@ if (joystickZone) {
       e.preventDefault();
       for (let touch of e.touches) {
         if (touch.identifier === joystickTouchId) {
-          let deltaX = touch.clientX - joystickStartX, deltaY = touch.clientY - joystickStartY;
+          const movePoint = clientToLogical(touch.clientX, touch.clientY);
+          let deltaX = movePoint.x - joystickStartX, deltaY = movePoint.y - joystickStartY;
           let distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
           const maxRadius = 40; 
           if (distance > maxRadius) { deltaX = (deltaX / distance) * maxRadius; deltaY = (deltaY / distance) * maxRadius; }
@@ -1479,8 +1586,9 @@ canvas.addEventListener("touchstart", (e) => {
 
     const touch = e.touches[0];
 
-    phoneSwipeStartX = touch.clientX;
-    phoneSwipeStartY = touch.clientY;
+    const swipeStart = clientToLogical(touch.clientX, touch.clientY);
+    phoneSwipeStartX = swipeStart.x;
+    phoneSwipeStartY = swipeStart.y;
 
     phoneSwipeTracking = true;
 }, { passive: true });
@@ -1494,8 +1602,9 @@ canvas.addEventListener("touchend", (e) => {
 
     const touch = e.changedTouches[0];
 
-    const deltaX = touch.clientX - phoneSwipeStartX;
-    const deltaY = touch.clientY - phoneSwipeStartY;
+    const swipeEnd = clientToLogical(touch.clientX, touch.clientY);
+    const deltaX = swipeEnd.x - phoneSwipeStartX;
+    const deltaY = swipeEnd.y - phoneSwipeStartY;
 
     phoneSwipeTracking = false;
 
@@ -1527,7 +1636,7 @@ canvas.addEventListener("touchend", (e) => {
     if (
         playerPhoneOpen &&
         deltaY < 0 &&
-        touch.clientY < 150
+        swipeEnd.y < 150
     ) {
         closePlayerPhone();
     }
