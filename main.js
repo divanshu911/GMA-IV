@@ -1,4 +1,4 @@
-console.log("1m00");
+console.log("1c00");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -3886,8 +3886,23 @@ if (playerCar.health <= 0) {
     let nextY = playerCar.y + Math.sin(playerCar.angle - Math.PI / 2) * (playerCar.speed * dt);
     if (typeof isPlayerCarWalkable === 'function') {
         let hitWall = false;
-        if (isPlayerCarWalkable(nextX, playerCar.y)) playerCar.x = nextX; else hitWall = true;
-        if (isPlayerCarWalkable(playerCar.x, nextY)) playerCar.y = nextY; else hitWall = true;
+
+        const oldX = playerCar.x;
+        const oldY = playerCar.y;
+
+        if (isPlayerCarWalkable(nextX, playerCar.y)) {
+            playerCar.x = nextX;
+        } else {
+            hitWall = true;
+            playerCar.x = oldX;
+        }
+
+        if (isPlayerCarWalkable(playerCar.x, nextY)) {
+            playerCar.y = nextY;
+        } else {
+            hitWall = true;
+            playerCar.y = oldY;
+        }
 
         if (hitWall && playerCar.speed > 0.7) {
             if (!playerCar.crashCooldown || playerCar.crashCooldown <= 0) {

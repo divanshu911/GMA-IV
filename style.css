@@ -513,7 +513,8 @@ canvas {
 }
 
 #phoneHomeScreen,
-#phoneCallScreen {
+#phoneCallScreen,
+#phoneRaceInfoScreen {
     position: absolute;
     inset: 0;
     width: 100%;
@@ -591,6 +592,52 @@ canvas {
 #phoneCallScreen {
     flex-direction: column;
     background: #080808;
+}
+
+#phoneRaceInfoScreen {
+    flex-direction: column;
+    z-index: 2;
+    background: #080808;
+}
+
+.phone-race-info-title {
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    color: #f1c40f;
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+}
+
+.phone-race-info-content {
+    flex: 1;
+    padding: 12px;
+    box-sizing: border-box;
+}
+
+#phoneRaceInfoAccept {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    border: 0;
+    border-radius: 8px;
+    background: #2ecc71;
+    color: #000000;
+    padding: 10px 0;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+#phoneRaceInfoAccept:active {
+    transform: scale(0.96);
 }
 
 #phoneBackButton {
