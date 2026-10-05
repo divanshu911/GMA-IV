@@ -1,4 +1,4 @@
-
+console.log("run");
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -643,10 +643,30 @@ window.addEventListener('load', () => {
 
     if (towTruckBtn) {
         towTruckBtn.addEventListener('click', () => {
-            if (typeof playerCar !== 'undefined' && playerCar) {
+
+            // During a race, this button becomes LEAVE RACE.
+            if (
+                typeof raceEventManager !== "undefined" &&
+                raceEventManager &&
+                raceEventManager.state === "RACING" &&
+                raceEventManager.playerJoined &&
+                !raceEventManager.playerLeftRace
+            ) {
+                raceEventManager.leavePlayerRace();
+                return;
+            }
+
+            // Normal Tow Truck behavior.
+            if (
+                typeof playerCar !== 'undefined' &&
+                playerCar
+            ) {
                 towModal.style.display = 'block';
             } else {
-                taxiManager.setMessage("You must be inside a vehicle to use the Tow service!", 180);
+                taxiManager.setMessage(
+                    "You must be inside a vehicle to use the Tow service!",
+                    180
+                );
             }
         });
     }
