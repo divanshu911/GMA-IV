@@ -1,4 +1,4 @@
-console.log("racer");
+console.log("parrot");
 // ============================================================
 // STREETBOUND RACE EVENTS MANAGER
 // ============================================================
@@ -874,21 +874,22 @@ class RaceOpponentManager {
         const newHeading = car.angle - Math.PI / 2;
         const nextX = car.x + Math.cos(newHeading) * (car.speed * dt);
         const nextY = car.y + Math.sin(newHeading) * (car.speed * dt);
-
         if (typeof isPlayerCarWalkable === "function") {
-            let hitWall = false;
+                let hitWall = false;
 
-            if (isPlayerCarWalkable(nextX, car.y)) car.x = nextX; else hitWall = true;
-            if (isPlayerCarWalkable(car.x, nextY)) car.y = nextY; else hitWall = true;
+                if (isPlayerCarWalkable(nextX, car.y)) car.x = nextX; else hitWall = true;
+                if (isPlayerCarWalkable(car.x, nextY)) car.y = nextY; else hitWall = true;
 
-            if (hitWall) {
-                car.speed *= 0.4;
+                if (hitWall) {
+                    car.speed *= 0.4;
+                }
+            } else {
+                car.x = nextX;
+                car.y = nextY;
             }
-        } else {
-            car.x = nextX;
-            car.y = nextY;
         }
-    }
+
+        
 
     // Other racers to keep away from: the other opponents
     // (including finished ones) and the player. Normal NPC cars
@@ -913,6 +914,7 @@ class RaceOpponentManager {
 }
 
 
+
 class RaceEventsManager {
     constructor() {
         this.state = "WAITING";
@@ -935,8 +937,10 @@ class RaceEventsManager {
 
         this.phoneMessageActive = false;
         this.phoneMessageDismissed = false;
+        this.phoneMessageSoundPlayed = false;
 
         this.startMarkerVisible = false;
+        this.startMarkerEnabled = false;
         this.raceMarkersVisible = false;
 
         this.raceStarted = false;
@@ -944,6 +948,7 @@ class RaceEventsManager {
         this.raceEndHour = null;
         this.raceStartedAtHour = null;
         this.playerJoined = false;
+        this.playerLeftRace = false;
 
         // Finish order / results
         this.finishPlaceCounter = 0;
@@ -954,8 +959,16 @@ class RaceEventsManager {
 
         this.joinButton = null;
 
-        this.midnightWaitActive = false;
         this.lastObservedHour = -1;
+
+        // Persistent source of truth for today's race time.
+        this.raceTimeStorageKey = "streetbound_race_time";
+
+        // True when a scheduling check is due for a NEW in-game day.
+        // (The first check at load is made by waitForWorldAndGenerate.)
+        // The check itself only generates a time when the
+        // LocalStorage key does not exist.
+        this.scheduleCheckPending = false;
 
         this.generateAttempts = 0;
 
@@ -979,6 +992,27 @@ class RaceEventsManager {
                         this.state === "SCHEDULED"
                     ) {
                         this.dismissPhoneRaceMessage();
+                    }
+                }
+            );
+        }
+
+        const raceInfoAccept =
+            document.getElementById(
+                "phoneRaceInfoAccept"
+            );
+
+        if (raceInfoAccept) {
+            raceInfoAccept.addEventListener(
+                "pointerdown",
+                e => {
+                    e.preventDefault();
+
+                    if (
+                        this.state === "SCHEDULED" &&
+                        this.phoneMessageDismissed
+                    ) {
+                        this.acceptRaceInfo();
                     }
                 }
             );
@@ -1015,61 +1049,133 @@ class RaceEventsManager {
     // RANDOM RACE TIME
     // --------------------------------------------------------
 
+    // --------------------------------------------------------
+    // PERSISTED RACE TIME (LocalStorage)
+    // --------------------------------------------------------
+
+    loadSavedRaceTime() {
+        try {
+            const raw =
+                localStorage.getItem(
+                    this.raceTimeStorageKey
+                );
+
+            if (raw === null) {
+                return null;
+            }
+
+            const data = JSON.parse(raw);
+
+            if (
+                data &&
+                Number.isInteger(data.hour) &&
+                Number.isInteger(data.minute) &&
+                data.hour >= 0 && data.hour <= 23 &&
+                data.minute >= 0 && data.minute <= 59
+            ) {
+                return data;
+            }
+        } catch (e) {
+            // Unreadable value: treated like a missing key.
+        }
+
+        return null;
+    }
+
+    saveRaceTime(hour, minute) {
+        try {
+            localStorage.setItem(
+                this.raceTimeStorageKey,
+                JSON.stringify({
+                    hour: hour,
+                    minute: minute
+                })
+            );
+        } catch (e) {}
+    }
+
+    clearSavedRaceTime() {
+        try {
+            localStorage.removeItem(
+                this.raceTimeStorageKey
+            );
+        } catch (e) {}
+    }
+
+    // --------------------------------------------------------
+    // RANDOM RACE TIME
+    // --------------------------------------------------------
+
+    // Rule:
+    //   key missing            -> generate a new time and save it
+    //   key present, upcoming  -> reuse the saved time
+    //   key present, passed    -> today's race already happened,
+    //                             do nothing
+    // The key is only removed at in-game midnight (see update()).
     scheduleNextRace() {
         this.clearRaceState();
+        this.phoneMessageSoundPlayed = false;
+        this.scheduleCheckPending = false;
+        this.state = "WAITING";
 
         const currentHour =
             (gameSeconds / DAY_LENGTH) * 24;
 
-        // If it is already 6 PM or later,
-        // DO NOT generate today's race.
-        //
-        // Wait until the in-game clock crosses midnight.
-        if (currentHour >= 18) {
-            this.state = "WAITING_FOR_MIDNIGHT";
-            this.midnightWaitActive = true;
+        const currentMinutes =
+            Math.floor(currentHour * 60);
 
-            console.log(
-                "[RACE] Current time is " +
-                this.formatTime(currentHour) +
-                ". Next race will be calculated after midnight."
+        const saved = this.loadSavedRaceTime();
+
+        if (saved) {
+            const scheduledMinutes =
+                saved.hour * 60 + saved.minute;
+
+            if (scheduledMinutes <= currentMinutes) {
+                // Today's race time has already passed.
+                // Do NOT schedule another race today.
+                console.log(
+                    "[RACE] Saved race time " +
+                    this.formatHourMinute(
+                        saved.hour,
+                        saved.minute
+                    ) +
+                    " has already passed. No race until tomorrow."
+                );
+
+                return;
+            }
+
+            // Reuse the saved time, never re-roll it.
+            this.raceStartHour = saved.hour;
+            this.raceStartMinute = saved.minute;
+        } else {
+            // No key: generate a new future time (existing
+            // whole-hour random logic) and persist it.
+            const firstFutureHour =
+                Math.max(
+                    1,
+                    Math.floor(currentHour) + 1
+                );
+
+            if (firstFutureHour > 23) {
+                // No whole hour left today. Nothing to save.
+                return;
+            }
+
+            this.raceStartHour =
+                firstFutureHour +
+                Math.floor(
+                    Math.random() *
+                    (23 - firstFutureHour + 1)
+                );
+
+            this.raceStartMinute = 0;
+
+            this.saveRaceTime(
+                this.raceStartHour,
+                this.raceStartMinute
             );
-
-            return;
         }
-
-        this.midnightWaitActive = false;
-
-        // Whole-hour race time for now.
-        //
-        // Example:
-        // current = 15:xx
-        // possible = 16:00 ... 23:00
-        //
-        // We will later decide whether races should use
-        // random minutes too.
-        const currentWholeHour =
-            Math.floor(currentHour);
-
-        const minimumHour =
-            Math.max(1, currentWholeHour + 1);
-
-        const maximumHour = 23;
-
-        if (minimumHour > maximumHour) {
-            this.state = "WAITING_FOR_MIDNIGHT";
-            this.midnightWaitActive = true;
-            return;
-        }
-
-        this.raceStartHour =
-            minimumHour +
-            Math.floor(
-                Math.random() *
-                (maximumHour - minimumHour + 1)
-            );
-
-        this.raceStartMinute = 0;
 
         // Generate the actual race immediately.
         const generated =
@@ -1446,19 +1552,31 @@ class RaceEventsManager {
         const currentHour =
             (gameSeconds / DAY_LENGTH) * 24;
 
-        // Midnight detection.
+        // Midnight detection: the in-game clock wrapped back to 0.
+        // Fires once per day (lastObservedHour is updated below).
         if (
-            this.lastObservedHour >= 23 &&
-            currentHour < 1
+            this.lastObservedHour >= 0 &&
+            currentHour < this.lastObservedHour
         ) {
-            if (
-                this.state === "WAITING_FOR_MIDNIGHT" ||
-                this.state === "FINISHED" ||
-                this.state === "MISSED"
-            ) {
-                this.midnightWaitActive = false;
-                this.scheduleNextRace();
+            this.clearSavedRaceTime();
+
+            // A race still SCHEDULED from yesterday is stale.
+            if (this.state === "SCHEDULED") {
+                this.clearRaceState();
+                this.state = "WAITING";
             }
+
+            this.scheduleCheckPending = true;
+        }
+
+        // Scheduling check for a new day. Never interrupts a
+        // race in progress or the results screen; it runs once
+        // the manager is idle again.
+        if (
+            this.scheduleCheckPending &&
+            this.state === "WAITING"
+        ) {
+            this.scheduleNextRace();
         }
 
         this.lastObservedHour =
@@ -1485,6 +1603,18 @@ class RaceEventsManager {
                     !this.startMarkerVisible
                 ) {
                     this.startMarkerVisible = true;
+
+                    // Play the phone message sound once when the race invitation arrives.
+                    if (!this.phoneMessageSoundPlayed) {
+                        const messageSound = new Audio(
+                            "https://raw.githubusercontent.com/divanshu911/My-game-assets/e8ed68b9d44fbea3886c7a39773340219bac8517/message.mp3"
+                        );
+
+                        messageSound.volume = 1.0;
+                        messageSound.play().catch(() => {});
+
+                        this.phoneMessageSoundPlayed = true;
+                    }
 
                     // Opponents appear on roads now and drive to the start.
                     this.opponentManager.spawnRoadOpponents(
@@ -1527,8 +1657,11 @@ class RaceEventsManager {
                 this.getRaceElapsedHours(currentHour) >= maxDurationHours
             ) {
                 if (this.playerJoined) {
+                    // Player is still participating, so their 3-hour race ends normally.
                     this.finishRace(true);
                 } else {
+                    // Player left OR never joined.
+                    // NPC race continues/ends independently.
                     this.finishNpcRace();
                 }
             } else {
@@ -1650,7 +1783,7 @@ class RaceEventsManager {
             `Race at ${this.formatHourMinute(
                 this.raceStartHour,
                 this.raceStartMinute
-            )}, tap cross to get location`;
+            )}, tap cross to view information`;
 
         layer.style.display = "flex";
 
@@ -1673,6 +1806,38 @@ class RaceEventsManager {
     dismissPhoneRaceMessage() {
         this.phoneMessageDismissed = true;
         this.hidePhoneRaceMessage();
+
+        // Show the Race Info screen. The start marker stays
+        // hidden until ACCEPT is pressed.
+        const home =
+            document.getElementById("phoneHomeScreen");
+        const info =
+            document.getElementById("phoneRaceInfoScreen");
+
+        if (home) {
+            home.style.display = "none";
+        }
+
+        if (info) {
+            info.style.display = "flex";
+        }
+    }
+
+    acceptRaceInfo() {
+        this.startMarkerEnabled = true;
+
+        const home =
+            document.getElementById("phoneHomeScreen");
+        const info =
+            document.getElementById("phoneRaceInfoScreen");
+
+        if (info) {
+            info.style.display = "none";
+        }
+
+        if (home) {
+            home.style.display = "flex";
+        }
     }
 
     shouldShowPhoneMessage() {
@@ -1904,6 +2069,7 @@ class RaceEventsManager {
         this.raceStarted = true;
         this.state = "RACING";
         this.playerJoined = true;
+        this.playerLeftRace = false;
         this.raceClockStarted = false;
         this.raceStartedAtHour = null;
 
@@ -1916,6 +2082,7 @@ class RaceEventsManager {
 
         this.startMarkerVisible = false;
         this.raceMarkersVisible = true;
+        this.updateRaceButton();
 
         // The race timer starts after the transition advances the
         // in-game clock to the scheduled event time.
@@ -1934,6 +2101,70 @@ class RaceEventsManager {
         this.beginRaceTransition(
             routeAngle
         );
+    }
+    leavePlayerRace() {
+        if (
+            this.state !== "RACING" ||
+            !this.playerJoined ||
+            this.playerLeftRace
+        ) {
+            return;
+        }
+
+        // Player leaves only. The NPC race continues normally.
+        this.playerLeftRace = true;
+        this.playerJoined = false;
+
+        // Stop tracking the player's race progress.
+        this.checkpointsDone = [];
+        this.zonesWarned = {};
+
+        // Remove all race markers from the player's view.
+        this.startMarkerVisible = false;
+        this.raceMarkersVisible = false;
+
+        // Remove the Leave Race button and restore Tow.
+        this.updateRaceButton();
+
+        if (
+            typeof taxiManager !== "undefined" &&
+            taxiManager.setMessage
+        ) {
+            taxiManager.setMessage(
+                "You left the race.",
+                180
+            );
+        }
+
+        console.log("[RACE] Player left the race. NPC race continues.");
+    }
+    updateRaceButton() {
+    if (
+        typeof towTruckBtn === "undefined" ||
+        !towTruckBtn
+    ) {
+        return;
+    }
+
+    if (
+        this.state === "RACING" &&
+        this.playerJoined &&
+        !this.playerLeftRace
+    ) {
+        towTruckBtn.innerText = "LEAVE RACE";
+        towTruckBtn.style.display = "flex";
+    } else {
+        towTruckBtn.innerText = "TOW ($250)";
+
+        if (
+            typeof playerCar !== "undefined" &&
+            playerCar
+        ) {
+            towTruckBtn.style.display = "flex";
+        } else {
+            towTruckBtn.style.display = "none";
+        }
+    }
     }
 
     // --------------------------------------------------------
@@ -2354,10 +2585,10 @@ class RaceEventsManager {
 
         // Despawn NPC cars and clear markers/route
         this.clearRaceState();
+        this.updateRaceButton();
 
-        // Put the manager into waiting state until midnight
-        this.state = "WAITING_FOR_MIDNIGHT";
-        this.midnightWaitActive = true;
+        // Idle until the next in-game day's scheduling check
+        this.state = "WAITING";
     }
 
     // Next finishing position (1 = first across the line).
@@ -2385,6 +2616,7 @@ class RaceEventsManager {
         this.raceClockStarted = false;
 
         this.hideJoinButton();
+        this.updateRaceButton();
         this.hidePhoneRaceMessage();
 
         this.startMarkerVisible = false;
@@ -2622,13 +2854,9 @@ class RaceEventsManager {
 
                     this.clearRaceState();
 
-                    // New race is deliberately NOT generated
-                    // until midnight.
-                    this.state =
-                        "WAITING_FOR_MIDNIGHT";
-
-                    this.midnightWaitActive =
-                        true;
+                    // No new race today: the saved race time
+                    // key stays until midnight.
+                    this.state = "WAITING";
                 }
             );
         }
@@ -2641,7 +2869,7 @@ class RaceEventsManager {
     getStartMarker() {
         if (
             !this.startMarkerVisible ||
-            !this.phoneMessageDismissed ||
+            !this.startMarkerEnabled ||
             !this.start
         ) {
             return null;
@@ -2681,12 +2909,14 @@ class RaceEventsManager {
         this.route = [];
 
         this.startMarkerVisible = false;
+        this.startMarkerEnabled = false;
         this.raceMarkersVisible = false;
 
         this.raceStarted = false;
         this.raceClockStarted = false;
 
         this.playerJoined = false;
+        this.playerLeftRace = false;
 
         this.finishPlaceCounter = 0;
         this.playerPlace = null;

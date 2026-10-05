@@ -1,7 +1,7 @@
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-console.log("💀");
+console.log("ci");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
@@ -636,14 +636,34 @@ if (hour >= 20 || hour < 5) {
     updateBuildingLightSequence();
 }
 
-   // --- DYNAMIC TOW BUTTON VISIBILITY ---
-   if (typeof towTruckBtn !== 'undefined' && towTruckBtn) {
-       if (typeof playerCar !== 'undefined' && playerCar) {
-           towTruckBtn.style.display = 'flex';
-       } else {
-           towTruckBtn.style.display = 'none';
-       }
-   }
+  
+    // --- DYNAMIC TOW / RACE BUTTON VISIBILITY ---
+    if (
+        typeof towTruckBtn !== 'undefined' &&
+        towTruckBtn
+    ) {
+        if (
+            typeof raceEventManager !== "undefined" &&
+            raceEventManager &&
+            raceEventManager.state === "RACING" &&
+            raceEventManager.playerJoined &&
+            !raceEventManager.playerLeftRace
+        ) {
+            towTruckBtn.innerText = "LEAVE RACE";
+            towTruckBtn.style.display = "flex";
+        } else {
+            towTruckBtn.innerText = "TOW ($250)";
+
+            if (
+                typeof playerCar !== "undefined" &&
+                playerCar
+            ) {
+                towTruckBtn.style.display = "flex";
+            } else {
+                towTruckBtn.style.display = "none";
+            }
+        }
+    }
 
    // --- ADJUSTED FOR DARKER, DEEPER NIGHTS ---
    if(hour < 5){
