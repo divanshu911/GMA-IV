@@ -1,4 +1,4 @@
-console.log("parrot");
+console.log("55");
 // ============================================================
 // STREETBOUND RACE EVENTS MANAGER
 // ============================================================
@@ -915,6 +915,15 @@ class RaceOpponentManager {
 
 
 
+// On-screen navigation arrow (drawn in screen space, below the
+// taxiManager HUD message). Change `y` to move it up / down.
+const RACE_ARROW = {
+    y: 130,                  // centre Y, in logical canvas pixels
+    size: 20,                // arrow half-length
+    startColor: "#e74c3c",   // start / finish (matches map markers)
+    checkpointColor: "#9b59b6"
+};
+
 class RaceEventsManager {
     constructor() {
         this.state = "WAITING";
@@ -942,6 +951,10 @@ class RaceEventsManager {
         this.startMarkerVisible = false;
         this.startMarkerEnabled = false;
         this.raceMarkersVisible = false;
+
+        // On-screen navigation arrow (shown after ACCEPT is tapped).
+        this.raceArrowActive = false;
+        this.raceArrowAngle = -Math.PI / 2;
 
         this.raceStarted = false;
         this.raceClockStarted = false;
@@ -977,25 +990,9 @@ class RaceEventsManager {
         this.opponentManager = new RaceOpponentManager(this);
 
         this.createJoinButton();
-        const messageClose =
-            document.getElementById(
-                "phoneCutsceneMessageClose"
-            );
-
-        if (messageClose) {
-            messageClose.addEventListener(
-                "pointerdown",
-                e => {
-                    e.preventDefault();
-
-                    if (
-                        this.state === "SCHEDULED"
-                    ) {
-                        this.dismissPhoneRaceMessage();
-                    }
-                }
-            );
-        }
+        // The message x button is handled by the phone message system
+        // (important.js). For a race invitation it calls
+        // dismissPhoneRaceMessage() below.
 
         const raceInfoAccept =
             document.getElementById(
@@ -1604,14 +1601,19 @@ class RaceEventsManager {
                 ) {
                     this.startMarkerVisible = true;
 
-                    // Play the phone message sound once when the race invitation arrives.
+                    // Deliver the invitation through the phone message system
+                    // (plays the message sound once; does NOT open the phone).
                     if (!this.phoneMessageSoundPlayed) {
-                        const messageSound = new Audio(
-                            "https://raw.githubusercontent.com/divanshu911/My-game-assets/e8ed68b9d44fbea3886c7a39773340219bac8517/message.mp3"
-                        );
-
-                        messageSound.volume = 1.0;
-                        messageSound.play().catch(() => {});
+                        if (typeof sendPhoneMessage === "function") {
+                            sendPhoneMessage(
+                                "RACE INVITATION",
+                                `Race at ${this.formatHourMinute(
+                                    this.raceStartHour,
+                                    this.raceStartMinute
+                                )}, tap x to view information`,
+                                { type: "race", notify: false }
+                            );
+                        }
 
                         this.phoneMessageSoundPlayed = true;
                     }
@@ -1742,80 +1744,32 @@ class RaceEventsManager {
     // PHONE MESSAGE
     // --------------------------------------------------------
 
-    showPhoneRaceMessage() {
-        if (
-            this.phoneMessageDismissed ||
-            this.state !== "SCHEDULED"
-        ) {
-            return;
-        }
+    // The invitation itself is a "race" phone message (see
+    // sendPhoneMessage in important.js). These helpers only drive the
+    // existing Race Info screen / invitation lifecycle.
 
-        const currentHour =
-            (gameSeconds / DAY_LENGTH) * 24;
-
-        const hoursUntilRace =
-            this.getHoursUntilRace(
-                currentHour
-            );
-
-        if (
-            hoursUntilRace <= 0 ||
-            hoursUntilRace > 2
-        ) {
-            return;
-        }
-
-        const layer =
-            document.getElementById(
-                "phoneCutsceneMessage"
-            );
-
-        const text =
-            document.getElementById(
-                "phoneCutsceneMessageText"
-            );
-
-        if (!layer || !text) {
-            return;
-        }
-
-        text.textContent =
-            `Race at ${this.formatHourMinute(
-                this.raceStartHour,
-                this.raceStartMinute
-            )}, tap cross to view information`;
-
-        layer.style.display = "flex";
-
-        this.phoneMessageActive = true;
-    }
-
+    // Invitation no longer actionable (race started / finished / reset).
+    // The message stays in history but its x becomes a normal x.
     hidePhoneRaceMessage() {
-        const layer =
-            document.getElementById(
-                "phoneCutsceneMessage"
-            );
-
-        if (layer) {
-            layer.style.display = "none";
+        if (typeof retireRaceMessages === "function") {
+            retireRaceMessages();
         }
 
         this.phoneMessageActive = false;
     }
 
+    // x on the race invitation: open the EXISTING Race Info screen.
+    // The start marker stays hidden until ACCEPT is pressed.
     dismissPhoneRaceMessage() {
         this.phoneMessageDismissed = true;
-        this.hidePhoneRaceMessage();
 
-        // Show the Race Info screen. The start marker stays
-        // hidden until ACCEPT is pressed.
-        const home =
-            document.getElementById("phoneHomeScreen");
+        const layer =
+            document.getElementById("phoneCutsceneMessage");
         const info =
             document.getElementById("phoneRaceInfoScreen");
 
-        if (home) {
-            home.style.display = "none";
+        if (layer) {
+            layer.style.display = "none";
         }
 
         if (info) {
@@ -1825,7 +1779,17 @@ class RaceEventsManager {
 
     acceptRaceInfo() {
         this.startMarkerEnabled = true;
+        this.raceArrowActive = true;
 
+        // Back to the previous message, or CAUGHT UP.
+        if (
+            typeof returnFromRaceInfo === "function" &&
+            returnFromRaceInfo()
+        ) {
+            return;
+        }
+
+        // Fallback (message system unavailable): original behaviour.
         const home =
             document.getElementById("phoneHomeScreen");
         const info =
@@ -1838,28 +1802,6 @@ class RaceEventsManager {
         if (home) {
             home.style.display = "flex";
         }
-    }
-
-    shouldShowPhoneMessage() {
-        if (
-            this.phoneMessageDismissed ||
-            this.state !== "SCHEDULED"
-        ) {
-            return false;
-        }
-
-        const currentHour =
-            (gameSeconds / DAY_LENGTH) * 24;
-
-        const hoursUntilRace =
-            this.getHoursUntilRace(
-                currentHour
-            );
-
-        return (
-            hoursUntilRace > 0 &&
-            hoursUntilRace <= 2
-        );
     }
 
     // --------------------------------------------------------
@@ -1989,7 +1931,7 @@ class RaceEventsManager {
     // JOIN VALIDATION
     // --------------------------------------------------------
 
-    tryJoinRace() {
+        tryJoinRace() {
         if (
             this.state !== "SCHEDULED"
         ) {
@@ -2001,42 +1943,13 @@ class RaceEventsManager {
             !playerCar
         ) {
             this.showJoinDenied(
-                "You must be in your own car to join the race"
-            );
-            return;
-        }
-
-        // Owned cars created by gameplay.js use this flag.
-        const isOwned =
-            playerCar.ownerType ===
-                "playerOwned";
-
-        // Taxi / truck-job cars are explicitly rejected.
-        const isJobVehicle =
-            Boolean(
-                playerCar.isTaxi ||
-                playerCar ===
-                    (typeof truckManager !== "undefined"
-                        ? truckManager.truck
-                        : null)
-            );
-
-        const isStolen =
-            Boolean(playerCar.isStolen);
-
-        if (
-            !isOwned ||
-            isStolen ||
-            isJobVehicle
-        ) {
-            this.showJoinDenied(
-                "You can only join in your own car"
+                "You must be in a car to join the race"
             );
             return;
         }
 
         this.startPlayerRace();
-    }
+        }
 
     showJoinDenied(message) {
         if (
@@ -2122,6 +2035,7 @@ class RaceEventsManager {
         // Remove all race markers from the player's view.
         this.startMarkerVisible = false;
         this.raceMarkersVisible = false;
+        this.raceArrowActive = false;
 
         // Remove the Leave Race button and restore Tow.
         this.updateRaceButton();
@@ -2139,34 +2053,35 @@ class RaceEventsManager {
         console.log("[RACE] Player left the race. NPC race continues.");
     }
     updateRaceButton() {
-    if (
-        typeof towTruckBtn === "undefined" ||
-        !towTruckBtn
-    ) {
-        return;
-    }
-
-    if (
-        this.state === "RACING" &&
-        this.playerJoined &&
-        !this.playerLeftRace
-    ) {
-        towTruckBtn.innerText = "LEAVE RACE";
-        towTruckBtn.style.display = "flex";
-    } else {
-        towTruckBtn.innerText = "TOW ($250)";
+        if (
+            typeof towTruckBtn === "undefined" ||
+            !towTruckBtn
+        ) {
+            return;
+        }
 
         if (
-            typeof playerCar !== "undefined" &&
-            playerCar
+            this.state === "RACING" &&
+            this.playerJoined &&
+            !this.playerLeftRace
         ) {
+            towTruckBtn.innerText = "LEAVE RACE";
+            towTruckBtn.style.background = "#e74c3c";
             towTruckBtn.style.display = "flex";
         } else {
-            towTruckBtn.style.display = "none";
+            towTruckBtn.innerText = "TOW ($250)";
+            towTruckBtn.style.background = "#e67e22";
+
+            if (
+                typeof playerCar !== "undefined" &&
+                playerCar
+            ) {
+                towTruckBtn.style.display = "flex";
+            } else {
+                towTruckBtn.style.display = "none";
+            }
         }
     }
-    }
-
     // --------------------------------------------------------
     // START NPC RACE (player did not join)
     // --------------------------------------------------------
@@ -2197,6 +2112,7 @@ class RaceEventsManager {
 
         this.startMarkerVisible = false;
         this.raceMarkersVisible = false;
+        this.raceArrowActive = false;
 
         // NPC race starts at the scheduled event time (lasts 1 hour).
         this.raceEndHour =
@@ -2621,6 +2537,7 @@ class RaceEventsManager {
 
         this.startMarkerVisible = false;
         this.raceMarkersVisible = false;
+        this.raceArrowActive = false;
 
         this.showFinishMessage(timedOut);
 
@@ -2897,6 +2814,133 @@ class RaceEventsManager {
     }
 
     // --------------------------------------------------------
+    // ON-SCREEN NAVIGATION ARROW
+    // --------------------------------------------------------
+
+    // Next objective for the arrow, or null when it should be hidden.
+    //   before joining      -> start location
+    //   racing              -> first unfinished checkpoint, then finish
+    // Hidden once the NPC race starts, the player leaves, or the
+    // race ends (finish / 3 hour timer).
+    getRaceArrowTarget() {
+        if (!this.raceArrowActive) {
+            return null;
+        }
+
+        // Accepted, not joined yet: point at the start.
+        if (
+            this.state === "SCHEDULED" &&
+            !this.raceStarted
+        ) {
+            const start = this.getStartMarker();
+
+            return start
+                ? { x: start.x, y: start.y, color: RACE_ARROW.startColor }
+                : null;
+        }
+
+        // Player is racing: checkpoints in order, then the finish.
+        if (
+            this.state === "RACING" &&
+            this.playerJoined &&
+            !this.playerLeftRace
+        ) {
+            for (let i = 0; i < this.checkpoints.length; i++) {
+                if (!this.checkpointsDone[i]) {
+                    const cp = this.checkpoints[i];
+
+                    return {
+                        x: cp.x,
+                        y: cp.y,
+                        color: RACE_ARROW.checkpointColor
+                    };
+                }
+            }
+
+            return this.finish
+                ? {
+                    x: this.finish.x,
+                    y: this.finish.y,
+                    color: RACE_ARROW.startColor
+                }
+                : null;
+        }
+
+        return null;
+    }
+
+    // Draws the arrow in screen space (call with the HUD transform
+    // active). The world is drawn rotated by -camera.angle, so the
+    // arrow uses (world bearing - camera.angle): it is relative to
+    // the viewport, not to the player's heading, and follows the
+    // camera's delayed rotation exactly.
+    drawRaceArrow(ctx) {
+        const target = this.getRaceArrowTarget();
+
+        if (
+            !target ||
+            typeof player === "undefined" ||
+            !player ||
+            typeof camera === "undefined" ||
+            !camera ||
+            (typeof isInsideHouse !== "undefined" && isInsideHouse) ||
+            (typeof isInsideDealership !== "undefined" && isInsideDealership)
+        ) {
+            return;
+        }
+
+        // Same point the camera is centred on.
+        const camTarget =
+            player.isArrestPassenger &&
+            typeof arrestTransportCar !== "undefined" &&
+            arrestTransportCar
+                ? arrestTransportCar
+                : player;
+
+        const half = (camTarget.size || player.size || 0) / 2;
+
+        const dx = target.x - (camTarget.x + half);
+        const dy = target.y - (camTarget.y + half);
+
+        if (Math.hypot(dx, dy) > 0.5) {
+            this.raceArrowAngle =
+                Math.atan2(dy, dx) - camera.angle;
+        }
+
+        const cx = ctx.canvas.width / 2;
+        const cy = RACE_ARROW.y;
+        const s = RACE_ARROW.size;
+
+        ctx.save();
+        ctx.translate(cx, cy);
+
+        // Backing disc so the arrow reads on any terrain.
+        ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+        ctx.beginPath();
+        ctx.arc(0, 0, s + 8, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Arrow drawn pointing up, then rotated.
+        ctx.rotate(this.raceArrowAngle + Math.PI / 2);
+
+        ctx.fillStyle = target.color;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2.5;
+        ctx.lineJoin = "round";
+
+        ctx.beginPath();
+        ctx.moveTo(0, -s);
+        ctx.lineTo(s * 0.8, s * 0.7);
+        ctx.lineTo(0, s * 0.3);
+        ctx.lineTo(-s * 0.8, s * 0.7);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.restore();
+    }
+
+    // --------------------------------------------------------
     // CLEANUP
     // --------------------------------------------------------
 
@@ -2911,6 +2955,7 @@ class RaceEventsManager {
         this.startMarkerVisible = false;
         this.startMarkerEnabled = false;
         this.raceMarkersVisible = false;
+        this.raceArrowActive = false;
 
         this.raceStarted = false;
         this.raceClockStarted = false;

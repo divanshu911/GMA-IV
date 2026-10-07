@@ -42,6 +42,17 @@
                     <span class="phone-app-name">Call</span>
                 </button>
 
+                <!-- MESSAGES APP -->
+                <button
+                    id="phoneMessagesApp"
+                    class="phone-app"
+                    type="button"
+                >
+                    <span class="phone-app-icon">💬</span>
+                    <span class="phone-app-badge" id="phoneMessagesBadge"></span>
+                    <span class="phone-app-name">Messages</span>
+                </button>
+
             </div>
 
         </div>
@@ -83,7 +94,7 @@
             </div>
         </div>
 
-        <!-- RACE INFO SCREEN -->
+        <!-- RACE INFO SCREEN (single, existing screen - reused by the race invitation message) -->
         <div
             id="phoneRaceInfoScreen"
             style="display:none;"
@@ -100,7 +111,23 @@
             </button>
         </div>
 
-        <!-- ADD THIS NEW MESSAGE OVERLAY LAYER INSIDE #phoneScreen -->
+        <!-- MESSAGES APP: CAUGHT UP SCREEN -->
+        <div
+            id="phoneMessagesCaughtUp"
+            style="display:none;"
+        >
+            <div class="phone-caught-up-icon">✅</div>
+            <div class="phone-caught-up-title">CAUGHT UP</div>
+            <button
+                id="phoneMessagesCaughtUpBack"
+                type="button"
+            >
+                ← BACK
+            </button>
+        </div>
+
+        <!-- MESSAGE VIEWER LAYER INSIDE #phoneScreen
+             (shared by the Messages app and the opening cutscene) -->
 <div id="phoneCutsceneMessage">
     <button
         id="phoneCutsceneMessageClose"

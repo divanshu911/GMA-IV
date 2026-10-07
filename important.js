@@ -165,6 +165,8 @@ function showPhoneCutsceneMessage(text) {
     const msgLayer = document.getElementById("phoneCutsceneMessage");
     const msgText = document.getElementById("phoneCutsceneMessageText");
     if (msgLayer && msgText) {
+        const msgHeader = msgLayer.querySelector(".msg-header");
+        if (msgHeader) msgHeader.textContent = "NEW MESSAGE";
         msgText.textContent = text;
         msgLayer.style.display = "flex";
     }
@@ -306,24 +308,9 @@ function finishOpeningCutscene() {
         openingText.textContent = "";
     }
 
-    // Start normal gameplay tips AFTER the introduction.
-    setTimeout(() => {
-        if (gameActive && typeof taxiManager !== "undefined") {
-            taxiManager.setMessage(
-                "Tip: swipe down from the top to use phone",
-                300
-            );
-        }
-    }, 10000);
-
-    setTimeout(() => {
-        if (gameActive && typeof taxiManager !== "undefined") {
-            taxiManager.setMessage(
-                "Tip: open minimap to see locations on map",
-                240
-            );
-        }
-    }, 17000);
+    // Gameplay tips are delivered as scheduled phone messages
+    // (see GAMEPLAY TIP SCHEDULER below).
+    scheduleGameplayTips();
 
     if (typeof drawGame === "function") {
         drawGame();
@@ -362,6 +349,9 @@ function openPlayerPhone() {
 
     playerPhoneOpen = true;
 
+    // Opening the phone ALWAYS shows the normal home screen.
+    resetPhoneToHome();
+
     // Reset animation state.
     playerPhone.classList.remove("phone-closing");
     playerPhone.classList.remove("phone-opening");
@@ -373,14 +363,7 @@ function openPlayerPhone() {
     playerPhone.classList.add("phone-opening");
     playerPhone.setAttribute("aria-hidden", "false");
 
-  if (
-    typeof raceEventManager !== "undefined" &&
-    raceEventManager &&
-    typeof raceEventManager.shouldShowPhoneMessage === "function" &&
-    raceEventManager.shouldShowPhoneMessage()
-) {
-    raceEventManager.showPhoneRaceMessage();
-  }  return true;
+    return true;
 }
 
 function closePlayerPhone() {
@@ -572,6 +555,371 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 
+// ============================================================
+// PHONE MESSAGE SYSTEM
+// ------------------------------------------------------------
+// Single source of truth for every phone message (gameplay tips,
+// race invitations, future story / job / NPC messages).
+//
+//   sendPhoneMessage(title, text, options)
+//        -> phoneMessages.history  (oldest -> newest, in memory only)
+//        -> Phone > Messages app (newest -> oldest, x = previous)
+//
+// options: { type: "normal" | "race", sound: true, notify: true }
+//   type "race": x opens the existing Race Info screen instead of
+//                the previous message, while the invitation is
+//                still actionable (see isRaceInviteActionable).
+// ============================================================
+
+const PHONE_MESSAGE_SOUND_URL =
+    "https://raw.githubusercontent.com/divanshu911/My-game-assets/e8ed68b9d44fbea3886c7a39773340219bac8517/message.mp3";
+
+const phoneMessages = {
+    history: [],        // oldest -> newest. Never deleted by the x button.
+    nextId: 1,
+    cursor: -1,         // index of the message being viewed
+    mode: "closed"      // "closed" | "message" | "raceInfo" | "caughtUp"
+};
+
+function phoneEl(id) {
+    return document.getElementById(id);
+}
+
+function sendPhoneMessage(title, text, options) {
+    const opts = options || {};
+
+    const message = {
+        id: phoneMessages.nextId++,
+        title: title,
+        text: text,
+        type: opts.type || "normal",
+        seen: false,
+        retired: false
+    };
+
+    phoneMessages.history.push(message);
+
+    // Sound plays on RECEIVING the message, never when viewing it.
+    if (opts.sound !== false) {
+        try {
+            const sound = new Audio(PHONE_MESSAGE_SOUND_URL);
+            sound.volume = 1.0;
+            sound.play().catch(() => {});
+        } catch (e) {}
+    }
+
+    // HUD notice only. Never opens the phone or the Messages app.
+    if (opts.notify !== false && typeof taxiManager !== "undefined" && taxiManager.setMessage) {
+        taxiManager.setMessage("You received a message", 180);
+    }
+
+    updateMessagesBadge();
+
+    // Phone already open on the Messages app: keep the viewer position,
+    // the new message is simply the next "newest" the next time it opens.
+    return message;
+}
+
+function getUnreadMessageCount() {
+    return phoneMessages.history.filter(m => !m.seen).length;
+}
+
+function updateMessagesBadge() {
+    const badge = phoneEl("phoneMessagesBadge");
+    if (!badge) return;
+
+    const unread = getUnreadMessageCount();
+    badge.textContent = unread > 9 ? "9+" : String(unread);
+    badge.style.display = unread > 0 ? "flex" : "none";
+}
+
+function isRaceInviteActionable(message) {
+    return !!(
+        message &&
+        message.type === "race" &&
+        !message.retired &&
+        typeof raceEventManager !== "undefined" &&
+        raceEventManager &&
+        raceEventManager.state === "SCHEDULED" &&
+        !raceEventManager.startMarkerEnabled
+    );
+}
+
+function setPhoneMessagesSubScreens(viewer, caughtUp, raceInfo) {
+    const layer = phoneEl("phoneCutsceneMessage");
+    const caught = phoneEl("phoneMessagesCaughtUp");
+    const info = phoneEl("phoneRaceInfoScreen");
+
+    if (layer) layer.style.display = viewer ? "flex" : "none";
+    if (caught) caught.style.display = caughtUp ? "flex" : "none";
+    if (info) info.style.display = raceInfo ? "flex" : "none";
+}
+
+function showMessageAt(index) {
+    const message = phoneMessages.history[index];
+    if (!message) {
+        showMessagesCaughtUp();
+        return;
+    }
+
+    phoneMessages.cursor = index;
+    phoneMessages.mode = "message";
+    message.seen = true;
+
+    const header = document.querySelector("#phoneCutsceneMessage .msg-header");
+    const body = phoneEl("phoneCutsceneMessageText");
+    if (header) header.textContent = message.title;
+    if (body) body.textContent = message.text;
+
+    setPhoneMessagesSubScreens(true, false, false);
+    updateMessagesBadge();
+}
+
+function showPreviousMessage() {
+    const previous = phoneMessages.cursor - 1;
+
+    if (previous >= 0) {
+        showMessageAt(previous);
+    } else {
+        showMessagesCaughtUp();
+    }
+}
+
+function showMessagesCaughtUp() {
+    phoneMessages.mode = "caughtUp";
+    phoneMessages.cursor = -1;
+    setPhoneMessagesSubScreens(false, true, false);
+    updateMessagesBadge();
+}
+
+function openMessagesApp() {
+    const home = phoneEl("phoneHomeScreen");
+    if (home) home.style.display = "none";
+
+    // Always start from the newest message (deterministic).
+    if (phoneMessages.history.length > 0) {
+        showMessageAt(phoneMessages.history.length - 1);
+    } else {
+        showMessagesCaughtUp();
+    }
+}
+
+function closeMessagesApp() {
+    resetPhoneToHome(true);
+}
+
+// x button on the message viewer.
+function dismissCurrentMessage() {
+    if (phoneMessages.mode !== "message") return;
+
+    const message = phoneMessages.history[phoneMessages.cursor];
+
+    if (isRaceInviteActionable(message)) {
+        // Special case: race invitation -> EXISTING Race Info screen.
+        raceEventManager.dismissPhoneRaceMessage();
+        phoneMessages.mode = "raceInfo";
+        return;
+    }
+
+    showPreviousMessage();
+}
+
+// Called by the race manager's ACCEPT button after its own logic ran.
+function returnFromRaceInfo() {
+    if (phoneMessages.mode !== "raceInfo") {
+        setPhoneMessagesSubScreens(false, false, false);
+        return false;
+    }
+
+    setPhoneMessagesSubScreens(false, false, false);
+    showPreviousMessage();
+    return true;
+}
+
+// The race is no longer actionable (started / finished / reset):
+// the invitation stays in history but behaves like a normal message.
+function retireRaceMessages() {
+    let viewing = null;
+
+    phoneMessages.history.forEach((m, i) => {
+        if (m.type === "race" && !m.retired) {
+            m.retired = true;
+            if (i === phoneMessages.cursor) viewing = m;
+        }
+    });
+
+    if (phoneMessages.mode === "raceInfo") {
+        // Race Info no longer valid: continue with the previous message.
+        returnFromRaceInfo();
+    }
+    return viewing;
+}
+
+// Always puts the phone on its home screen.
+function resetPhoneToHome(force) {
+    // The opening cutscene drives the phone/message layer itself.
+    if (openingCutsceneActive && !force) return;
+
+    if (phoneMessages.mode === "closed" && !force) return;
+
+    phoneMessages.mode = "closed";
+    phoneMessages.cursor = -1;
+    setPhoneMessagesSubScreens(false, false, false);
+
+    const home = phoneEl("phoneHomeScreen");
+    if (home) home.style.display = "flex";
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    const messagesApp = phoneEl("phoneMessagesApp");
+    const messageClose = phoneEl("phoneCutsceneMessageClose");
+    const caughtUpBack = phoneEl("phoneMessagesCaughtUpBack");
+
+    if (messagesApp) {
+        messagesApp.addEventListener("pointerdown", e => {
+            e.preventDefault();
+            if (!playerPhoneOpen || openingCutsceneActive) return;
+            openMessagesApp();
+        });
+    }
+
+    if (messageClose) {
+        messageClose.addEventListener("pointerdown", e => {
+            e.preventDefault();
+            if (openingCutsceneActive) return;
+            dismissCurrentMessage();
+        });
+    }
+
+    if (caughtUpBack) {
+        caughtUpBack.addEventListener("pointerdown", e => {
+            e.preventDefault();
+            closeMessagesApp();
+        });
+    }
+
+    updateMessagesBadge();
+});
+
+
+// ============================================================
+// GAMEPLAY TIP SCHEDULER
+// Each tip is delivered as a phone message at a random in-game
+// hour (game clock, NOT real time). Hours are unique per tip and
+// avoid the race-invitation window (race hour - 2 .. race hour).
+// The desktop-controls tip is NOT part of this list.
+// ============================================================
+
+const GAMEPLAY_TIPS = [
+    { title: "Phone Tip", text: "Swipe down from the top to use phone." },
+    { title: "Map Tip",   text: "Open minimap to see locations on map." }
+    // Add future tips here; they are scheduled automatically.
+];
+
+const gameplayTipScheduler = {
+    started: false,
+    dayCount: 0,        // in-game midnights passed since scheduling
+    lastHour: 0,
+    pending: []         // { tip, absHour, delayedLogged }
+};
+
+function getCurrentGameHour() {
+    return (gameSeconds / DAY_LENGTH) * 24;
+}
+
+function getTipRaceHour() {
+    if (typeof raceEventManager === "undefined" || !raceEventManager) return null;
+
+    if (raceEventManager.raceStartHour !== null && raceEventManager.raceStartHour !== undefined) {
+        return raceEventManager.raceStartHour;
+    }
+
+    if (typeof raceEventManager.loadSavedRaceTime === "function") {
+        const saved = raceEventManager.loadSavedRaceTime();
+        if (saved) return saved.hour;
+    }
+
+    return null;
+}
+
+function isRaceInvitationWindowNow() {
+    if (typeof raceEventManager === "undefined" || !raceEventManager) return false;
+    if (raceEventManager.state !== "SCHEDULED") return false;
+    if (typeof raceEventManager.getHoursUntilRace !== "function") return false;
+
+    const until = raceEventManager.getHoursUntilRace(getCurrentGameHour());
+    return until > 0 && until <= 2;
+}
+
+function formatTipHour(absHour) {
+    const hourOfDay = ((absHour % 24) + 24) % 24;
+    const label = String(hourOfDay).padStart(2, "0") + ":00";
+    return absHour >= 24 ? label + " (next day)" : label;
+}
+
+function scheduleGameplayTips() {
+    if (gameplayTipScheduler.started) return;
+    gameplayTipScheduler.started = true;
+
+    gameplayTipScheduler.dayCount = 0;
+    gameplayTipScheduler.lastHour = getCurrentGameHour();
+
+    const firstHour = Math.floor(getCurrentGameHour()) + 1;
+    const raceHour = getTipRaceHour();
+
+    // Candidate hours: the next 24 whole in-game hours.
+    let candidates = [];
+    for (let h = firstHour; h < firstHour + 24; h++) {
+        // Race conflicts only known for today's race (day 0).
+        if (raceHour !== null && h < 24 && h >= raceHour - 2 && h <= raceHour) continue;
+        candidates.push(h);
+    }
+
+    GAMEPLAY_TIPS.forEach(tip => {
+        if (candidates.length === 0) return;
+
+        const pick = Math.floor(Math.random() * candidates.length);
+        const absHour = candidates.splice(pick, 1)[0];
+
+        gameplayTipScheduler.pending.push({ tip: tip, absHour: absHour, delayedLogged: false });
+
+        console.log(`[Gameplay Tips] "${tip.title}" scheduled for ${formatTipHour(absHour)}`);
+    });
+}
+
+function tickGameplayTips() {
+    const sched = gameplayTipScheduler;
+    if (!sched.started || sched.pending.length === 0) return;
+
+    const hour = getCurrentGameHour();
+
+    // Midnight rollover (gameSeconds wraps to 0).
+    if (hour < sched.lastHour) sched.dayCount++;
+    sched.lastHour = hour;
+
+    const now = sched.dayCount * 24 + hour;
+
+    for (let i = 0; i < sched.pending.length; i++) {
+        const entry = sched.pending[i];
+        if (now < entry.absHour) continue;
+
+        // Never collide with a race invitation: wait until it passes.
+        if (isRaceInvitationWindowNow()) {
+            if (!entry.delayedLogged) {
+                entry.delayedLogged = true;
+                console.log(`[Gameplay Tips] "${entry.tip.title}" delayed (race invitation window)`);
+            }
+            return;
+        }
+
+        sched.pending.splice(i, 1);
+        sendPhoneMessage(entry.tip.title, entry.tip.text, { type: "normal" });
+        console.log(`[Gameplay Tips] "${entry.tip.title}" delivered at ${formatTipHour(Math.floor(now))}`);
+        return; // one message per tick
+    }
+}
+
+
 // ===== DAY / NIGHT SYSTEM =====
 let lastTimeSave = 0;
 let nightMusicPlaying = false;
@@ -589,6 +937,8 @@ function updateDayNight(dt){
    if (gameSeconds >= DAY_LENGTH) {
        gameSeconds = 0;
    }
+
+   if (typeof tickGameplayTips === "function") tickGameplayTips();
 
    const t = gameSeconds / DAY_LENGTH;
 
@@ -1087,24 +1437,9 @@ startBtn.addEventListener('click', () => {
         );
     }
 
-    // Show phone tip 10 seconds after starting the game.
-    setTimeout(() => {
-        if (gameActive && typeof taxiManager !== 'undefined') {
-            taxiManager.setMessage(
-                "Tip: swipe down from the top to use phone",
-                300
-            );
-        }
-    }, 10000);
-
-    setTimeout(() => {
-        if (gameActive && typeof taxiManager !== 'undefined') {
-            taxiManager.setMessage(
-                "Tip: open minimap to see locations on map",
-                240
-            );
-        }
-    }, 17000);
+    // Gameplay tips (phone / minimap) are now scheduled phone messages.
+    // The desktop-controls tip above intentionally stays a direct HUD message.
+    scheduleGameplayTips();
 
     localStorage.setItem("gma_has_played", "true");
 });
