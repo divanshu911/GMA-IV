@@ -1,7 +1,7 @@
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-console.log("coconut");
+console.log("pear");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
@@ -2677,6 +2677,14 @@ function isEntityOnScreen(entity, margin = 150) {
 const OBJLIGHT = {
     HEAD_RAYS: 11,         // rays per headlight cone
     BUILD_RAYS: 9,         // rays per building beam
+        // Soft glows where headlights hit static building/wall terrain.
+    terrainGlowCount: 0,
+    MAX_TERRAIN_GLOWS: 48,
+    tgx: new Float32Array(48),
+    tgy: new Float32Array(48),
+    tnx: new Float32Array(48),
+    tny: new Float32Array(48),
+    tgi: new Float32Array(48),
     CELL: 4,               // world px per cached "solid?" cell
     STEP: 4,               // ray-march step against the collision map
     MAX_GLOWS: 5,          // glow spots kept per object
@@ -2702,7 +2710,9 @@ function _olGetBlocker(i) {
             kind: 0, ref: null, x: 0, y: 0, bound: 0,
             ang: 0, cos: 1, sin: 0, hw: 0, hl: 0, r: 0,
             gc: 0, gx: new Float32Array(M), gy: new Float32Array(M),
-            gr: new Float32Array(M), gi: new Float32Array(M)
+            gr: new Float32Array(M),
+            gi: new Float32Array(M),
+            ga: new Float32Array(M)
         };
     }
     return b;
@@ -2778,6 +2788,78 @@ function _olMarchMap(ox, oy, dx, dy, maxDist) {
         }
     }
     return maxDist;
+    
+}
+
+function _olAddTerrainGlow(x, y, rayDx, rayDy, intensity) {
+    const O = OBJLIGHT;
+    const max = O.MAX_TERRAIN_GLOWS;
+
+    // Estimate the outward-facing surface normal using the cached
+    // terrain grid. The normal points toward free space.
+    let nx =
+        _olSolidAt(x - 8, y) -
+        _olSolidAt(x + 8, y);
+
+    let ny =
+        _olSolidAt(x, y - 8) -
+        _olSolidAt(x, y + 8);
+
+    let normalLength = Math.hypot(nx, ny);
+
+    if (normalLength < 0.001) {
+        nx = -rayDx;
+        ny = -rayDy;
+        normalLength = Math.hypot(nx, ny) || 1;
+    }
+
+    nx /= normalLength;
+    ny /= normalLength;
+
+    // Merge nearby ray hits so one headlight produces a soft patch,
+    // not a row of individual dots.
+    for (let i = 0; i < O.terrainGlowCount; i++) {
+        const dx = O.tgx[i] - x;
+        const dy = O.tgy[i] - y;
+
+        if (dx * dx + dy * dy < 18 * 18) {
+            const oldIntensity = O.tgi[i];
+            const total = oldIntensity + intensity;
+
+            O.tgx[i] =
+                (O.tgx[i] * oldIntensity + x * intensity) /
+                total;
+
+            O.tgy[i] =
+                (O.tgy[i] * oldIntensity + y * intensity) /
+                total;
+
+            O.tnx[i] =
+                O.tnx[i] * 0.5 + nx * 0.5;
+
+            O.tny[i] =
+                O.tny[i] * 0.5 + ny * 0.5;
+
+            const nl = Math.hypot(O.tnx[i], O.tny[i]) || 1;
+            O.tnx[i] /= nl;
+            O.tny[i] /= nl;
+
+            O.tgi[i] = Math.min(1, Math.max(oldIntensity, intensity));
+            return;
+        }
+    }
+
+    if (O.terrainGlowCount >= max) {
+        return;
+    }
+
+    const i = O.terrainGlowCount++;
+
+    O.tgx[i] = x;
+    O.tgy[i] = y;
+    O.tnx[i] = nx;
+    O.tny[i] = ny;
+    O.tgi[i] = Math.min(1, intensity);
 }
 
 // ---------------------------------------------------------------------------
@@ -2818,20 +2900,57 @@ function _olRayRect(b, ox, oy, dx, dy, maxDist) {
     return tmin;
 }
 
-function _olRayCircle(b, ox, oy, dx, dy, maxDist) {
-    const cx = b.x - ox, cy = b.y - oy;
-    const proj = cx * dx + cy * dy;
-    if (proj <= 0) return -1;
-    const d2 = cx * cx + cy * cy - proj * proj;
-    const r2 = b.r * b.r;
-    if (d2 > r2) return -1;
-    const t = proj - Math.sqrt(r2 - d2);
-    if (t <= 0 || t > maxDist) return -1;
-    _olHitLX = ox + dx * t - b.x;
-    _olHitLY = oy + dy * t - b.y;
+
+function _olRayEllipse(b, ox, oy, dx, dy, maxDist) {
+    // Transform ray into the person's local frame.
+    const rx = ox - b.x;
+    const ry = oy - b.y;
+
+    const px = rx * b.cos + ry * b.sin;
+    const py = -rx * b.sin + ry * b.cos;
+
+    const vx = dx * b.cos + dy * b.sin;
+    const vy = -dx * b.sin + dy * b.cos;
+
+    const hw = Math.max(0.1, b.hw);
+    const hl = Math.max(0.1, b.hl);
+
+    const A =
+        (vx * vx) / (hw * hw) +
+        (vy * vy) / (hl * hl);
+
+    if (A < 1e-10) return -1;
+
+    const B =
+        2 * (
+            (px * vx) / (hw * hw) +
+            (py * vy) / (hl * hl)
+        );
+
+    const C =
+        (px * px) / (hw * hw) +
+        (py * py) / (hl * hl) - 1;
+    // A ray starting inside a person should not hit its far side.
+    if (C < 0) return -1;
+
+    const discriminant = B * B - 4 * A * C;
+
+    if (discriminant < 0) return -1;
+
+    const root = Math.sqrt(discriminant);
+    const t1 = (-B - root) / (2 * A);
+    const t2 = (-B + root) / (2 * A);
+
+    let t = t1 > 0.01 ? t1 : t2;
+
+    if (t <= 0.01 || t > maxDist) return -1;
+
+    // Contact point in the ellipse's local frame.
+    _olHitLX = px + vx * t;
+    _olHitLY = py + vy * t;
+
     return t;
 }
-
 // ---------------------------------------------------------------------------
 // Light fan: a bundle of rays belonging to one cone / beam.
 // ---------------------------------------------------------------------------
@@ -2875,25 +2994,74 @@ function _olCastFan(fan, owner, useMap, cx, cy, boundR) {
 
     let any = fan.staticShort;
     for (let r = 0; r < n; r++) {
+
         let len = fan.full[r];
         let hit = -1;
         const ox = fan.ox[r], oy = fan.oy[r], dx = fan.dx[r], dy = fan.dy[r];
 
-        if (useMap) len = _olMarchMap(ox, oy, dx, dy, len);
+        // Remember the static terrain hit separately from dynamic objects.
+        const mapLen = useMap
+            ? _olMarchMap(ox, oy, dx, dy, len)
+            : len;
+
+        len = mapLen;
 
         for (let c = 0; c < cc; c++) {
             const bi = O.cand[c];
             const b = O.blockers[bi];
-            const t = b.kind === 0 ? _olRayRect(b, ox, oy, dx, dy, len)
-                                   : _olRayCircle(b, ox, oy, dx, dy, len);
+            const t = b.kind === 0
+                ? _olRayRect(b, ox, oy, dx, dy, len)
+                : _olRayEllipse(b, ox, oy, dx, dy, len);
             if (t > 0 && t < len) {
                 len = t; hit = bi;
                 fan.hlx[r] = _olHitLX; fan.hly[r] = _olHitLY;
             }
         }
+
         fan.lens[r] = len;
         fan.hitB[r] = hit;
-        if (len < fan.full[r] - 0.5 || (useMap && len < fan.full[r])) any = true;
+
+        // If terrain stopped the ray before any car/person did,
+        // add a glow directly to the building surface.
+        if (
+            useMap &&
+            hit < 0 &&
+            mapLen < fan.full[r] - 0.5
+        ) {
+            const hitX = ox + dx * mapLen;
+            const hitY = oy + dy * mapLen;
+
+            const distance = Math.hypot(
+                hitX - fan.sx,
+                hitY - fan.sy
+            );
+
+            const falloff = Math.max(
+                0,
+                1 - distance / fan.range
+            );
+
+            const intensity =
+                falloff * falloff *
+                (0.55 + 0.45 * fan.wgt[r]);
+
+            if (intensity > 0.06) {
+                _olAddTerrainGlow(
+                    hitX,
+                    hitY,
+                    dx,
+                    dy,
+                    intensity
+                );
+            }
+        }
+
+        if (
+            len < fan.full[r] - 0.5 ||
+            (useMap && len < fan.full[r])
+        ) {
+            any = true;
+        }
     }
     fan.shortened = any;
     fan.dirty = true;
@@ -2921,18 +3089,55 @@ function _olCastFan(fan, owner, useMap, cx, cy, boundR) {
     }
 }
 
+
 function _olAddGlow(b, lx, ly, inten, radius) {
     const M = OBJLIGHT.MAX_GLOWS;
+
+    // Find the tangent direction of the surface facing the light.
+    let normalAngle;
+
+    if (b.kind === 0) {
+        // Cars use a rotated rectangle.
+        if (
+            Math.abs(lx / Math.max(0.1, b.hw)) >
+            Math.abs(ly / Math.max(0.1, b.hl))
+        ) {
+            normalAngle = lx >= 0 ? 0 : Math.PI;
+        } else {
+            normalAngle = ly >= 0
+                ? Math.PI / 2
+                : -Math.PI / 2;
+        }
+    } else {
+        // People use an oriented ellipse.
+        normalAngle = Math.atan2(
+            ly / Math.max(0.1, b.hl * b.hl),
+            lx / Math.max(0.1, b.hw * b.hw)
+        );
+    }
+
+    const tangentAngle = normalAngle + Math.PI / 2;
+
     let slot = b.gc;
-    if (slot >= M) {                        // full: replace weakest if this one is stronger
-        let w = 0;
-        for (let i = 1; i < M; i++) if (b.gi[i] < b.gi[w]) w = i;
-        if (b.gi[w] >= inten) return;
-        slot = w;
+
+    if (slot >= M) {
+        let weakest = 0;
+
+        for (let i = 1; i < M; i++) {
+            if (b.gi[i] < b.gi[weakest]) weakest = i;
+        }
+
+        if (b.gi[weakest] >= inten) return;
+        slot = weakest;
     } else {
         b.gc++;
     }
-    b.gx[slot] = lx; b.gy[slot] = ly; b.gr[slot] = radius; b.gi[slot] = inten;
+
+    b.gx[slot] = lx;
+    b.gy[slot] = ly;
+    b.gr[slot] = radius;
+    b.gi[slot] = inten;
+    b.ga[slot] = tangentAngle;
 }
 
 // Adds the fan outline to the current path. Output is in the local frame of
@@ -3047,6 +3252,7 @@ function updateObjectLighting() {
     O.frame++;
     O.active = false;
     O.blockerCount = 0;
+    O.terrainGlowCount = 0;
 
     if (typeof ambientBrightness === "undefined" || ambientBrightness >= 0.75) return;
     if (typeof isInsideHouse !== "undefined" && isInsideHouse) return;
@@ -3074,8 +3280,19 @@ function updateObjectLighting() {
             const p = npcs[i];
             if (p.isPassenger || !isEntityOnScreen(p)) continue;
             const b = _olGetBlocker(n++);
-            b.kind = 1; b.ref = p; b.x = p.x; b.y = p.y;
-            b.r = p.size * 0.42; b.bound = b.r; b.gc = 0;
+            b.kind = 1;
+            b.ref = p;
+            b.x = p.x;
+            b.y = p.y;
+            b.ang = p.angle || 0;
+            b.cos = Math.cos(b.ang);
+            b.sin = Math.sin(b.ang);
+
+            // Approximate the rendered head, torso and arms.
+            b.hw = p.size * 0.52;
+            b.hl = p.size * 0.34;
+            b.bound = Math.hypot(b.hw, b.hl);
+            b.gc = 0;
         }
     }
     if (typeof angryDrivers !== "undefined") {
@@ -3083,16 +3300,39 @@ function updateObjectLighting() {
             const p = angryDrivers[i];
             if (!isEntityOnScreen(p)) continue;
             const b = _olGetBlocker(n++);
-            b.kind = 1; b.ref = p; b.x = p.x; b.y = p.y;
-            b.r = p.size * 0.42; b.bound = b.r; b.gc = 0;
+            b.kind = 1;
+            b.ref = p;
+            b.x = p.x;
+            b.y = p.y;
+            b.ang = p.angle || 0;
+            b.cos = Math.cos(b.ang);
+            b.sin = Math.sin(b.ang);
+
+            // Approximate the rendered head, torso and arms.
+            b.hw = p.size * 0.52;
+            b.hl = p.size * 0.34;
+            b.bound = Math.hypot(b.hw, b.hl);
+            b.gc = 0;
         }
     }
     if (typeof player !== "undefined" && !playerCar && !player.ispassenger) {
         const b = _olGetBlocker(n++);
         // the player is drawn at the camera centre, i.e. (x,y) + size/2
-        b.kind = 1; b.ref = player;
-        b.x = player.x + player.size / 2; b.y = player.y + player.size / 2;
-        b.r = player.size * 0.42; b.bound = b.r; b.gc = 0;
+        b.kind = 1;
+        b.ref = player;
+
+        // Match the camera's world-space anchor used to draw the player.
+        b.x = player.x + player.size / 2;
+        b.y = player.y + player.size / 2;
+
+        b.ang = player.angle || 0;
+        b.cos = Math.cos(b.ang);
+        b.sin = Math.sin(b.ang);
+
+        b.hw = player.size * 0.52;
+        b.hl = player.size * 0.34;
+        b.bound = Math.hypot(b.hw, b.hl);
+        b.gc = 0;
     }
     O.blockerCount = n;
 
@@ -3119,23 +3359,61 @@ function updateObjectLighting() {
 // ---------------------------------------------------------------------------
 // GLOW PASS (world space, after the night overlay and the beams)
 // ---------------------------------------------------------------------------
+
 function _olDrawGlows(ctx, b) {
     const O = OBJLIGHT;
     let total = 0;
-    for (let g = 0; g < b.gc; g++) total += Math.min(1, b.gi[g]) * O.GLOW_ALPHA;
-    // several lights together must not blow the object out
-    const scale = total > O.GLOW_TOTAL_CAP ? O.GLOW_TOTAL_CAP / total : 1;
 
     for (let g = 0; g < b.gc; g++) {
-        const a = Math.min(1, b.gi[g]) * O.GLOW_ALPHA * scale;
+        total += Math.min(1, b.gi[g]) * O.GLOW_ALPHA;
+    }
+
+    // Preserve the existing combined brightness limit.
+    const scale =
+        total > O.GLOW_TOTAL_CAP
+            ? O.GLOW_TOTAL_CAP / total
+            : 1;
+
+    for (let g = 0; g < b.gc; g++) {
+        const a =
+            Math.min(1, b.gi[g]) *
+            O.GLOW_ALPHA *
+            scale;
+
         if (a < 0.012) continue;
-        const R = b.gr[g], x = b.gx[g], y = b.gy[g];
-        const grad = ctx.createRadialGradient(x, y, 0, x, y, R);
-        grad.addColorStop(0,    "rgba(255,238,175," + a.toFixed(3) + ")");
-        grad.addColorStop(0.45, "rgba(255,226,152," + (a * 0.45).toFixed(3) + ")");
-        grad.addColorStop(1,    "rgba(255,215,130,0)");
+
+        const R = b.gr[g];
+
+        ctx.save();
+        ctx.translate(b.gx[g], b.gy[g]);
+        ctx.rotate(b.ga[g] || 0);
+
+        // Elongated along the lit surface, rather than a round spot.
+        ctx.scale(1.8, 0.65);
+
+        const grad = ctx.createRadialGradient(
+            0, 0, 0,
+            0, 0, R
+        );
+
+        grad.addColorStop(
+            0,
+            "rgba(255,238,175," + a.toFixed(3) + ")"
+        );
+
+        grad.addColorStop(
+            0.45,
+            "rgba(255,226,152," + (a * 0.45).toFixed(3) + ")"
+        );
+
+        grad.addColorStop(
+            1,
+            "rgba(255,215,130,0)"
+        );
+
         ctx.fillStyle = grad;
-        ctx.fillRect(x - R, y - R, R * 2, R * 2);   // clipped to the silhouette -> no square edge
+        ctx.fillRect(-R, -R, R * 2, R * 2);
+        ctx.restore();
     }
 }
 
@@ -3150,15 +3428,75 @@ function drawObjectGlows(ctx) {
         ctx.save();
         ctx.translate(b.x, b.y);
         ctx.beginPath();
+        ctx.rotate(b.ang || 0);
+
         if (b.kind === 0) {
-            ctx.rotate(b.ang);
-            ctx.rect(-b.hw, -b.hl, b.hw * 2, b.hl * 2);      // exact car silhouette
+            ctx.rect(
+                -b.hw,
+                -b.hl,
+                b.hw * 2,
+                b.hl * 2
+            );
         } else {
-            ctx.arc(0, 0, b.r + 1.5, 0, Math.PI * 2);         // body circle
+            ctx.ellipse(
+                0,
+                0,
+                b.hw,
+                b.hl,
+                0,
+                0,
+                Math.PI * 2
+            );
         }
         ctx.clip();
+    
         _olDrawGlows(ctx, b);
         ctx.restore();
     }
+
+    // Building/wall contact glows from blocked headlights.
+    // Draw in world space, using the same camera transform as the objects.
+    for (let i = 0; i < O.terrainGlowCount; i++) {
+        const intensity = O.tgi[i];
+        if (intensity < 0.06) continue;
+
+        const nx = O.tnx[i];
+        const ny = O.tny[i];
+        const tangentAngle =
+            Math.atan2(ny, nx) + Math.PI / 2;
+
+        const R = 16;
+        const alpha = intensity * 0.28;
+
+        ctx.save();
+        ctx.translate(O.tgx[i], O.tgy[i]);
+        ctx.rotate(tangentAngle);
+        ctx.scale(2.3, 0.48);
+
+        const grad = ctx.createRadialGradient(
+            0, 0, 0,
+            0, 0, R
+        );
+
+        grad.addColorStop(
+            0,
+            "rgba(255,235,170," + alpha.toFixed(3) + ")"
+        );
+
+        grad.addColorStop(
+            0.5,
+            "rgba(255,220,145," + (alpha * 0.45).toFixed(3) + ")"
+        );
+
+        grad.addColorStop(
+            1,
+            "rgba(255,210,120,0)"
+        );
+
+        ctx.fillStyle = grad;
+        ctx.fillRect(-R, -R, R * 2, R * 2);
+        ctx.restore();
+    }
+
     ctx.restore();
-}
+}    
