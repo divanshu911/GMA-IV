@@ -1,4 +1,4 @@
-console.log("1c00");
+console.log("1l00");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1455,42 +1455,47 @@ function getNearbyCollisionEntities(entity) {
 }       
 function handlePhysicsAndCollisions(dt) {
     buildCollisionGrid();
-      // --- CAR VS CAR COLLISIONS ---
-  for (let i = 0; i < cars.length; i++) {
-    const c1 = cars[i];
-    if (!c1) continue;
+        // --- CAR VS CAR COLLISIONS ---
+        for (let i = 0; i < cars.length; i++) {
+          const c1 = cars[i];
+          if (!c1) continue;
 
-    const nearby = getNearbyCollisionEntities(c1);
+          const nearby = getNearbyCollisionEntities(c1);
 
-    for (const entry of nearby) {
-      if (entry.type !== "car") continue;
+          for (const entry of nearby) {
+            if (entry.type !== "car") continue;
 
-      // Only process each car pair once
-      if (entry.index <= i) continue;
+            // Only process each car pair once
+            if (entry.index <= i) continue;
 
-      const c2 = entry.entity;
+            const c2 = entry.entity;
 
-      let dx = c2.x - c1.x;
-      let dy = c2.y - c1.y;
-      let distSq = dx * dx + dy * dy;
+            let dx = c2.x - c1.x;
+            let dy = c2.y - c1.y;
+            let distSq = dx * dx + dy * dy;
 
-      if (distSq < 26 * 26) {
-        let dist = Math.sqrt(distSq);
+            let r1 = Math.max(c1.width || 16, c1.length || 28) * 0.5;
+            let r2 = Math.max(c2.width || 16, c2.length || 28) * 0.5;
+            let combinedRadius = r1 + r2;
 
-        if (dist === 0) {
-          dx = 1;
-          dy = 0;
-          dist = 1;
-        }
+            if (distSq < combinedRadius * combinedRadius) {
+              let dist = Math.sqrt(distSq);
 
-        let overlap = 26 - dist;
-        let nx = dx / dist;
-        let ny = dy / dist;
+              if (dist === 0) {
+                dx = 1;
+                dy = 0;
+                dist = 1;
+              }
 
-        c1.x -= nx * overlap * 0.5;
-        c1.y -= ny * overlap * 0.5;
-        c2.x += nx * overlap * 0.5;
-        c2.y += ny * overlap * 0.5;
+              let overlap = combinedRadius - dist;
+              let nx = dx / dist;
+              let ny = dy / dist;
+
+              c1.x -= nx * overlap * 0.5;
+              c1.y -= ny * overlap * 0.5;
+              c2.x += nx * overlap * 0.5;
+              c2.y += ny * overlap * 0.5;
+
 
         if (typeof isRoadColor === 'function') {
           if (!isRoadColor(c1.x, c1.y)) {
@@ -1717,19 +1722,22 @@ car.isParked = true;
     }
   }
 
-  if (!isInsideHouse && !isInsideDealership) {
-      cars.forEach(car => {
-        if (playerCar && car.id === playerCar.id) return; 
-        let dx = player.x - car.x, dy = player.y - car.y, dist = Math.sqrt(dx * dx + dy * dy);
+      if (!isInsideHouse && !isInsideDealership) {
+          cars.forEach(car => {
+            if (playerCar && car.id === playerCar.id) return; 
+            let dx = player.x - car.x, dy = player.y - car.y, dist = Math.sqrt(dx * dx + dy * dy);
 
-        if (dist < 24) {
-          if (dist === 0) { dx = 1; dy = 0; dist = 1; }
-          let overlap = 24 - dist, nx = dx / dist, ny = dy / dist;
-          let targetX = player.x + nx * overlap, targetY = player.y + ny * overlap;
-          if (typeof isWalkableColor === 'function') {
-              if (isWalkableColor(targetX, player.y, player.size)) player.x = targetX;
-              if (isWalkableColor(player.x, targetY, player.size)) player.y = targetY;
-          }
+            let carRadius = Math.max(car.width || 16, car.length || 28) * 0.5;
+            let minDist = carRadius + (player.size || 20) * 0.5;
+            if (dist < minDist) {
+              if (dist === 0) { dx = 1; dy = 0; dist = 1; }
+              let overlap = minDist - dist, nx = dx / dist, ny = dy / dist;
+              let targetX = player.x + nx * overlap, targetY = player.y + ny * overlap;
+              if (typeof isWalkableColor === 'function') {
+                  if (isWalkableColor(targetX, player.y, player.size)) player.x = targetX;
+                  if (isWalkableColor(player.x, targetY, player.size)) player.y = targetY;
+              }
+
 
         if (
     !playerCar &&
@@ -1752,27 +1760,32 @@ car.isParked = true;
       });
   }
 
-  cars.forEach(car => {
-      if (car.recentlyJackedTimer > 0) car.recentlyJackedTimer -= dt;
-    const nearby = getNearbyCollisionEntities(car);
+      cars.forEach(car => {
+          if (car.recentlyJackedTimer > 0) car.recentlyJackedTimer -= dt;
+        const nearby = getNearbyCollisionEntities(car);
 
-for (const entry of nearby) {
-    if (entry.type !== "npc") continue;
+        for (const entry of nearby) {
+          if (entry.type !== "npc") continue;
 
-    const npc = entry.entity;
-      let dx = npc.x - car.x, dy = npc.y - car.y, dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 22) {
-        if ((!car.crashCooldown || car.crashCooldown <= 0) && car.health > 0 && !car.exploded) {
-    playSpatialSound(carCrashPool, car.x, car.y, 0.6);
-    car.crashCooldown = 30;
+          const npc = entry.entity;
+          let dx = npc.x - car.x, dy = npc.y - car.y, dist = Math.sqrt(dx * dx + dy * dy);
+
+          let carRadius = Math.max(car.width || 16, car.length || 28) * 0.5
+          let minDist = carRadius + (npc.size || 20) * 0.5;
+
+          if (dist < minDist) {
+            if ((!car.crashCooldown || car.crashCooldown <= 0) && car.health > 0 && !car.exploded) {
+              playSpatialSound(carCrashPool, car.x, car.y, 0.6);
+              car.crashCooldown = 30;
+            }
+            if (dist === 0) { dx = 1; dy = 0; dist = 1; }
+            let overlap = minDist - dist, nx = dx / dist, ny = dy / dist;
+            let tx = npc.x + nx * overlap, ty = npc.y + ny * overlap;
+            if (typeof isRoadColor === 'function' && isRoadColor(tx, ty)) { npc.x = tx; npc.y = ty; }
+          }
         }
-        if (dist === 0) { dx = 1; dy = 0; dist = 1; }
-        let overlap = 22 - dist, nx = dx / dist, ny = dy / dist;
-        let tx = npc.x + nx * overlap, ty = npc.y + ny * overlap;
-        if (typeof isRoadColor === 'function' && isRoadColor(tx, ty)) { npc.x = tx; npc.y = ty; }
-      }
-    }
-  });
+      });
+
 
   if (!isInsideHouse && !isInsideDealership) {
       // NPC vs Player collision (On foot or in vehicle)
@@ -1793,21 +1806,22 @@ for (const entry of nearby) {
       });
       
 // NPC VS PLAYER CAR
- 
+      cars.forEach(car => {
+          if (!playerCar || car.id !== playerCar.id) return;
 
-cars.forEach(car => {
-    if (!playerCar || car.id !== playerCar.id) return;
+          npcs.forEach(npc => {
+              if (!npc) return;
 
-    npcs.forEach(npc => {
-        if (!npc) return;
+              let dx = npc.x - car.x;
+              let dy = npc.y - car.y;
+              let dist = Math.hypot(dx, dy);
 
-        let dx = npc.x - car.x;
-        let dy = npc.y - car.y;
-        let dist = Math.hypot(dx, dy);
+              let carRadius = Math.max(car.width || 16, car.length || 28) * 0.5;
+              let minDist = carRadius + (npc.size || 20) * 0.5 + 4;
 
-        if (dist >= 28) return;
+              if (dist >= minDist) return;
+              // ... hit and run trigger logic
 
-        
 
         if (
             !npc.isInjured &&
@@ -1825,7 +1839,7 @@ cars.forEach(car => {
             npc.changeDirTimer = 999999;
             npc.fleeTimer = 0;
 
-            registerHitRunIncident(
+        registerHitRunIncident(
                 "NPC",
                 npc.x,
                 npc.y,
