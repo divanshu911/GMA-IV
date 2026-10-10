@@ -2691,33 +2691,52 @@ if (this.exploded) {
 
       ctx.fillStyle = beamGradient;
 
-      // Left Headlight Cone
-      ctx.beginPath();
-      ctx.moveTo(-this.width / 3, -this.length / 2);
-      ctx.lineTo(
-        -this.width / 3 - beamSpread,
-        -this.length / 2 - headlightLength
-      );
-      ctx.lineTo(
-        this.width * 0.1,
-        -this.length / 2 - headlightLength
-      );
-      ctx.closePath();
-      ctx.fill();
+      // Cones are clipped by the ray fan (OBJLIGHT) so light stops at the first
+      // car / NPC / player / building each ray meets. No obstruction -> same
+      // triangles as before.
+      const olFans =
+        (this._olHead && this._olFrame === OBJLIGHT.frame) ? this._olHead : null;
 
-      // Right Headlight Cone
-      ctx.beginPath();
-      ctx.moveTo(this.width / 3, -this.length / 2);
-      ctx.lineTo(
-        -this.width * 0.1,
-        -this.length / 2 - headlightLength
-      );
-      ctx.lineTo(
-        this.width / 3 + beamSpread,
-        -this.length / 2 - headlightLength
-      );
-      ctx.closePath();
-      ctx.fill();
+      if (olFans && (olFans.left.shortened || olFans.right.shortened)) {
+        const cosA = Math.cos(this.angle), sinA = Math.sin(this.angle);
+        const ay = -this.length / 2;
+
+        ctx.beginPath();
+        olTraceFan(ctx, olFans.left, this.x, this.y, cosA, sinA, -this.width / 3, ay);
+        ctx.fill();
+
+        ctx.beginPath();
+        olTraceFan(ctx, olFans.right, this.x, this.y, cosA, sinA, this.width / 3, ay);
+        ctx.fill();
+      } else {
+        // Left Headlight Cone
+        ctx.beginPath();
+        ctx.moveTo(-this.width / 3, -this.length / 2);
+        ctx.lineTo(
+          -this.width / 3 - beamSpread,
+          -this.length / 2 - headlightLength
+        );
+        ctx.lineTo(
+          this.width * 0.1,
+          -this.length / 2 - headlightLength
+        );
+        ctx.closePath();
+        ctx.fill();
+
+        // Right Headlight Cone
+        ctx.beginPath();
+        ctx.moveTo(this.width / 3, -this.length / 2);
+        ctx.lineTo(
+          -this.width * 0.1,
+          -this.length / 2 - headlightLength
+        );
+        ctx.lineTo(
+          this.width / 3 + beamSpread,
+          -this.length / 2 - headlightLength
+        );
+        ctx.closePath();
+        ctx.fill();
+      }
 
       // Focal point bulb glow
       ctx.fillStyle = "rgba(255, 255, 255, 0.95)";

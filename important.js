@@ -1,7 +1,7 @@
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-console.log("ci");
+console.log("coconut");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
@@ -610,7 +610,7 @@ function sendPhoneMessage(title, text, options) {
 
     // HUD notice only. Never opens the phone or the Messages app.
     if (opts.notify !== false && typeof taxiManager !== "undefined" && taxiManager.setMessage) {
-        taxiManager.setMessage("You received a message", 180);
+        taxiManager.setMessage("You received a message (swipe down to view)", 180);
     }
 
     updateMessagesBadge();
@@ -811,8 +811,8 @@ document.addEventListener("DOMContentLoaded", () => {
 // ============================================================
 
 const GAMEPLAY_TIPS = [
-    { title: "Phone Tip", text: "Swipe down from the top to use phone." },
-    { title: "Map Tip",   text: "Open minimap to see locations on map." }
+    { title: "Tip", text: "You can sell stolen cars at blackmarket." },
+    { title: "Tip", text: "Open minimap to see locations on map." }
     // Add future tips here; they are scheduled automatically.
 ];
 
@@ -1214,12 +1214,33 @@ function drawNightOverlay() {
      * MAIN BEAM (High origin brightness fading outward)
      * -----------------------------------------------------
      */
+    // Ray-based occlusion (see OBJLIGHT): when cars / NPCs / the player /
+    // buildings cut some rays short, the beam is clipped to the ray fan so no
+    // light spills behind the blocker. Unobstructed beams keep the old shape.
+    const fan =
+        (light._ol && light._olFrame === OBJLIGHT.frame) ? light._ol.fan : null;
+    const useFan = !!(fan && fan.shortened);
+
     ctx.save();
     ctx.beginPath();
-    ctx.moveTo(startLeft.x, startLeft.y);
-    ctx.lineTo(endLeft.x, endLeft.y);
-    ctx.lineTo(endRight.x, endRight.y);
-    ctx.lineTo(startRight.x, startRight.y);
+    if (useFan) {
+        for (let i = 0; i < fan.n; i++) {
+            const p = worldToScreen(fan.ox[i], fan.oy[i]);
+            if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+        }
+        for (let i = fan.n - 1; i >= 0; i--) {
+            const p = worldToScreen(
+                fan.ox[i] + fan.dx[i] * fan.lens[i],
+                fan.oy[i] + fan.dy[i] * fan.lens[i]
+            );
+            ctx.lineTo(p.x, p.y);
+        }
+    } else {
+        ctx.moveTo(startLeft.x, startLeft.y);
+        ctx.lineTo(endLeft.x, endLeft.y);
+        ctx.lineTo(endRight.x, endRight.y);
+        ctx.lineTo(startRight.x, startRight.y);
+    }
     ctx.closePath();
     ctx.clip();
 
@@ -1250,6 +1271,10 @@ function drawNightOverlay() {
      * EXPANDED SOFT END BLUR
      * -----------------------------------------------------
      */
+    // No far-end glow when the middle of the beam is blocked.
+    const endBlocked = useFan && fan.lens[fan.n >> 1] < length - 0.5;
+
+    if (!endBlocked) {
     ctx.save();
     const endScreen = worldToScreen(endX, endY);
     
@@ -1281,6 +1306,7 @@ function drawNightOverlay() {
     );
     ctx.fill();
     ctx.restore();
+    }
 }
 
 
@@ -2272,7 +2298,8 @@ class NavigationSystem {
         if (type === "GRASS") return 12;
 
         return Infinity;
-    }  findPath(startX, startY, targetX, targetY, preferRoads = false) {
+    }  
+    findPath(startX, startY, targetX, targetY, preferRoads = false) {
 
         if (!this.ready) {
             return null;
@@ -2305,12 +2332,97 @@ class NavigationSystem {
             ];
         }
 
-        const openSet = [];
-        const closedSet = new Set();
+        // --------------------------------------------------------
+        // Fast integer key instead of "x,y" string allocation.
+        // --------------------------------------------------------
 
+        const getKey = (x, y) =>
+            y * this.gridWidth + x;
+
+        // --------------------------------------------------------
+        // Binary min-heap for the A* open set.
+        //
+        // The old implementation scanned the entire openSet every
+        // iteration. The heap reduces that lookup from O(n) to
+        // O(log n).
+        // --------------------------------------------------------
+
+        const openHeap = [];
+
+        const heapPush = (node) => {
+            let index = openHeap.length;
+
+            openHeap.push(node);
+
+            while (index > 0) {
+                const parentIndex =
+                    (index - 1) >> 1;
+
+                const parent =
+                    openHeap[parentIndex];
+
+                if (parent.f <= node.f) {
+                    break;
+                }
+
+                openHeap[index] = parent;
+                index = parentIndex;
+            }
+
+            openHeap[index] = node;
+        };
+
+        const heapPop = () => {
+            const root = openHeap[0];
+            const last = openHeap.pop();
+
+            if (openHeap.length > 0) {
+                let index = 0;
+
+                while (true) {
+                    const left =
+                        index * 2 + 1;
+
+                    if (left >= openHeap.length) {
+                        break;
+                    }
+
+                    const right = left + 1;
+
+                    let child = left;
+
+                    if (
+                        right < openHeap.length &&
+                        openHeap[right].f <
+                            openHeap[left].f
+                    ) {
+                        child = right;
+                    }
+
+                    if (
+                        openHeap[child].f >=
+                        last.f
+                    ) {
+                        break;
+                    }
+
+                    openHeap[index] =
+                        openHeap[child];
+
+                    index = child;
+                }
+
+                openHeap[index] = last;
+            }
+
+            return root;
+        };
+
+        const closedSet = new Set();
         const nodes = new Map();
 
-        const startKey = `${start.x},${start.y}`;
+        const startKey =
+            getKey(start.x, start.y);
 
         const startNode = {
             x: start.x,
@@ -2325,37 +2437,47 @@ class NavigationSystem {
             startNode.g +
             startNode.h;
 
-        openSet.push(startNode);
-        nodes.set(startKey, startNode);
+        nodes.set(
+            startKey,
+            startNode
+        );
 
-        while (openSet.length > 0) {
+        heapPush(startNode);
 
-            // Find node with lowest f score.
-            let bestIndex = 0;
+        // --------------------------------------------------------
+        // A* search
+        // --------------------------------------------------------
 
-            for (let i = 1; i < openSet.length; i++) {
-                if (
-                    openSet[i].f <
-                    openSet[bestIndex].f
-                ) {
-                    bestIndex = i;
-                }
+        while (openHeap.length > 0) {
+
+            const current = heapPop();
+
+            if (!current) {
+                break;
             }
 
-            const current =
-                openSet.splice(bestIndex, 1)[0];
-
             const currentKey =
-                `${current.x},${current.y}`;
+                getKey(
+                    current.x,
+                    current.y
+                );
+
+            // A node can appear more than once in the heap when its
+            // g-score improves. Ignore stale/closed entries.
+            if (closedSet.has(currentKey)) {
+                continue;
+            }
 
             closedSet.add(currentKey);
 
-            // Goal reached.
+            // ----------------------------------------------------
+            // Goal reached
+            // ----------------------------------------------------
+
             if (
                 current.x === goal.x &&
                 current.y === goal.y
             ) {
-
                 const path = [];
 
                 let node = current;
@@ -2376,13 +2498,23 @@ class NavigationSystem {
                 return path;
             }
 
+            // ----------------------------------------------------
+            // Get neighboring cells
+            // ----------------------------------------------------
+
             const neighbors =
-                this.getNeighbors(current, preferRoads);
+                this.getNeighbors(
+                    current,
+                    preferRoads
+                );
 
             for (const neighbor of neighbors) {
 
                 const key =
-                    `${neighbor.x},${neighbor.y}`;
+                    getKey(
+                        neighbor.x,
+                        neighbor.y
+                    );
 
                 if (closedSet.has(key)) {
                     continue;
@@ -2406,27 +2538,36 @@ class NavigationSystem {
                         parent: null
                     };
 
-                    nodes.set(key, neighborNode);
+                    nodes.set(
+                        key,
+                        neighborNode
+                    );
                 }
 
-                if (tentativeG >= neighborNode.g) {
+                if (
+                    tentativeG >=
+                    neighborNode.g
+                ) {
                     continue;
                 }
 
-                neighborNode.parent = current;
-                neighborNode.g = tentativeG;
+                neighborNode.parent =
+                    current;
+
+                neighborNode.g =
+                    tentativeG;
+
                 neighborNode.h =
                     this.heuristic(
                         neighborNode,
                         goal
                     );
 
-                neighborNode.f =                    neighborNode.g +                    neighborNode.h;
+                neighborNode.f =
+                    neighborNode.g +
+                    neighborNode.h;
 
-                // Add to open set if it isn't already there.
-                if (!openSet.includes(neighborNode)) {
-                    openSet.push(neighborNode);
-                }
+                heapPush(neighborNode);
             }
         }
 
@@ -2518,4 +2659,506 @@ function isEntityOnScreen(entity, margin = 150) {
     const maxDistance = Math.max(canvas.width, canvas.height) * 0.75 + margin;
 
     return dx * dx + dy * dy <= maxDistance * maxDistance;
+}
+
+// ============================================================================
+// DYNAMIC OBJECT LIGHTING  (ray occlusion + partial object glow)
+// ----------------------------------------------------------------------------
+// Per frame (see main.js render loop):
+//   1. updateObjectLighting()  gathers on-screen blockers (cars / NPCs / player),
+//                              casts the rays of every visible light and stores
+//                              ray lengths + soft glow spots per object.
+//   2. drawNightOverlay()      building beams are clipped to their ray fan.
+//   3. Car.drawLights()        headlight cones are clipped to their ray fan.
+//   4. drawObjectGlows(ctx)    glow spots, clipped to each object's own
+//                              silhouette, so only the exposed part lights up.
+// Allocation-free after warm-up (pooled blockers, typed arrays, cached fans).
+// ============================================================================
+const OBJLIGHT = {
+    HEAD_RAYS: 11,         // rays per headlight cone
+    BUILD_RAYS: 9,         // rays per building beam
+    CELL: 4,               // world px per cached "solid?" cell
+    STEP: 4,               // ray-march step against the collision map
+    MAX_GLOWS: 5,          // glow spots kept per object
+    GLOW_ALPHA: 0.5,       // peak additive alpha of a single glow
+    GLOW_TOTAL_CAP: 0.8,   // total additive alpha allowed on one object
+    HEAD_RANGE: 180,       // same as Car.drawLights headlightLength
+    active: false,
+    frame: 0,
+
+    blockers: [],
+    blockerCount: 0,
+    cand: new Int16Array(128),   // scratch candidate list for one light
+
+    grid: null, gridW: 0, gridH: 0, cw: 0, ch: 0,
+    scaleX: 1, scaleY: 1, gridSource: null
+};
+
+function _olGetBlocker(i) {
+    let b = OBJLIGHT.blockers[i];
+    if (!b) {
+        const M = OBJLIGHT.MAX_GLOWS;
+        b = OBJLIGHT.blockers[i] = {
+            kind: 0, ref: null, x: 0, y: 0, bound: 0,
+            ang: 0, cos: 1, sin: 0, hw: 0, hl: 0, r: 0,
+            gc: 0, gx: new Float32Array(M), gy: new Float32Array(M),
+            gr: new Float32Array(M), gi: new Float32Array(M)
+        };
+    }
+    return b;
+}
+
+// ---------------------------------------------------------------------------
+// Static occlusion from the existing collision data / terrain classifier.
+// A cell blocks light when its terrain is BLOCKED (buildings, walls...), except
+// the blue river. Cells are classified lazily and cached (0 free / 1 solid).
+// ---------------------------------------------------------------------------
+function _olPrepareGrid() {
+    const O = OBJLIGHT;
+    if (!collisionData) return false;
+    if (O.gridSource === collisionData) return true;
+
+    const cw = (typeof collisionMapImage !== "undefined" && collisionMapImage.width) || mapWidth;
+    const ch = (typeof collisionMapImage !== "undefined" && collisionMapImage.height) || mapHeight;
+    if (!cw || !ch) return false;
+
+    const worldW = (typeof mapImage !== "undefined" && mapImage.naturalWidth) || 4096;
+    const worldH = (typeof mapImage !== "undefined" && mapImage.naturalHeight) || 2286;
+
+    // same collision -> world conversion the building-light generator uses
+    O.cw = cw; O.ch = ch;
+    O.scaleX = worldW / cw;
+    O.scaleY = worldH / ch;
+    O.gridW = Math.ceil(worldW / O.CELL);
+    O.gridH = Math.ceil(worldH / O.CELL);
+    O.grid = new Uint8Array(O.gridW * O.gridH).fill(255);
+    O.gridSource = collisionData;
+    return true;
+}
+
+function _olPixelSolid(wx, wy) {
+    const O = OBJLIGHT;
+    const px = Math.floor(wx / O.scaleX);
+    const py = Math.floor(wy / O.scaleY);
+    if (px < 0 || py < 0 || px >= O.cw || py >= O.ch) return 1;
+    const i = (py * O.cw + px) * 4;
+    const r = collisionData[i], g = collisionData[i + 1], b = collisionData[i + 2];
+    if (b > r + 20 && b > g + 10) return 0;            // river never blocks light
+    return getTerrainType(r, g, b) === "BLOCKED" ? 1 : 0;
+}
+
+function _olSolidAt(wx, wy) {
+    const O = OBJLIGHT;
+    const cx = Math.floor(wx / O.CELL);
+    const cy = Math.floor(wy / O.CELL);
+    if (cx < 0 || cy < 0 || cx >= O.gridW || cy >= O.gridH) return 1;
+    const idx = cy * O.gridW + cx;
+    let v = O.grid[idx];
+    if (v === 255) {
+        // 4 sub-samples; at least half must be solid (ignores hairline noise)
+        const x0 = cx * O.CELL, y0 = cy * O.CELL, q = O.CELL * 0.25, h = O.CELL * 0.75;
+        const n = _olPixelSolid(x0 + q, y0 + q) + _olPixelSolid(x0 + h, y0 + q) +
+                  _olPixelSolid(x0 + q, y0 + h) + _olPixelSolid(x0 + h, y0 + h);
+        v = n >= 2 ? 1 : 0;
+        O.grid[idx] = v;
+    }
+    return v;
+}
+
+// March along unit (dx,dy); returns distance to the first solid cell (or
+// maxDist). Cells still inside the light's own wall / vehicle are skipped.
+function _olMarchMap(ox, oy, dx, dy, maxDist) {
+    const step = OBJLIGHT.STEP;
+    let inside = true;
+    for (let t = 0; t <= maxDist; t += step) {
+        if (_olSolidAt(ox + dx * t, oy + dy * t)) {
+            if (!inside || t > 24) return t;
+        } else {
+            inside = false;
+        }
+    }
+    return maxDist;
+}
+
+// ---------------------------------------------------------------------------
+// Ray vs blocker shape. Return distance or -1. The contact point (in the
+// blocker's LOCAL frame) is left in _olHitLX/_olHitLY.
+// ---------------------------------------------------------------------------
+let _olHitLX = 0, _olHitLY = 0;
+
+function _olRayRect(b, ox, oy, dx, dy, maxDist) {
+    const rx = ox - b.x, ry = oy - b.y;
+    const px = rx * b.cos + ry * b.sin;
+    const py = -rx * b.sin + ry * b.cos;
+    const vx = dx * b.cos + dy * b.sin;
+    const vy = -dx * b.sin + dy * b.cos;
+
+    let tmin = 0, tmax = maxDist;
+    if (Math.abs(vx) < 1e-6) {
+        if (px < -b.hw || px > b.hw) return -1;
+    } else {
+        let t1 = (-b.hw - px) / vx, t2 = (b.hw - px) / vx;
+        if (t1 > t2) { const s = t1; t1 = t2; t2 = s; }
+        if (t1 > tmin) tmin = t1;
+        if (t2 < tmax) tmax = t2;
+        if (tmin > tmax) return -1;
+    }
+    if (Math.abs(vy) < 1e-6) {
+        if (py < -b.hl || py > b.hl) return -1;
+    } else {
+        let t1 = (-b.hl - py) / vy, t2 = (b.hl - py) / vy;
+        if (t1 > t2) { const s = t1; t1 = t2; t2 = s; }
+        if (t1 > tmin) tmin = t1;
+        if (t2 < tmax) tmax = t2;
+        if (tmin > tmax) return -1;
+    }
+    if (tmin <= 0 || tmin > maxDist) return -1;   // origin inside, or out of range
+    _olHitLX = px + vx * tmin;
+    _olHitLY = py + vy * tmin;
+    return tmin;
+}
+
+function _olRayCircle(b, ox, oy, dx, dy, maxDist) {
+    const cx = b.x - ox, cy = b.y - oy;
+    const proj = cx * dx + cy * dy;
+    if (proj <= 0) return -1;
+    const d2 = cx * cx + cy * cy - proj * proj;
+    const r2 = b.r * b.r;
+    if (d2 > r2) return -1;
+    const t = proj - Math.sqrt(r2 - d2);
+    if (t <= 0 || t > maxDist) return -1;
+    _olHitLX = ox + dx * t - b.x;
+    _olHitLY = oy + dy * t - b.y;
+    return t;
+}
+
+// ---------------------------------------------------------------------------
+// Light fan: a bundle of rays belonging to one cone / beam.
+// ---------------------------------------------------------------------------
+function _olNewFan(n) {
+    return {
+        n: n,
+        ox: new Float32Array(n), oy: new Float32Array(n),   // ray origins (world)
+        dx: new Float32Array(n), dy: new Float32Array(n),   // unit directions
+        full: new Float32Array(n),                          // length with static map applied
+        lens: new Float32Array(n),                          // length after dynamic blockers
+        wgt: new Float32Array(n),                           // across-beam brightness weight
+        hitB: new Int16Array(n),                            // blocker index hit (-1 = none)
+        hlx: new Float32Array(n), hly: new Float32Array(n), // contact point, blocker-local
+        shortened: false, staticShort: false, dirty: false,
+        sx: 0, sy: 0, range: 1                              // exact source + range (falloff)
+    };
+}
+
+// Cast one fan. candidates = blockers whose bounding circle touches the light.
+function _olCastFan(fan, owner, useMap, cx, cy, boundR) {
+    const O = OBJLIGHT, n = fan.n;
+
+    let cc = 0;
+    for (let i = 0; i < O.blockerCount && cc < O.cand.length; i++) {
+        const b = O.blockers[i];
+        if (b.ref === owner) continue;
+        const ddx = b.x - cx, ddy = b.y - cy;
+        const rr = boundR + b.bound;
+        if (ddx * ddx + ddy * ddy <= rr * rr) O.cand[cc++] = i;
+    }
+
+    // Static building light with nothing nearby: keep (or restore) cached result.
+    if (cc === 0 && !useMap) {
+        if (fan.dirty) {
+            for (let r = 0; r < n; r++) { fan.lens[r] = fan.full[r]; fan.hitB[r] = -1; }
+            fan.dirty = false;
+        }
+        fan.shortened = fan.staticShort;
+        return;
+    }
+
+    let any = fan.staticShort;
+    for (let r = 0; r < n; r++) {
+        let len = fan.full[r];
+        let hit = -1;
+        const ox = fan.ox[r], oy = fan.oy[r], dx = fan.dx[r], dy = fan.dy[r];
+
+        if (useMap) len = _olMarchMap(ox, oy, dx, dy, len);
+
+        for (let c = 0; c < cc; c++) {
+            const bi = O.cand[c];
+            const b = O.blockers[bi];
+            const t = b.kind === 0 ? _olRayRect(b, ox, oy, dx, dy, len)
+                                   : _olRayCircle(b, ox, oy, dx, dy, len);
+            if (t > 0 && t < len) {
+                len = t; hit = bi;
+                fan.hlx[r] = _olHitLX; fan.hly[r] = _olHitLY;
+            }
+        }
+        fan.lens[r] = len;
+        fan.hitB[r] = hit;
+        if (len < fan.full[r] - 0.5 || (useMap && len < fan.full[r])) any = true;
+    }
+    fan.shortened = any;
+    fan.dirty = true;
+
+    // Turn each run of consecutive rays that hit the same object into ONE soft
+    // glow spot at the intensity-weighted contact point.
+    let r = 0;
+    while (r < n) {
+        const bi = fan.hitB[r];
+        if (bi < 0) { r++; continue; }
+        let sx = 0, sy = 0, sw = 0, best = 0, cnt = 0, r2 = r;
+        while (r2 < n && fan.hitB[r2] === bi) {
+            // brightness depends on distance from the EXACT light source
+            const hx = fan.ox[r2] + fan.dx[r2] * fan.lens[r2];
+            const hy = fan.oy[r2] + fan.dy[r2] * fan.lens[r2];
+            const d = Math.hypot(hx - fan.sx, hy - fan.sy);
+            const k = Math.max(0, 1 - d / fan.range);
+            const inten = k * k * (0.55 + 0.45 * fan.wgt[r2]);
+            sx += fan.hlx[r2] * inten; sy += fan.hly[r2] * inten; sw += inten;
+            if (inten > best) best = inten;
+            cnt++; r2++;
+        }
+        if (sw > 0.004) _olAddGlow(O.blockers[bi], sx / sw, sy / sw, best, 6 + cnt * 2.4);
+        r = r2;
+    }
+}
+
+function _olAddGlow(b, lx, ly, inten, radius) {
+    const M = OBJLIGHT.MAX_GLOWS;
+    let slot = b.gc;
+    if (slot >= M) {                        // full: replace weakest if this one is stronger
+        let w = 0;
+        for (let i = 1; i < M; i++) if (b.gi[i] < b.gi[w]) w = i;
+        if (b.gi[w] >= inten) return;
+        slot = w;
+    } else {
+        b.gc++;
+    }
+    b.gx[slot] = lx; b.gy[slot] = ly; b.gr[slot] = radius; b.gi[slot] = inten;
+}
+
+// Adds the fan outline to the current path. Output is in the local frame of
+// (px,py,angle): apex first, then every ray end point.
+function olTraceFan(ctx, fan, px, py, cosA, sinA, apexX, apexY) {
+    ctx.moveTo(apexX, apexY);
+    for (let i = 0; i < fan.n; i++) {
+        const wx = fan.ox[i] + fan.dx[i] * fan.lens[i] - px;
+        const wy = fan.oy[i] + fan.dy[i] * fan.lens[i] - py;
+        ctx.lineTo(wx * cosA + wy * sinA, -wx * sinA + wy * cosA);
+    }
+    ctx.closePath();
+}
+
+// ---------------------------------------------------------------------------
+// Light registration
+// ---------------------------------------------------------------------------
+function _olSetupHeadlights(car) {
+    const O = OBJLIGHT, N = O.HEAD_RAYS;
+    let L = car._olHead;
+    if (!L) L = car._olHead = { left: _olNewFan(N), right: _olNewFan(N) };
+
+    const w = car.width, len = car.length;
+    const range = O.HEAD_RANGE;
+    const spread = w * 1.8;
+    const cosA = Math.cos(car.angle), sinA = Math.sin(car.angle);
+    const ay = -len / 2;                 // bulb line (local)
+    const far = ay - range;              // flat end of the cone (local)
+
+    // left cone : apex (-w/3, ay), far edge x from  -w/3-spread .. 0.1w
+    // right cone: apex ( w/3, ay), far edge x from -0.1w .. w/3+spread
+    for (let side = 0; side < 2; side++) {
+        const fan = side === 0 ? L.left : L.right;
+        const axL = side === 0 ? -w / 3 : w / 3;
+        const x0 = side === 0 ? -w / 3 - spread : -w * 0.1;
+        const x1 = side === 0 ? w * 0.1 : w / 3 + spread;
+
+        const wax = car.x + axL * cosA - ay * sinA;
+        const way = car.y + axL * sinA + ay * cosA;
+        fan.sx = wax; fan.sy = way; fan.range = range;
+
+        for (let i = 0; i < N; i++) {
+            const u = i / (N - 1);
+            let vx = (x0 + (x1 - x0) * u) - axL, vy = far - ay;
+            const dist = Math.hypot(vx, vy);
+            vx /= dist; vy /= dist;
+            fan.ox[i] = wax; fan.oy[i] = way;
+            fan.dx[i] = vx * cosA - vy * sinA;
+            fan.dy[i] = vx * sinA + vy * cosA;
+            fan.full[i] = dist;
+            fan.wgt[i] = 1 - Math.abs(u - 0.5) * 2 * 0.8;   // brightest on the cone axis
+        }
+        _olCastFan(fan, car, true, wax, way, range + 8);
+    }
+    car._olFrame = O.frame;
+}
+
+function _olSetupBuildingLight(light) {
+    const O = OBJLIGHT, N = O.BUILD_RAYS;
+
+    // ---- static data, computed once per building light and cached ----
+    let c = light._ol;
+    if (!c) {
+        const length = light.length * 0.82;               // same as drawLightBeam
+        const px = -light.ny, py = light.nx;
+        const sh = light.baseWidth * 0.38 * 0.5;
+        const eh = light.baseWidth * 1.15 * 0.5;
+        const fan = _olNewFan(N);
+        fan.sx = light.x; fan.sy = light.y; fan.range = length;
+        for (let i = 0; i < N; i++) {
+            const u = (i / (N - 1)) * 2 - 1;              // -1 .. 1 across the beam
+            const sx = light.x + px * sh * u, sy = light.y + py * sh * u;
+            const ex = light.x + light.nx * length + px * eh * u;
+            const ey = light.y + light.ny * length + py * eh * u;
+            const dist = Math.hypot(ex - sx, ey - sy);
+            fan.ox[i] = sx; fan.oy[i] = sy;
+            fan.dx[i] = (ex - sx) / dist; fan.dy[i] = (ey - sy) / dist;
+            fan.full[i] = dist;
+            fan.wgt[i] = 1 - Math.abs(u) * 0.7;
+        }
+        // buildings (static) are evaluated exactly once
+        for (let i = 0; i < N; i++) {
+            const orig = fan.full[i];
+            fan.full[i] = _olMarchMap(fan.ox[i], fan.oy[i], fan.dx[i], fan.dy[i], orig);
+            fan.lens[i] = fan.full[i];
+            fan.hitB[i] = -1;
+            if (fan.full[i] < orig) fan.staticShort = true;
+        }
+        fan.shortened = fan.staticShort;
+        c = light._ol = {
+            fan: fan,
+            cx: light.x + light.nx * length * 0.5,
+            cy: light.y + light.ny * length * 0.5,
+            r: length * 0.5 + light.baseWidth * 0.8 + 6,
+            pos: { x: 0, y: 0 }
+        };
+        c.pos.x = c.cx; c.pos.y = c.cy;
+    }
+
+    // reuse the existing entity-on-screen test via the cached beam centre
+    if (!isEntityOnScreen(c.pos, c.r)) return;
+
+    _olCastFan(c.fan, null, false, c.cx, c.cy, c.r);
+    light._olFrame = O.frame;
+}
+
+// ---------------------------------------------------------------------------
+// PER-FRAME ENTRY POINT  (call once, right before drawNightOverlay)
+// ---------------------------------------------------------------------------
+function updateObjectLighting() {
+    const O = OBJLIGHT;
+    O.frame++;
+    O.active = false;
+    O.blockerCount = 0;
+
+    if (typeof ambientBrightness === "undefined" || ambientBrightness >= 0.75) return;
+    if (typeof isInsideHouse !== "undefined" && isInsideHouse) return;
+    if (typeof isInsideDealership !== "undefined" && isInsideDealership) return;
+    if (!_olPrepareGrid()) return;
+    O.active = true;
+
+    // ---- 1. blockers: only entities the game already says are on screen ----
+    let n = 0;
+    const carList = (typeof cars !== "undefined") ? cars : null;
+
+    if (carList) {
+        for (let i = 0; i < carList.length; i++) {
+            const car = carList[i];
+            if (!isEntityOnScreen(car)) continue;
+            const b = _olGetBlocker(n++);
+            b.kind = 0; b.ref = car; b.x = car.x; b.y = car.y;
+            b.ang = car.angle; b.cos = Math.cos(car.angle); b.sin = Math.sin(car.angle);
+            b.hw = car.width / 2; b.hl = car.length / 2;
+            b.bound = Math.hypot(b.hw, b.hl); b.gc = 0;
+        }
+    }
+    if (typeof npcs !== "undefined") {
+        for (let i = 0; i < npcs.length; i++) {
+            const p = npcs[i];
+            if (p.isPassenger || !isEntityOnScreen(p)) continue;
+            const b = _olGetBlocker(n++);
+            b.kind = 1; b.ref = p; b.x = p.x; b.y = p.y;
+            b.r = p.size * 0.42; b.bound = b.r; b.gc = 0;
+        }
+    }
+    if (typeof angryDrivers !== "undefined") {
+        for (let i = 0; i < angryDrivers.length; i++) {
+            const p = angryDrivers[i];
+            if (!isEntityOnScreen(p)) continue;
+            const b = _olGetBlocker(n++);
+            b.kind = 1; b.ref = p; b.x = p.x; b.y = p.y;
+            b.r = p.size * 0.42; b.bound = b.r; b.gc = 0;
+        }
+    }
+    if (typeof player !== "undefined" && !playerCar && !player.ispassenger) {
+        const b = _olGetBlocker(n++);
+        // the player is drawn at the camera centre, i.e. (x,y) + size/2
+        b.kind = 1; b.ref = player;
+        b.x = player.x + player.size / 2; b.y = player.y + player.size / 2;
+        b.r = player.size * 0.42; b.bound = b.r; b.gc = 0;
+    }
+    O.blockerCount = n;
+
+    // ---- 2. headlights (same activation rule as Car.drawLights) ----
+    if (carList) {
+        for (let i = 0; i < carList.length; i++) {
+            const car = carList[i];
+            if (car.isParked || car.exploded) continue;
+            if (!isEntityOnScreen(car)) continue;
+            _olSetupHeadlights(car);
+        }
+    }
+
+    // ---- 3. building lights, only while the night sequence has them on ----
+    if (typeof buildingLightsMode !== "undefined" && buildingLightsMode !== "day") {
+        const lights = window.buildingLightShapes || [];
+        for (let i = 0; i < lights.length; i++) {
+            const l = lights[i];
+            if (l.enabled) _olSetupBuildingLight(l);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GLOW PASS (world space, after the night overlay and the beams)
+// ---------------------------------------------------------------------------
+function _olDrawGlows(ctx, b) {
+    const O = OBJLIGHT;
+    let total = 0;
+    for (let g = 0; g < b.gc; g++) total += Math.min(1, b.gi[g]) * O.GLOW_ALPHA;
+    // several lights together must not blow the object out
+    const scale = total > O.GLOW_TOTAL_CAP ? O.GLOW_TOTAL_CAP / total : 1;
+
+    for (let g = 0; g < b.gc; g++) {
+        const a = Math.min(1, b.gi[g]) * O.GLOW_ALPHA * scale;
+        if (a < 0.012) continue;
+        const R = b.gr[g], x = b.gx[g], y = b.gy[g];
+        const grad = ctx.createRadialGradient(x, y, 0, x, y, R);
+        grad.addColorStop(0,    "rgba(255,238,175," + a.toFixed(3) + ")");
+        grad.addColorStop(0.45, "rgba(255,226,152," + (a * 0.45).toFixed(3) + ")");
+        grad.addColorStop(1,    "rgba(255,215,130,0)");
+        ctx.fillStyle = grad;
+        ctx.fillRect(x - R, y - R, R * 2, R * 2);   // clipped to the silhouette -> no square edge
+    }
+}
+
+function drawObjectGlows(ctx) {
+    const O = OBJLIGHT;
+    if (!O.active) return;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < O.blockerCount; i++) {
+        const b = O.blockers[i];
+        if (b.gc === 0) continue;
+        ctx.save();
+        ctx.translate(b.x, b.y);
+        ctx.beginPath();
+        if (b.kind === 0) {
+            ctx.rotate(b.ang);
+            ctx.rect(-b.hw, -b.hl, b.hw * 2, b.hl * 2);      // exact car silhouette
+        } else {
+            ctx.arc(0, 0, b.r + 1.5, 0, Math.PI * 2);         // body circle
+        }
+        ctx.clip();
+        _olDrawGlows(ctx, b);
+        ctx.restore();
+    }
+    ctx.restore();
 }

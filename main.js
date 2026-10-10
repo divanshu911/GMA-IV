@@ -4461,6 +4461,11 @@ if (!isInsideHouse && !isInsideDealership) {
   player.draw(ctx, isInsideDealership ? 0 : camera.angle);
 }
 
+// Ray occlusion + object glow data for this frame (headlights & building lights).
+if (!isInsideHouse && !isInsideDealership && typeof updateObjectLighting === 'function') {
+    updateObjectLighting();
+}
+
 if (!isInsideHouse && !isInsideDealership && typeof drawNightOverlay === 'function') {
     drawNightOverlay();
     
@@ -4517,6 +4522,11 @@ if (!isInsideHouse && !isInsideDealership) {
         }
     });
 
+    // Soft glow on the exposed part of cars / NPCs / player hit by a light.
+    if (typeof drawObjectGlows === 'function') {
+        drawObjectGlows(ctx);
+    }
+
     ctx.restore();
 }
 
@@ -4553,6 +4563,13 @@ if (!isInsideHouse && !isInsideDealership) {
   ctx.fillText(` HEALTH: ${Math.ceil(player.health)}%`, 110, 247);
 
   taxiManager.drawUI(ctx);
+  if (
+      typeof raceEventManager !== "undefined" &&
+      raceEventManager &&
+      raceEventManager.drawRaceArrow
+  ) {
+      raceEventManager.drawRaceArrow(ctx);
+  }
   truckManager.drawUI(ctx); 
   if (typeof drawClock === 'function') drawClock();
 
