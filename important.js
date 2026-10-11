@@ -1,7 +1,7 @@
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-console.log("pear");
+console.log("mango");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
@@ -1097,8 +1097,13 @@ function drawNightOverlay() {
             ? arrestTransportCar
             : player;
 
-    const cameraX = cameraTarget.x;
-    const cameraY = cameraTarget.y;
+    const cameraX =
+        cameraTarget.x +
+        (cameraTarget.size || player.size) / 2;
+
+    const cameraY =
+        cameraTarget.y +
+        (cameraTarget.size || player.size) / 2;
 
     const cosA = Math.cos(camera.angle);
     const sinA = Math.sin(camera.angle);
@@ -1223,19 +1228,75 @@ function drawNightOverlay() {
 
     ctx.save();
     ctx.beginPath();
-    if (useFan) {
-        for (let i = 0; i < fan.n; i++) {
-            const p = worldToScreen(fan.ox[i], fan.oy[i]);
-            if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
-        }
-        for (let i = fan.n - 1; i >= 0; i--) {
-            const p = worldToScreen(
-                fan.ox[i] + fan.dx[i] * fan.lens[i],
-                fan.oy[i] + fan.dy[i] * fan.lens[i]
-            );
-            ctx.lineTo(p.x, p.y);
-        }
-    } else {
+
+         if (useFan) {
+             const n = fan.n;
+
+             const originPoint = i =>
+                 worldToScreen(fan.ox[i], fan.oy[i]);
+
+             const endPoint = i =>
+                 worldToScreen(
+                     fan.ox[i] + fan.dx[i] * fan.lens[i],
+                     fan.oy[i] + fan.dy[i] * fan.lens[i]
+                 );
+
+             if (n <= 2) {
+                 for (let i = 0; i < n; i++) {
+                     const p = originPoint(i);
+
+                     if (i === 0) {
+                         ctx.moveTo(p.x, p.y);
+                     } else {
+                         ctx.lineTo(p.x, p.y);
+                     }
+                 }
+
+                 for (let i = n - 1; i >= 0; i--) {
+                     const p = endPoint(i);
+                     ctx.lineTo(p.x, p.y);
+                 }
+             } else {
+                 // Start along the source edge.
+                 let p = originPoint(0);
+                 ctx.moveTo(p.x, p.y);
+
+                 for (let i = 1; i < n - 1; i++) {
+                     const control = originPoint(i);
+                     const next = originPoint(i + 1);
+
+                     ctx.quadraticCurveTo(
+                         control.x,
+                         control.y,
+                         (control.x + next.x) * 0.5,
+                         (control.y + next.y) * 0.5
+                     );
+                 }
+
+                 p = originPoint(n - 1);
+                 ctx.lineTo(p.x, p.y);
+
+                 // Join the source edge to the clipped far edge.
+                 p = endPoint(n - 1);
+                 ctx.lineTo(p.x, p.y);
+
+                 // Smooth the actual clipped boundary, working backwards.
+                 for (let i = n - 2; i > 0; i--) {
+                     const control = endPoint(i);
+                     const next = endPoint(i - 1);
+
+                     ctx.quadraticCurveTo(
+                         control.x,
+                         control.y,
+                         (control.x + next.x) * 0.5,
+                         (control.y + next.y) * 0.5
+                     );
+                 }
+
+                 p = endPoint(0);
+                 ctx.lineTo(p.x, p.y);
+             }
+         } else {
         ctx.moveTo(startLeft.x, startLeft.y);
         ctx.lineTo(endLeft.x, endLeft.y);
         ctx.lineTo(endRight.x, endRight.y);
@@ -3142,13 +3203,62 @@ function _olAddGlow(b, lx, ly, inten, radius) {
 
 // Adds the fan outline to the current path. Output is in the local frame of
 // (px,py,angle): apex first, then every ray end point.
+
 function olTraceFan(ctx, fan, px, py, cosA, sinA, apexX, apexY) {
-    ctx.moveTo(apexX, apexY);
-    for (let i = 0; i < fan.n; i++) {
+    const n = fan.n;
+
+    if (n <= 2) {
+        ctx.moveTo(apexX, apexY);
+
+        for (let i = 0; i < n; i++) {
+            const wx = fan.ox[i] + fan.dx[i] * fan.lens[i] - px;
+            const wy = fan.oy[i] + fan.dy[i] * fan.lens[i] - py;
+
+            ctx.lineTo(
+                wx * cosA + wy * sinA,
+                -wx * sinA + wy * cosA
+            );
+        }
+
+        ctx.closePath();
+        return;
+    }
+
+    // Trace the actual ray endpoints in car-local coordinates.
+    // Curves are kept between adjacent endpoints to soften the
+    // polygon without extending the beam beyond its sampled boundary.
+    const pointX = i => {
         const wx = fan.ox[i] + fan.dx[i] * fan.lens[i] - px;
         const wy = fan.oy[i] + fan.dy[i] * fan.lens[i] - py;
-        ctx.lineTo(wx * cosA + wy * sinA, -wx * sinA + wy * cosA);
+
+        return wx * cosA + wy * sinA;
+    };
+
+    const pointY = i => {
+        const wx = fan.ox[i] + fan.dx[i] * fan.lens[i] - px;
+        const wy = fan.oy[i] + fan.dy[i] * fan.lens[i] - py;
+
+        return -wx * sinA + wy * cosA;
+    };
+
+    ctx.moveTo(apexX, apexY);
+
+    // Smooth the outer boundary between ray endpoints.
+    ctx.lineTo(
+        (pointX(0) + pointX(1)) * 0.5,
+        (pointY(0) + pointY(1)) * 0.5
+    );
+
+    for (let i = 1; i < n - 1; i++) {
+        ctx.quadraticCurveTo(
+            pointX(i),
+            pointY(i),
+            (pointX(i) + pointX(i + 1)) * 0.5,
+            (pointY(i) + pointY(i + 1)) * 0.5
+        );
     }
+
+    ctx.lineTo(pointX(n - 1), pointY(n - 1));
     ctx.closePath();
 }
 

@@ -1,4 +1,4 @@
-console.log("55");
+console.log("8889");
 // ============================================================
 // STREETBOUND RACE EVENTS MANAGER
 // ============================================================
@@ -150,6 +150,11 @@ class RaceOpponent {
         this.stuckY = car.y;
         this.recoverTimer = 0;
         this.recoverSide = 1;
+        this.buildingProbeTimer = 0;
+        this.buildingProbeX = car.x;
+        this.buildingProbeY = car.y;
+        this.buildingAvoidX = 0;
+        this.buildingAvoidY = 0;
     }
 }
 
@@ -757,70 +762,156 @@ class RaceOpponentManager {
             ax = rx;
             ay = ry;
         }
-
         // Keep distance from the other racers and the player.
-        let sx = 0;
-        let sy = 0;
-        let frontFactor = 1;
+//
+// Avoid creating a temporary racer array every frame.
+// Use squared distance for the cheap rejection first,
+// then calculate the actual distance only when necessary.
 
-        const others = this.getOtherRacers(opp);
+let sx = 0;
+let sy = 0;
+let frontFactor = 1;
 
-        for (const other of others) {
-            const ox = car.x - other.x;
-            const oy = car.y - other.y;
-            const d = Math.hypot(ox, oy);
+const separationRadius = cfg.separationRadius;
+const separationRadiusSq =
+    separationRadius * separationRadius;
 
-            if (d < 0.001 || d > cfg.separationRadius) {
-                continue;
-            }
+const frontSlowDistance = cfg.frontSlowDistance;
+const frontSlowDistanceSq =
+    frontSlowDistance * frontSlowDistance;
 
-            const push = 1 - d / cfg.separationRadius;
+// Check another racer directly without allocating an array.
+const separationCheck = other => {
+    if (!other) {
+        return;
+    }
 
-            sx += (ox / d) * push;
-            sy += (oy / d) * push;
+    const ox = car.x - other.x;
+    const oy = car.y - other.y;
 
-            // Racer roughly ahead: ease off and pick a side to pass on.
-            const fx = -ox;
-            const fy = -oy;
-            const ahead = (fx * hx + fy * hy) / d;
+    const distanceSq =
+        ox * ox +
+        oy * oy;
 
-            if (ahead > 0.5 && d < cfg.frontSlowDistance) {
-                frontFactor = Math.min(
-                    frontFactor,
-                    Math.max(
-                        0.25,
-                        Math.min(1, (d - 24) / (cfg.frontSlowDistance - 24))
-                    )
-                );
+    if (
+        distanceSq < 0.000001 ||
+        distanceSq > separationRadiusSq
+    ) {
+        return;
+    }
 
-                const side = (hx * fy - hy * fx) >= 0 ? -1 : 1;
+    const d = Math.sqrt(distanceSq);
 
-                sx += -hy * side * 0.6 * push;
-                sy += hx * side * 0.6 * push;
-            }
-        }
+    const push =
+        1 -
+        d / separationRadius;
 
+    sx += (ox / d) * push;
+    sy += (oy / d) * push;
+
+    // Racer roughly ahead: ease off and pick a side to pass on.
+    const fx = -ox;
+    const fy = -oy;
+
+    const ahead =
+        (fx * hx + fy * hy) / d;
+
+    if (
+        ahead > 0.5 &&
+        distanceSq < frontSlowDistanceSq
+    ) {
+        frontFactor = Math.min(
+            frontFactor,
+            Math.max(
+                0.25,
+                Math.min(
+                    1,
+                    (d - 24) /
+                    (frontSlowDistance - 24)
+                )
+            )
+        );
+
+        const side =
+            (hx * fy - hy * fx) >= 0
+                ? -1
+                : 1;
+
+        sx +=
+            -hy *
+            side *
+            0.6 *
+            push;
+
+        sy +=
+            hx *
+            side *
+            0.6 *
+            push;
+    }
+};
+
+// Other race opponents.
+for (const otherOpp of this.opponents) {
+    if (
+        otherOpp !== opp &&
+        !otherOpp.eliminated
+    ) {
+        separationCheck(otherOpp.car);
+    }
+}
+
+// Player vehicle / player character.
+if (
+    typeof playerCar !== "undefined" &&
+    playerCar
+) {
+    separationCheck(playerCar);
+} else if (
+    typeof player !== "undefined" &&
+    player
+) {
+    separationCheck(player);
+}
         // Small-radius building avoidance.
-        let bx = 0;
-        let by = 0;
+        //
+        // Terrain probes are expensive, so do not run them every frame.
+        // Recalculate roughly 8 times per second and reuse the cached
+        // avoidance vector between checks.
 
-        if (typeof isPlayerCarWalkable === "function") {
-            for (let k = 0; k < 8; k++) {
-                const a = k * (Math.PI / 4);
-                const c = Math.cos(a);
-                const s = Math.sin(a);
+        opp.buildingProbeTimer -= dt;
 
-                if (
-                    !isPlayerCarWalkable(
-                        car.x + c * cfg.buildingProbeRadius,
-                        car.y + s * cfg.buildingProbeRadius
-                    )
-                ) {
-                    bx -= c;
-                    by -= s;
+        if (opp.buildingProbeTimer <= 0) {
+            let bx = 0;
+            let by = 0;
+
+            if (typeof isPlayerCarWalkable === "function") {
+                for (let k = 0; k < 8; k++) {
+                    const a = k * (Math.PI / 4);
+                    const c = Math.cos(a);
+                    const s = Math.sin(a);
+
+                    if (
+                        !isPlayerCarWalkable(
+                            car.x + c * cfg.buildingProbeRadius,
+                            car.y + s * cfg.buildingProbeRadius
+                        )
+                    ) {
+                        bx -= c;
+                        by -= s;
+                    }
                 }
             }
+
+            opp.buildingAvoidX = bx;
+            opp.buildingAvoidY = by;
+
+            // Recheck approximately every 0.12 seconds.
+            opp.buildingProbeTimer = 0.12;
         }
+
+        const bx = opp.buildingAvoidX;
+        const by = opp.buildingAvoidY;
 
         let dx =
             ax +
@@ -894,23 +985,6 @@ class RaceOpponentManager {
     // Other racers to keep away from: the other opponents
     // (including finished ones) and the player. Normal NPC cars
     // and pedestrians are deliberately ignored.
-    getOtherRacers(self) {
-        const list = [];
-
-        for (const opp of this.opponents) {
-            if (opp !== self && !opp.eliminated) {
-                list.push(opp.car);
-            }
-        }
-
-        if (typeof playerCar !== "undefined" && playerCar) {
-            list.push(playerCar);
-        } else if (typeof player !== "undefined" && player) {
-            list.push(player);
-        }
-
-        return list;
-    }
 }
 
 

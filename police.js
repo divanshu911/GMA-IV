@@ -799,28 +799,80 @@ function moveArrestPoliceCar(
 ) {
     if (!car) return;
 
-    if (car.arrestTransportRepathTimer === undefined) car.arrestTransportRepathTimer = 0;
-    if (car.arrestTransportPathIndex === undefined) car.arrestTransportPathIndex = 1;
+    if (car.arrestTransportRepathTimer === undefined) {
+        car.arrestTransportRepathTimer = 0;
+    }
 
+    if (car.arrestTransportPathIndex === undefined) {
+        car.arrestTransportPathIndex = 1;
+    }
+
+    // Cached staging sensors.
+    // These do not need to be recalculated every frame.
+    if (car.arrestObstacleProbeTimer === undefined) {
+        car.arrestObstacleProbeTimer = 0;
+    }
+
+    if (car.arrestPathBlockedByCar === undefined) {
+        car.arrestPathBlockedByCar = false;
+    }
+
+    if (car.arrestTerrainProbeTimer === undefined) {
+        car.arrestTerrainProbeTimer = 0;
+    }
+
+    if (car.arrestEdgePushX === undefined) {
+        car.arrestEdgePushX = 0;
+        car.arrestEdgePushY = 0;
+    }
     car.arrestTransportRepathTimer -= dt;
 
     const checkSensorDist = (car.sensorLength || 35) + 10;
     const forwardAngle = car.angle - Math.PI / 2;
-    const frontCheckX = car.x + Math.cos(forwardAngle) * checkSensorDist;
-    const frontCheckY = car.y + Math.sin(forwardAngle) * checkSensorDist;
 
-    let pathBlockedByCar = false;
-    if (typeof cars !== 'undefined') {
-        for (let i = 0; i < cars.length; i++) {
-            const otherCar = cars[i];
-            if (otherCar !== car && otherCar !== playerCar && !otherCar.exploded) {
-                if (Math.hypot(otherCar.x - frontCheckX, otherCar.y - frontCheckY) < 20) { 
-                    pathBlockedByCar = true;
-                    break;
+    car.arrestObstacleProbeTimer -= dt;
+
+    if (car.arrestObstacleProbeTimer <= 0) {
+        const frontCheckX =
+            car.x +
+            Math.cos(forwardAngle) * checkSensorDist;
+
+        const frontCheckY =
+            car.y +
+            Math.sin(forwardAngle) * checkSensorDist;
+
+        let pathBlockedByCar = false;
+
+        if (typeof cars !== 'undefined') {
+            const BLOCK_DISTANCE_SQ = 400; // 20 * 20
+
+            for (let i = 0; i < cars.length; i++) {
+                const otherCar = cars[i];
+
+                if (
+                    otherCar !== car &&
+                    otherCar !== playerCar &&
+                    !otherCar.exploded
+                ) {
+                    const dx = otherCar.x - frontCheckX;
+                    const dy = otherCar.y - frontCheckY;
+
+                    if (dx * dx + dy * dy < BLOCK_DISTANCE_SQ) {
+                        pathBlockedByCar = true;
+                        break;
+                    }
                 }
             }
         }
+
+        car.arrestPathBlockedByCar = pathBlockedByCar;
+
+        // Recheck roughly 8 times per second.
+        car.arrestObstacleProbeTimer = 0.12;
     }
+
+    const pathBlockedByCar =
+        car.arrestPathBlockedByCar;
 
  if (!car.arrestTransportPath || (pathBlockedByCar && car.arrestTransportRepathTimer <= 0)) {
         const newPath = navigationSystem.findPath(
@@ -952,38 +1004,74 @@ function moveArrestPoliceCar(
         const routeOnGrass =
             terrainAt(car.x, car.y) === "GRASS" ||
             (pathWaypoint && terrainAt(pathWaypoint.x, pathWaypoint.y) === "GRASS");
+        car.arrestTerrainProbeTimer -= dt;
 
-        const edgeRadius = 15;
-        const edgeSamples = 8;
-        let edgePushX = 0;
-        let edgePushY = 0;
+        if (car.arrestTerrainProbeTimer <= 0) {
+            const edgeRadius = 15;
+            const edgeSamples = 8;
 
-        for (let i = 0; i < edgeSamples; i++) {
-            const a = (i / edgeSamples) * Math.PI * 2;
-            const dirX = Math.cos(a);
-            const dirY = Math.sin(a);
+            let edgePushX = 0;
+            let edgePushY = 0;
 
-            const t = terrainAt(
-                car.x + dirX * edgeRadius,
-                car.y + dirY * edgeRadius
-            );
+            for (let i = 0; i < edgeSamples; i++) {
+                const a =
+                    (i / edgeSamples) *
+                    Math.PI *
+                    2;
 
-            const isBad =
-                t === "BLOCKED" ||
-                (t === "GRASS" && !routeOnGrass);
+                const dirX = Math.cos(a);
+                const dirY = Math.sin(a);
 
-            if (isBad) {
-                edgePushX -= dirX;
-                edgePushY -= dirY;
+                const t = terrainAt(
+                    car.x + dirX * edgeRadius,
+                    car.y + dirY * edgeRadius
+                );
+
+                const isBad =
+                    t === "BLOCKED" ||
+                    (t === "GRASS" && !routeOnGrass);
+
+                if (isBad) {
+                    edgePushX -= dirX;
+                    edgePushY -= dirY;
+                }
             }
+
+            car.arrestEdgePushX = edgePushX;
+            car.arrestEdgePushY = edgePushY;
+
+            car.arrestTerrainProbeTimer = 0.12;
         }
 
-        const edgePushLen = Math.hypot(edgePushX, edgePushY);
+        const edgePushX = car.arrestEdgePushX;
+        const edgePushY = car.arrestEdgePushY;
+
+        const edgePushLen =
+            Math.sqrt(
+                edgePushX * edgePushX +
+                edgePushY * edgePushY
+            );
+
         if (edgePushLen > 0.001) {
-            const edgeStrength = Math.min(0.3, edgePushLen * 0.1);
-            const fx = Math.cos(moveAngle) * (1 - edgeStrength) + (edgePushX / edgePushLen) * edgeStrength;
-            const fy = Math.sin(moveAngle) * (1 - edgeStrength) + (edgePushY / edgePushLen) * edgeStrength;
-            if (Math.hypot(fx, fy) > 0.001) {
+            const edgeStrength =
+                Math.min(
+                    0.3,
+                    edgePushLen * 0.1
+                );
+
+            const fx =
+                Math.cos(moveAngle) *
+                    (1 - edgeStrength) +
+                (edgePushX / edgePushLen) *
+                    edgeStrength;
+
+            const fy =
+                Math.sin(moveAngle) *
+                    (1 - edgeStrength) +
+                (edgePushY / edgePushLen) *
+                    edgeStrength;
+
+            if (Math.sqrt(fx * fx + fy * fy) > 0.001) {
                 moveAngle = Math.atan2(fy, fx);
             }
         }
@@ -1757,7 +1845,7 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
 
  let avoidX = 0;
     let avoidY = 0;
-    const avoidanceRadius = isCar ? 55 : 35;
+    const avoidanceRadius = isCar ? 55 : 25;
 
     cars.forEach(otherCar => {
         if (otherCar !== unit && otherCar !== playerCar && otherCar.isPolice) {
