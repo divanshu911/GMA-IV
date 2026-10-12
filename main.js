@@ -1,4 +1,4 @@
-console.log("1l00");
+console.log("1n00");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -154,6 +154,9 @@ mapImage.addEventListener('load', () => {
     // Tell the loading screen that the visual map is ready.
     mapAssetLoaded = true;
     tryEnableStartButton();
+
+    // DEBUG: kick off the shadow analysis only if the debug view was requested
+    if (window.ShadowDebug && ShadowDebug.enabled) ShadowDebug.toggle(true);
 });
 mapImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/Map2.png";
 
@@ -4431,6 +4434,8 @@ ctx.translate(
       if (mapImage.complete && mapWidth > 0) ctx.drawImage(mapImage, 0, 0, mapWidth, mapHeight);
       else { ctx.fillStyle = "#e0deca"; ctx.fillRect(player.x - 400, player.y - 400, 800, 800); }
   }
+  // DEBUG: shadow detector overlay (no-op unless ShadowDebug is enabled)
+  if (window.ShadowDebug && ShadowDebug.enabled && !isInsideHouse && !isInsideDealership) ShadowDebug.draw(ctx, mapWidth, mapHeight);
 
   if (!isInsideHouse && !isInsideDealership) {
       taxiManager.drawWorldMarkers(ctx);
@@ -4852,4 +4857,780 @@ if (restaurantBtn) {
 window.addEventListener('load', () => {
     requestAnimationFrame(gameLoop);
 });
+                                                                                                                                                 
 
+
+/* =====================================================================
+ * SHADOW DEBUG OVERLAY  (detection / inspection only - no gameplay effect)
+ *
+ * Enable with  ?shadowdebug  in the page URL (adds a small toggle button),
+ * or from the console:  ShadowDebug.toggle()
+ * Red = high-confidence shadow, yellow = lower confidence, nothing = rejected.
+ * The original map image is never modified; the overlay is a separate canvas
+ * drawn on top of the map inside the normal world transform.
+ * Tunables: ShadowDebug.cfg (e.g. {highConfidence:0.7, lowConfidence:0.4,
+ * scale:2}); call ShadowDebug.rerun() after changing them.
+ * ===================================================================== */
+
+const ShadowDetectorCoreFactory = function () {
+  'use strict';
+  'use strict';
+
+  const DEFAULTS = {
+    // ---- working resolution -------------------------------------------
+    scale: 2,                 // analyse at 1/scale of the map (2 = half res)
+
+    // ---- ray probing of the "lit surface" (all distances in FULL-res px)
+    nDirs: 16,
+    maxRayPx: 56,             // how far to look for the lit surface
+    rayStepPx: 4,
+    plateauSteps: 3,          // lit surface must stay flat this many steps
+    plateauTol: 0.08,         // relative luma change allowed inside plateau
+
+    // ---- attenuation model: shadow = lit surface * k (per channel) ----
+    brighterRatio: 1.22,      // lit luma must be >= this x candidate luma
+    kMin: 0.22,               // darker than this  -> outline / black, not shadow
+    kMax: 0.84,
+    channelEps: 6,            // keeps near-zero blue from blowing up ratios
+    channelSpreadMax: 2.3,    // max(kc)/min(kc): how much hue may shift
+    channelKCeil: 0.97,       // every channel must get darker
+
+    // ---- grass-aware regional reference --------------------------------
+    grassTilePx: 32,
+    grassPropagateTiles: 12,  // how far (tiles) a lit-grass colour may be borrowed
+    litGrassMinY: 80,
+    litGrassMaxTex: 6,
+    priorWeight: 0.75,         // evidence given to a prior-only (no local lit pixel) match
+
+    // ---- pixel evidence shaping ----------------------------------------
+    flatTexOk: 6,             // local std-dev (luma) up to here counts as flat
+    flatTexMax: 16,           // above this: textured (canopy, roof stripes, markings)
+
+    // ---- region stage ---------------------------------------------------
+    seedThr: 0.30,            // pixel evidence needed to seed a region
+    minSeedPx: 3,             // seed blobs smaller than this (analysis px) are specks
+    minAreaPx: 60,            // full-res px; smaller final regions are rejected
+    growDepth: 8,             // analysis px a region may grow past its seeds
+    growTexMax: 14,
+    growChroma: 0.02,         // squared chroma distance allowed while growing
+    litTexMax: 8,             // an outside pixel only counts as 'lit surface' if it is flat
+    litChroma: 0.03,          // squared chroma distance for 'outside pixel is lit surface'
+    regionTexOk: 6,
+    regionTexMax: 16,
+    otherOk: 0.35,            // share of boundary that is neither lit surface, bright line nor occluder
+    otherMax: 0.7,
+    meanKOk: 0.62,            // regions only ~this dark or darker get full marks
+    meanKMax: 0.78,           // regions barely darker than their surface (tone drift) score 0
+    evidenceFull: 0.65,       // mean pixel evidence regarded as 'fully convincing'
+
+    // ---- confidence thresholds (configurable) -------------------------
+    highConfidence: 0.62,
+    lowConfidence: 0.38,
+
+    // ---- light direction (unit vector pointing toward the light) -------
+    lightDir: null,           // null = estimate from the image itself
+
+    debug: false
+  };
+
+  /* ------------------------------------------------------------------ */
+  function merge(a, b) {
+    const o = {};
+    for (const k in a) o[k] = a[k];
+    if (b) for (const k in b) o[k] = b[k];
+    return o;
+  }
+
+  /* Rec.709 luma on the gamma-encoded values the artwork is painted in. */
+  function luma(r, g, b) { return 0.2126 * r + 0.7152 * g + 0.0722 * b; }
+
+
+  /* Two lit-surface estimates agree if luma is close and the colour proportions match. */
+  function similarLit(r1, g1, b1, y1, r2, g2, b2, y2) {
+    if (Math.abs(Math.log(y1 / y2)) > 0.22) return false;
+    const e = 6;
+    const dr = (r1 + e) / (y1 + e) - (r2 + e) / (y2 + e);
+    const dg = (g1 + e) / (y1 + e) - (g2 + e) / (y2 + e);
+    const db = (b1 + e) / (y1 + e) - (b2 + e) / (y2 + e);
+    return dr * dr + dg * dg + db * db < 0.012;
+  }
+
+  /* Separable running-sum box filter (radius r, clamped edges). */
+  function boxBlur(src, w, h, r) {
+    const tmp = new Float32Array(w * h);
+    const out = new Float32Array(w * h);
+    const win = 2 * r + 1;
+    for (let y = 0; y < h; y++) {
+      const o = y * w;
+      let s = 0;
+      for (let k = -r; k <= r; k++) s += src[o + Math.min(w - 1, Math.max(0, k))];
+      for (let x = 0; x < w; x++) {
+        tmp[o + x] = s / win;
+        s += src[o + Math.min(w - 1, x + r + 1)] - src[o + Math.max(0, x - r)];
+      }
+    }
+    for (let x = 0; x < w; x++) {
+      let s = 0;
+      for (let k = -r; k <= r; k++) s += tmp[Math.min(h - 1, Math.max(0, k)) * w + x];
+      for (let y = 0; y < h; y++) {
+        out[y * w + x] = s / win;
+        s += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x];
+      }
+    }
+    return out;
+  }
+
+  /* Downsample by box average into planar Float32 R,G,B. */
+  function downsample(rgba, W, H, s) {
+    const w = Math.floor(W / s), h = Math.floor(H / s);
+    const R = new Float32Array(w * h), G = new Float32Array(w * h), B = new Float32Array(w * h);
+    const inv = 1 / (s * s);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let r = 0, g = 0, b = 0;
+        for (let dy = 0; dy < s; dy++) {
+          let p = ((y * s + dy) * W + x * s) * 4;
+          for (let dx = 0; dx < s; dx++, p += 4) { r += rgba[p]; g += rgba[p + 1]; b += rgba[p + 2]; }
+        }
+        const i = y * w + x;
+        R[i] = r * inv; G[i] = g * inv; B[i] = b * inv;
+      }
+    }
+    return { w, h, R, G, B };
+  }
+
+  /* ------------------------------------------------------------------ */
+  function analyseShadows(rgba, W, H, userCfg, onProgress) {
+    const cfg = merge(DEFAULTS, userCfg);
+    const s = cfg.scale | 0 || 1;
+    const t0 = Date.now();
+    const progress = onProgress || function () {};
+
+    const ds = downsample(rgba, W, H, s);
+    const w = ds.w, h = ds.h, N = w * h;
+    // 3x3 smoothed copies are what the probing reads (suppresses dithering)
+    const R = boxBlur(ds.R, w, h, 1), G = boxBlur(ds.G, w, h, 1), B = boxBlur(ds.B, w, h, 1);
+    const Y = new Float32Array(N);
+    for (let i = 0; i < N; i++) Y[i] = luma(R[i], G[i], B[i]);
+    progress(0.05);
+
+    // local texture: std-dev of raw luma in 5x5 (of the downsampled image)
+    const Yraw = new Float32Array(N), Y2raw = new Float32Array(N);
+    for (let i = 0; i < N; i++) { const v = luma(ds.R[i], ds.G[i], ds.B[i]); Yraw[i] = v; Y2raw[i] = v * v; }
+    const m1 = boxBlur(Yraw, w, h, 2), m2 = boxBlur(Y2raw, w, h, 2);
+    const tex = new Float32Array(N);
+    for (let i = 0; i < N; i++) tex[i] = Math.sqrt(Math.max(0, m2[i] - m1[i] * m1[i]));
+
+    // ---------------- ray set ----------------------------------------
+    const nD = cfg.nDirs;
+    const dirX = new Float32Array(nD), dirY = new Float32Array(nD);
+    for (let d = 0; d < nD; d++) { const a = d * 2 * Math.PI / nD; dirX[d] = Math.cos(a); dirY[d] = Math.sin(a); }
+    const stepPx = Math.max(1, cfg.rayStepPx / s);
+    const nSteps = Math.max(4, Math.round(cfg.maxRayPx / s / stepPx));
+    const pl = cfg.plateauSteps;
+
+    // ---------------- candidate prefilter ---------------------------------
+    // a pixel can only be a shadow if something clearly brighter lies nearby
+    const Rwin = Math.round(cfg.maxRayPx / s);
+    const Ymax = slidingMax(Y, w, h, Rwin);
+    const cand = new Uint8Array(N);
+    let nCand = 0;
+    for (let i = 0; i < N; i++) {
+      if (Ymax[i] >= Y[i] * cfg.brighterRatio && Y[i] > 8) { cand[i] = 1; nCand++; }
+    }
+    progress(0.12);
+
+    // outputs of probing
+    const kOut = new Float32Array(N);        // luma ratio to lit surface
+    const spreadOut = new Float32Array(N);   // channel ratio spread
+    const awayOut = new Float32Array(N);     // lit support on far side (0..1)
+    const towardOut = new Float32Array(N);   // lit support toward the light (0..1)
+    const nValid = new Uint8Array(N);
+    const cohOut = new Float32Array(N);      // agreement between lit estimates
+    const dirHist = new Float64Array(nD);    // for light-direction estimation
+    const validMask = new Uint16Array(N);    // bit d set -> direction d found lit surface
+    const litR = new Float32Array(N), litG = new Float32Array(N), litB = new Float32Array(N);
+
+    const eps = cfg.channelEps;
+    const tmpK = new Float32Array(3);
+
+    // returns true if (pr,pg,pb) is a plausibly attenuated version of (lr,lg,lb)
+    // spread of per-channel attenuation. Channels that are nearly empty in the
+    // lit surface (blue of grass: ~13/255) carry no reliable ratio and are ignored.
+    function spreadOf(pr, pg, pb, lr, lg, lb) {
+      const kr = (pr + eps) / (lr + eps), kg = (pg + eps) / (lg + eps), kb = (pb + eps) / (lb + eps);
+      let mx = Math.max(kr, kg), mn = Math.min(kr, kg);
+      if (lb >= 30) { mx = Math.max(mx, kb); mn = Math.min(mn, kb); }
+      return mx / mn;
+    }
+    function ceilingOk(pr, pg, pb, lr, lg, lb) {
+      const kr = (pr + eps) / (lr + eps), kg = (pg + eps) / (lg + eps), kb = (pb + eps) / (lb + eps);
+      if (kr > cfg.channelKCeil || kg > cfg.channelKCeil) return false;
+      if (lb >= 30 && kb > cfg.channelKCeil) return false;
+      return true;
+    }
+    function compat(pr, pg, pb, py, lr, lg, lb, ly) {
+      const k = py / ly;
+      if (k < cfg.kMin || k > cfg.kMax) return false;
+      if (!ceilingOk(pr, pg, pb, lr, lg, lb)) return false;
+      return spreadOf(pr, pg, pb, lr, lg, lb) <= cfg.channelSpreadMax;
+    }
+
+    // per-pixel scratch (one entry per direction)
+    const rLr = new Float32Array(nD), rLg = new Float32Array(nD), rLb = new Float32Array(nD), rLy = new Float32Array(nD);
+    const rOk = new Uint8Array(nD);
+    const maxSoft = 3;           // soft shadow edge may take up to this many extra steps
+
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        if (!cand[i]) continue;
+        const pr = R[i], pg = G[i], pb = B[i], py = Y[i];
+        let nFound = 0;
+        for (let d = 0; d < nD; d++) {
+          rOk[d] = 0;
+          const sx = dirX[d] * stepPx, sy = dirY[d] * stepPx;
+          let first = -1, prevY = py;
+          let monoBreak = false;
+          // 1) walk outward until something clearly brighter than the pixel appears
+          for (let st = 1; st <= nSteps; st++) {
+            const ix = Math.round(x + sx * st), iy = Math.round(y + sy * st);
+            if (ix < 0 || iy < 0 || ix >= w || iy >= h) break;
+            const yj = Y[iy * w + ix];
+            if (yj < py * 0.72) break;                    // darker thing: outline / occluder
+            if (yj >= py * cfg.brighterRatio) { first = st; break; }
+          }
+          if (first < 0) continue;
+          // 2) the lit surface must be a flat plateau that starts within a few steps
+          //    of the first bright sample, rising monotonically (no bright line
+          //    followed by a darker surface => kerb / marking / roof ridge)
+          let ly = 0, lr = 0, lg = 0, lb = 0, okp = false;
+          for (let a = first; a <= first + maxSoft && a + pl - 1 <= nSteps; a++) {
+            let flat = true, base = -1, sr = 0, sg = 0, sb = 0, sy2 = 0, peak = 0;
+            for (let t = 0; t < pl; t++) {
+              const qx = Math.round(x + sx * (a + t)), qy = Math.round(y + sy * (a + t));
+              if (qx < 0 || qy < 0 || qx >= w || qy >= h) { flat = false; break; }
+              const jj = qy * w + qx, yv = Y[jj];
+              if (base < 0) base = yv;
+              if (Math.abs(yv - base) > cfg.plateauTol * base) { flat = false; break; }
+              sr += R[jj]; sg += G[jj]; sb += B[jj]; sy2 += yv;
+            }
+            if (!flat) continue;
+            ly = sy2 / pl; lr = sr / pl; lg = sg / pl; lb = sb / pl;
+            // monotone approach: nothing between pixel and plateau may overshoot it
+            // or dip back down after having risen
+            let bad = false, hi = py;
+            for (let st = 1; st < a; st++) {
+              const ix = Math.round(x + sx * st), iy = Math.round(y + sy * st);
+              const yv = Y[iy * w + ix];
+              if (yv > ly * 1.12) { bad = true; break; }
+              if (yv < hi * 0.88) { bad = true; break; }
+              if (yv > hi) hi = yv;
+            }
+            if (bad) break;
+            okp = true; break;
+          }
+          if (!okp) continue;
+          if (ly < py * cfg.brighterRatio) continue;
+          if (!compat(pr, pg, pb, py, lr, lg, lb, ly)) continue;
+          rOk[d] = 1; rLr[d] = lr; rLg[d] = lg; rLb[d] = lb; rLy[d] = ly; nFound++;
+        }
+        if (!nFound) continue;
+
+        // 3) consensus lit surface = the largest cluster of agreeing ray results
+        let bestCnt = 0, bestD = -1;
+        for (let a = 0; a < nD; a++) {
+          if (!rOk[a]) continue;
+          let cnt = 0;
+          for (let b = 0; b < nD; b++) {
+            if (!rOk[b]) continue;
+            if (similarLit(rLr[a], rLg[a], rLb[a], rLy[a], rLr[b], rLg[b], rLb[b], rLy[b])) cnt++;
+          }
+          if (cnt > bestCnt) { bestCnt = cnt; bestD = a; }
+        }
+        let mask = 0, sr = 0, sg = 0, sb = 0, sY = 0, n = 0;
+        for (let b = 0; b < nD; b++) {
+          if (!rOk[b]) continue;
+          if (similarLit(rLr[bestD], rLg[bestD], rLb[bestD], rLy[bestD], rLr[b], rLg[b], rLb[b], rLy[b])) {
+            mask |= (1 << b); sr += rLr[b]; sg += rLg[b]; sb += rLb[b]; sY += rLy[b]; n++;
+          }
+        }
+        validMask[i] = mask; nValid[i] = n;
+        litR[i] = sr / n; litG[i] = sg / n; litB[i] = sb / n;
+        const lyM = sY / n;
+        kOut[i] = py / lyM;
+        spreadOut[i] = spreadOf(pr, pg, pb, litR[i], litG[i], litB[i]);
+        for (let d = 0; d < nD; d++) if (mask & (1 << d)) dirHist[d] += 1;
+      }
+      if ((y & 63) === 0) progress(0.12 + 0.55 * (y / h));
+    }
+
+    progress(0.68);
+
+    // ------------------------------------------------------------------
+    // Stage 2 - grass-aware regional reference
+    // Lit grass is identified from the picture itself (grass chroma, bright,
+    // flat). Its colour is averaged per tile and propagated to nearby tiles,
+    // so a dark-green patch with NO lit grass inside the probing radius (e.g.
+    // a whole lawn in shade) can still be compared with "grass nearby".
+    // ------------------------------------------------------------------
+    const T = Math.max(8, Math.round(cfg.grassTilePx / s));
+    const tw = Math.ceil(w / T), th = Math.ceil(h / T);
+    const tR = new Float32Array(tw * th), tG = new Float32Array(tw * th), tB = new Float32Array(tw * th), tC = new Float32Array(tw * th);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        if (Y[i] < cfg.litGrassMinY || tex[i] > cfg.litGrassMaxTex) continue;
+        if (!isGrassChroma(R[i], G[i], B[i])) continue;
+        const t = ((y / T) | 0) * tw + ((x / T) | 0);
+        tR[t] += R[i]; tG[t] += G[i]; tB[t] += B[i]; tC[t]++;
+      }
+    }
+    const tHas = new Uint8Array(tw * th);
+    for (let t = 0; t < tw * th; t++) {
+      if (tC[t] >= T * T * 0.12) { tR[t] /= tC[t]; tG[t] /= tC[t]; tB[t] /= tC[t]; tHas[t] = 1; }
+    }
+    // propagate to tiles that have no lit grass (BFS, limited radius)
+    const tDist = new Int16Array(tw * th).fill(-1);
+    const queue = [];
+    for (let t = 0; t < tw * th; t++) if (tHas[t]) { tDist[t] = 0; queue.push(t); }
+    const maxHop = cfg.grassPropagateTiles;
+    for (let qi = 0; qi < queue.length; qi++) {
+      const t = queue[qi];
+      if (tDist[t] >= maxHop) continue;
+      const tx = t % tw, ty = (t / tw) | 0;
+      for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+        if (!ox && !oy) continue;
+        const nx = tx + ox, ny = ty + oy;
+        if (nx < 0 || ny < 0 || nx >= tw || ny >= th) continue;
+        const nt = ny * tw + nx;
+        if (tDist[nt] >= 0) continue;
+        tDist[nt] = tDist[t] + 1; tR[nt] = tR[t]; tG[nt] = tG[t]; tB[nt] = tB[t];
+        queue.push(nt);
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Stage 3 - per-pixel evidence
+    // ------------------------------------------------------------------
+    const lx = -1 / Math.SQRT2, ly2 = -1 / Math.SQRT2;
+    const L = cfg.lightDir || [lx, ly2];            // toward the light
+    const awayDirs = [], towardDirs = [];
+    for (let d = 0; d < nD; d++) {
+      const dot = dirX[d] * L[0] + dirY[d] * L[1];
+      if (dot < -0.35) awayDirs.push(d);
+      if (dot > 0.85) towardDirs.push(d);
+    }
+    const P = new Float32Array(N);          // pixel evidence 0..1
+    const srcKind = new Uint8Array(N);      // 1 = ray evidence, 2 = grass prior only
+    const kFin = new Float32Array(N);
+    const refR = new Float32Array(N), refG = new Float32Array(N), refB = new Float32Array(N);
+    function ramp(v, a, b) { return v <= a ? 0 : v >= b ? 1 : (v - a) / (b - a); }
+    for (let i = 0; i < N; i++) {
+      if (Y[i] < 8) continue;
+      const pr = R[i], pg = G[i], pb = B[i], py = Y[i];
+      const flat = 1 - ramp(tex[i], cfg.flatTexOk, cfg.flatTexMax);
+      if (flat <= 0) continue;
+      let e = 0, k = 0, spread = 1, kind = 0;
+      const nv = nValid[i];
+      if (nv >= 2) {
+        const mask = validMask[i];
+        let a = 0, t = 0;
+        for (const d of awayDirs) if (mask & (1 << d)) a++;
+        for (const d of towardDirs) if (mask & (1 << d)) t++;
+        const A = a / awayDirs.length, Tt = t / towardDirs.length;
+        e = Math.min(1, nv / 5) * (0.45 + 0.55 * Math.min(1, A * 1.6)) * (1 - Math.min(1, Tt * 2));
+        k = kOut[i]; spread = spreadOut[i]; kind = 1;
+        refR[i] = litR[i]; refG[i] = litG[i]; refB[i] = litB[i];
+      }
+      if (kind === 0 && isGrassLike(pr, pg, pb)) {
+        // grass prior: compare with regional lit-grass colour
+        const t = ((((i / w) | 0) / T) | 0) * tw + (((i % w) / T) | 0);
+        if (tDist[t] >= 0) {
+          const lr = tR[t], lg = tG[t], lb = tB[t], ly = luma(lr, lg, lb);
+          if (compat(pr, pg, pb, py, lr, lg, lb, ly)) {
+            k = py / ly;
+            spread = spreadOf(pr, pg, pb, lr, lg, lb);
+            e = cfg.priorWeight * (1 - tDist[t] / (maxHop + 1)); kind = 2;
+            refR[i] = lr; refG[i] = lg; refB[i] = lb;
+          }
+        }
+      }
+      if (!kind) continue;
+      const kFit = Math.min(ramp(k, cfg.kMin, 0.32), 1 - ramp(k, 0.68, cfg.kMax));
+      const cFit = 1 - 0.6 * ramp(spread, 1.6, cfg.channelSpreadMax);
+      P[i] = e * kFit * cFit * flat;
+      srcKind[i] = kind; kFin[i] = k;
+    }
+    progress(0.8);
+
+    // ------------------------------------------------------------------
+    // Stage 4 - regions: seeds -> grow (colour constancy) -> context score
+    // ------------------------------------------------------------------
+    const reg = buildRegions({ w, h, N, s, cfg, L, P, srcKind, Y, R, G, B, tex, refR, refG, refB, spreadOf, ceilingOk });
+    progress(0.97);
+
+    // light-direction diagnostic: which outward direction of accepted regions is lit?
+    return {
+      w, h, scale: s, cfg, N, nCand, T, tw, th,
+      cls: reg.cls, conf: reg.conf, regions: reg.regions, lightDirEstimate: reg.lightEstimate,
+      arrays: { Y, R, G, B, tex, cand, kOut, spreadOut, nValid, cohOut, validMask, litR, litG, litB, P, srcKind, kFin, label: reg.label },
+      dirX, dirY, dirHist, L,
+      ms: Date.now() - t0
+    };
+  }
+
+  function ramp01(v, a, b) { return v <= a ? 0 : v >= b ? 1 : (v - a) / (b - a); }
+
+  /* Region stage. Works on the analysis grid. */
+  function buildRegions(c) {
+    const { w, h, N, s, cfg, L, P, srcKind, Y, R, G, B, tex, refR, refG, refB, ceilingOk } = c;
+    const seedThr = cfg.seedThr;
+    const label = new Int32Array(N);
+    const depth = new Uint8Array(N);
+    const stack = new Int32Array(N);
+    const comps = [null];                      // 1-based
+    const N8x = [-1, 0, 1, -1, 1, -1, 0, 1], N8y = [-1, -1, -1, 0, 0, 1, 1, 1];
+
+    // 1) seed components
+    for (let i0 = 0; i0 < N; i0++) {
+      if (P[i0] < seedThr || label[i0]) continue;
+      const id = comps.length;
+      let sp = 0; stack[sp++] = i0; label[i0] = id;
+      const cs = { id, n: 0, seedN: 0, sumP: 0, sY: 0, sR: 0, sG: 0, sB: 0, rY: 0, rR: 0, rG: 0, rB: 0, priorN: 0 };
+      while (sp) {
+        const i = stack[--sp];
+        cs.n++; cs.seedN++; cs.sumP += P[i]; cs.sY += Y[i]; cs.sR += R[i]; cs.sG += G[i]; cs.sB += B[i];
+        cs.rR += refR[i]; cs.rG += refG[i]; cs.rB += refB[i]; cs.rY += luma(refR[i], refG[i], refB[i]);
+        if (srcKind[i] === 2) cs.priorN++;
+        const x = i % w, y = (i / w) | 0;
+        for (let k = 0; k < 8; k++) {
+          const nx = x + N8x[k], ny = y + N8y[k];
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          const j = ny * w + nx;
+          if (P[j] >= seedThr && !label[j]) { label[j] = id; stack[sp++] = j; }
+        }
+      }
+      if (cs.n < cfg.minSeedPx) {
+        // un-label tiny seed comps (isolated pixels / specks)
+        // (flood again to clear)
+        sp = 0; stack[sp++] = i0; label[i0] = -1;
+        while (sp) {
+          const i = stack[--sp]; const x = i % w, y = (i / w) | 0;
+          for (let k = 0; k < 8; k++) {
+            const nx = x + N8x[k], ny = y + N8y[k];
+            if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+            const j = ny * w + nx;
+            if (label[j] === id) { label[j] = -1; stack[sp++] = j; }
+          }
+        }
+        comps.push(null);
+        continue;
+      }
+      const n = cs.n;
+      cs.mY = cs.sY / n; cs.mR = cs.sR / n; cs.mG = cs.sG / n; cs.mB = cs.sB / n;
+      cs.lR = cs.rR / n; cs.lG = cs.rG / n; cs.lB = cs.rB / n; cs.lY = cs.rY / n;
+      comps.push(cs);
+    }
+
+    // 2) bounded growth into similar-colour, flat, attenuation-compatible neighbours
+    let qh = 0, qt = 0;
+    const queue = new Int32Array(N);
+    for (let i = 0; i < N; i++) if (label[i] > 0) { queue[qt++] = i; depth[i] = 0; }
+    const e = 6;
+    while (qh < qt) {
+      const i = queue[qh++];
+      const id = label[i];
+      const cs = comps[id];
+      if (depth[i] >= cfg.growDepth) continue;
+      const x = i % w, y = (i / w) | 0;
+      for (let k = 0; k < 8; k++) {
+        const nx = x + N8x[k], ny = y + N8y[k];
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const j = ny * w + nx;
+        if (label[j] !== 0) continue;
+        const yj = Y[j];
+        if (yj < cs.mY * 0.6 || yj > cs.mY * 1.45) continue;
+        if (tex[j] > cfg.growTexMax) continue;
+        const kk = yj / cs.lY;
+        if (kk < cfg.kMin * 0.95 || kk > cfg.kMax) continue;
+        // colour proportions close to the region's own colour
+        const dr = (R[j] + e) / (yj + e) - (cs.mR + e) / (cs.mY + e);
+        const dg = (G[j] + e) / (yj + e) - (cs.mG + e) / (cs.mY + e);
+        const db = (B[j] + e) / (yj + e) - (cs.mB + e) / (cs.mY + e);
+        if (dr * dr + dg * dg + db * db > cfg.growChroma) continue;
+        if (!ceilingOk(R[j], G[j], B[j], cs.lR, cs.lG, cs.lB)) continue;
+        label[j] = id; depth[j] = depth[i] + 1; queue[qt++] = j;
+        cs.n++;
+      }
+    }
+
+    // 3) region statistics: texture, boundary context (relative to the light)
+    const nc = comps.length;
+    for (let id = 1; id < nc; id++) if (comps[id]) {
+      const cs = comps[id];
+      cs.texSum = 0; cs.cnt = 0; cs.perim = 0; cs.allTot = 0; cs.other = 0;
+      cs.tTot = 0; cs.tOcc = 0; cs.aTot = 0; cs.aLit = 0; cs.oTot = 0; cs.oLit = 0;
+      cs.minX = w; cs.minY = h; cs.maxX = 0; cs.maxY = 0;
+      cs.dirTot = new Float32Array(8); cs.dirLit = new Float32Array(8);
+    }
+    const OX = [-1, 0, 1, -1, 1, -1, 0, 1], OY = [-1, -1, -1, 0, 0, 1, 1, 1];
+    const reach = 3;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x, id = label[i];
+        if (id <= 0) continue;
+        const cs = comps[id];
+        cs.cnt++; cs.texSum += tex[i];
+        if (x < cs.minX) cs.minX = x; if (x > cs.maxX) cs.maxX = x;
+        if (y < cs.minY) cs.minY = y; if (y > cs.maxY) cs.maxY = y;
+        let edge = false;
+        for (let k = 0; k < 8; k++) {
+          const qx = x + OX[k] * reach, qy = y + OY[k] * reach;
+          if (qx < 0 || qy < 0 || qx >= w || qy >= h) continue;
+          const j = qy * w + qx;
+          if (label[j] === id) continue;
+          // only count samples that lie just outside the region
+          const qx1 = x + OX[k], qy1 = y + OY[k];
+          if (qx1 >= 0 && qy1 >= 0 && qx1 < w && qy1 < h && label[qy1 * w + qx1] === id) continue;
+          edge = true;
+          // classify outside sample relative to the region's lit reference
+          const yj = Y[j];
+          const ry = cs.lY;
+          let lit = false;
+          if (yj >= ry * 0.72 && yj <= ry * 1.35 && tex[j] <= cfg.litTexMax) {
+            const dr = (R[j] + e) / (yj + e) - (cs.lR + e) / (ry + e);
+            const dg = (G[j] + e) / (yj + e) - (cs.lG + e) / (ry + e);
+            const db = (B[j] + e) / (yj + e) - (cs.lB + e) / (ry + e);
+            lit = dr * dr + dg * dg + db * db < cfg.litChroma;
+          }
+          const bright = !lit && yj > ry * 1.2;      // kerb / road marking / ridge line
+          const ln = Math.hypot(OX[k], OY[k]);
+          const dotL = (OX[k] * L[0] + OY[k] * L[1]) / ln;
+          cs.dirTot[k]++; if (lit) cs.dirLit[k]++;
+          cs.allTot++;
+          if (!lit && !bright && yj >= cs.mY * 0.8 && yj <= cs.mY * 1.3) cs.other++;
+          if (dotL > 0.5) { cs.tTot++; if (!lit) cs.tOcc++; }
+          else if (dotL < -0.5) { cs.aTot++; if (lit || bright) cs.aLit++; }
+          else { cs.oTot++; if (lit || bright) cs.oLit++; }
+        }
+        if (edge) cs.perim++;
+      }
+    }
+
+    // 4) score regions
+    const conf = new Uint8Array(N), cls = new Uint8Array(N);
+    const regions = [];
+    const dirAgg = new Float64Array(8), dirAggLit = new Float64Array(8);
+    for (let id = 1; id < nc; id++) {
+      const cs = comps[id];
+      if (!cs) continue;
+      const n = cs.cnt;
+      const areaFull = n * s * s;
+      if (areaFull < cfg.minAreaPx) { cs.reject = 'area'; continue; }
+      const meanP = cs.sumP / cs.seedN;
+      const seedFrac = Math.min(1, cs.seedN / n);
+      const meanTex = cs.texSum / n;
+      const thick = (2 * n / Math.max(1, cs.perim)) * s;           // mean half-width x2 (full-res px)
+      const occToward = cs.tTot >= 3 ? cs.tOcc / cs.tTot : 0.5;
+      const litAway = cs.aTot >= 3 ? cs.aLit / cs.aTot : 0.5;
+      const litSide = cs.oTot >= 3 ? cs.oLit / cs.oTot : 0.5;
+      const ctx = 0.7 * occToward + 0.3 * Math.max(litAway, litSide);
+      const flat = 1 - ramp01(meanTex, cfg.regionTexOk, cfg.regionTexMax);
+      const geom = ramp01(areaFull, cfg.minAreaPx, cfg.minAreaPx * 4) * (0.35 + 0.65 * ramp01(thick, 2.5, 7));
+      const otherFrac = cs.allTot ? cs.other / cs.allTot : 0;
+      const meanK = cs.mY / cs.lY;
+      const kFac = 1 - ramp01(meanK, cfg.meanKOk, cfg.meanKMax);
+      const evid = Math.min(1, meanP / cfg.evidenceFull);
+      const score = Math.pow(evid, 0.7) * (0.25 + 0.75 * ctx) * (0.35 + 0.65 * flat) * (0.55 + 0.45 * geom) * (0.7 + 0.3 * seedFrac) * kFac * (1 - 0.9 * ramp01(otherFrac, cfg.otherOk, cfg.otherMax));
+      cs.score = score;
+      cs.f = { otherFrac, meanK, n, areaFull, meanP, seedFrac, meanTex, thick, occToward, litAway, litSide, ctx, flat, geom, evid, priorShare: cs.priorN / cs.seedN };
+      const v = Math.round(255 * Math.min(1, score));
+      let k = 0;
+      if (score >= cfg.highConfidence) k = 2; else if (score >= cfg.lowConfidence) k = 1;
+      cs.k = k;
+      if (k >= 1) for (let d = 0; d < 8; d++) { dirAgg[d] += cs.dirTot[d]; dirAggLit[d] += cs.dirLit[d]; }
+      regions.push({ id, cx: (cs.minX + cs.maxX) / 2 * s, cy: (cs.minY + cs.maxY) / 2 * s, ...cs.f, score, cls: k, bbox: [cs.minX * s, cs.minY * s, (cs.maxX + 1) * s, (cs.maxY + 1) * s] });
+    }
+    for (let i = 0; i < N; i++) {
+      const id = label[i];
+      if (id > 0 && comps[id] && comps[id].k) { cls[i] = comps[id].k; conf[i] = Math.round(255 * Math.min(1, comps[id].score)); }
+    }
+    // outward-direction lit fractions of accepted regions -> estimated direction toward the light
+    let ex = 0, ey = 0;
+    for (let d = 0; d < 8; d++) {
+      if (dirAgg[d] < 5) continue;
+      const lf = dirAggLit[d] / dirAgg[d];
+      const len = Math.hypot(OX[d], OY[d]);
+      ex += (0.5 - lf) * OX[d] / len; ey += (0.5 - lf) * OY[d] / len;
+    }
+    const en = Math.hypot(ex, ey) || 1;
+    return { cls, conf, label, regions, lightEstimate: [ex / en, ey / en] };
+  }
+
+  /* Looser test for a darkened pixel: shade desaturates grass towards olive,
+   * but red must not exceed green and blue must stay small (rejects asphalt,
+   * navy / red / yellow roofs, water). */
+  function isGrassLike(r, g, b) {
+    if (g < 14) return false;
+    return g / (r + 3) >= 0.98 && (b + 3) / (g + 3) <= 0.55;
+  }
+
+  function isGrassChroma(r, g, b) {
+    if (g < 14) return false;
+    const gr = g / (r + 3), bg = (b + 3) / (g + 3);
+    return gr >= 1.12 && gr <= 2.6 && bg <= 0.5;
+  }
+
+  /* Sliding-window maximum over a (2r+1)^2 square: separable, O(N) monotonic deque. */
+  function slidingMax(src, w, h, r) {
+    const tmp = new Float32Array(w * h), out = new Float32Array(w * h);
+    const dq = new Int32Array(Math.max(w, h) + 1);
+    function pass(get, set, len) {
+      let hd = 0, tl = 0;
+      for (let i = 0; i < len + r; i++) {
+        if (i < len) {
+          const v = get(i);
+          while (tl > hd && get(dq[tl - 1]) <= v) tl--;
+          dq[tl++] = i;
+        }
+        const c = i - r;
+        if (c >= 0) {
+          while (dq[hd] < c - r) hd++;
+          set(c, get(dq[hd]));
+        }
+      }
+    }
+    for (let y = 0; y < h; y++) {
+      const o = y * w;
+      pass(i => src[o + i], (i, v) => { tmp[o + i] = v; }, w);
+    }
+    for (let x = 0; x < w; x++) {
+      pass(i => tmp[i * w + x], (i, v) => { out[i * w + x] = v; }, h);
+    }
+    return out;
+  }
+
+  return { analyseShadows, DEFAULTS };
+};
+
+window.ShadowDebug = (function () {
+  const SD = {
+    enabled: false,
+    status: 'idle',            // idle | loading | analysing | ready | error
+    message: '',
+    cfg: {},                   // overrides for the detector DEFAULTS
+    colors: { high: [255, 0, 0, 230], low: [255, 255, 0, 200] },
+    canvas: null, worker: null, result: null
+  };
+  let started = false, button = null;
+
+  function setStatus(st, msg) {
+    SD.status = st; SD.message = msg || '';
+    if (button) button.textContent = 'SHADOW DBG: ' + (SD.enabled ? (st === 'ready' ? 'ON' : st) : 'OFF');
+    if (msg) console.log('[ShadowDebug] ' + st + ': ' + msg);
+  }
+
+  function readMapPixels() {
+    const img = window.mapImage;
+    const W = img.naturalWidth || img.width, H = img.naturalHeight || img.height;
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const cx = c.getContext('2d', { willReadFrequently: true });
+    cx.drawImage(img, 0, 0);            // drawn once, onto a private canvas
+    // throws SecurityError if the image is cross-origin without CORS headers
+    const data = cx.getImageData(0, 0, W, H);
+    return { W, H, rgba: data.data };
+  }
+
+  function finish(res, W, H) {
+    const s = res.scale, w = res.w, h = res.h;
+    const oc = document.createElement('canvas');
+    oc.width = w; oc.height = h;
+    const ox = oc.getContext('2d');
+    const img = ox.createImageData(w, h), d = img.data, cls = res.cls;
+    const hi = SD.colors.high, lo = SD.colors.low;
+    for (let i = 0; i < cls.length; i++) {
+      const k = cls[i];
+      if (!k) continue;
+      const col = k === 2 ? hi : lo, o = i * 4;
+      d[o] = col[0]; d[o + 1] = col[1]; d[o + 2] = col[2]; d[o + 3] = col[3];
+    }
+    ox.putImageData(img, 0, 0);
+    SD.canvas = oc; SD.result = { w, h, scale: s, W, H, regions: res.regions, lightDir: res.lightDirEstimate };
+    setStatus('ready', 'done: ' + res.regions.length + ' regions in ' + res.ms + ' ms');
+  }
+
+  function run() {
+    if (started) return;
+    started = true;
+    const img = window.mapImage;
+    if (!img || !img.complete || !(img.naturalWidth > 0)) { started = false; setStatus('loading', 'map not loaded yet'); return; }
+    setStatus('analysing', 'reading map pixels');
+    // defer so the game's own start-up is never blocked by this work
+    setTimeout(function () {
+      let px;
+      try { px = readMapPixels(); }
+      catch (e) { setStatus('error', 'cannot read map pixels (CORS/tainted canvas?): ' + e.message); return; }
+      const cfg = Object.assign({}, SD.cfg);
+      try {
+        const src = '(' + ShadowDetectorCoreFactory.toString() + ')()';
+        const blob = new Blob([
+          'const core=' + src + ';' +
+          'onmessage=function(e){try{var m=e.data;var r=core.analyseShadows(m.rgba,m.W,m.H,m.cfg,function(p){postMessage({p:p});});' +
+          'postMessage({done:true,w:r.w,h:r.h,scale:r.scale,cls:r.cls,regions:r.regions,lightDirEstimate:r.lightDirEstimate,ms:r.ms},[r.cls.buffer]);}' +
+          'catch(err){postMessage({error:String(err&&err.message||err)});}};'
+        ], { type: 'application/javascript' });
+        const url = URL.createObjectURL(blob);
+        const wk = new Worker(url);
+        SD.worker = wk;
+        wk.onmessage = function (e) {
+          const m = e.data;
+          if (m.error) { setStatus('error', m.error); wk.terminate(); return; }
+          if (m.p !== undefined) { if (button) button.textContent = 'SHADOW DBG: ' + Math.round(m.p * 100) + '%'; return; }
+          if (m.done) { finish(m, px.W, px.H); wk.terminate(); URL.revokeObjectURL(url); }
+        };
+        wk.onerror = function (e) { setStatus('error', 'worker failed: ' + e.message); };
+        wk.postMessage({ rgba: px.rgba, W: px.W, H: px.H, cfg: cfg }, [px.rgba.buffer]);
+        setStatus('analysing', 'running in worker');
+      } catch (e) {
+        // no Worker / Blob support: run on the main thread (blocks briefly)
+        try {
+          const core = ShadowDetectorCoreFactory();
+          finish(core.analyseShadows(px.rgba, px.W, px.H, cfg, null), px.W, px.H);
+        } catch (e2) { setStatus('error', String(e2 && e2.message || e2)); }
+      }
+    }, 50);
+  }
+
+  SD.toggle = function (on) {
+    SD.enabled = (on === undefined) ? !SD.enabled : !!on;
+    if (SD.enabled && !started) run();
+    setStatus(SD.status, '');
+  };
+  SD.rerun = function () {
+    if (SD.worker) { SD.worker.terminate(); SD.worker = null; }
+    started = false; SD.canvas = null; SD.result = null;
+    if (SD.enabled) run();
+  };
+
+  /* Called from the world render, inside the camera transform, right after the map. */
+  SD.draw = function (ctx, mw, mh) {
+    if (!SD.enabled || !SD.canvas) return;
+    const prev = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(SD.canvas, 0, 0, mw, mh);   // same coordinates as the map itself
+    ctx.imageSmoothingEnabled = prev;
+  };
+
+  if (/[?&]shadowdebug\b/.test(location.search)) {
+    window.addEventListener('DOMContentLoaded', function () {
+      button = document.createElement('button');
+      button.textContent = 'SHADOW DBG: OFF';
+      button.style.cssText = 'position:fixed;left:6px;bottom:6px;z-index:99999;font:11px monospace;padding:4px 6px;opacity:.8';
+      button.addEventListener('click', function (e) { e.stopPropagation(); SD.toggle(); });
+      document.body.appendChild(button);
+    });
+  }
+  return SD;
+})();
