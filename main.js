@@ -4549,7 +4549,14 @@ if (!isInsideHouse && !isInsideDealership) {
     ctx.restore();
 }
 
-
+// DEBUG: show pixels classified as TRANSITION by the collision terrain rules
+if (
+    window.TransitionDebug &&
+    !isInsideHouse &&
+    !isInsideDealership
+) {
+    TransitionDebug.draw(ctx, mapWidth, mapHeight);
+}
  if (!openingCutsceneActive) { ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
   ctx.fillRect(20, 20, 150, 45);
   ctx.fillStyle = "#2ecc71";
