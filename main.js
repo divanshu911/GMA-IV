@@ -1,4 +1,4 @@
-console.log("ki00");
+console.log("kq00");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1174,6 +1174,88 @@ collisionMapImage.addEventListener('load', () => {
         mapWidth,
         mapHeight
     ).data;
+    // ===== Collision map speck repair =====
+    // CollisionMap2.png contains ~24,000 tiny isolated BLOCKED pixel clusters
+    // (1-24 px: dark outline noise, olive/blue-grey blends). Many sit inside roads
+    // and along road edges. A vehicle footprint test samples ~9 points, so a single
+    // stray pixel rejects the move and the car "sticks".
+    //
+    // Run ONCE after getImageData() and BEFORE navigationSystem.buildGrid().
+    // It repaints every tiny blocked cluster with the colour of its surrounding
+    // walkable terrain, so every existing function (isPlayerCarWalkable,
+    // isAICarWalkable, navigation grid, ...) keeps working unchanged.
+    //
+    // getTerrainType is the existing classifier from important.js.
+    function repairCollisionSpecks(data, w, h, maxSpeckSize = 24) {
+        const total = w * h;
+        const BLOCKED = 0;
+        const type = new Uint8Array(total); // 0 blocked, 1 road, 2 grass, 3 transition
+        let lastKey = -1, lastType = BLOCKED; // map is made of flat colour runs
+        for (let i = 0, p = 0; i < total; i++, p += 4) {
+            const key = (data[p] << 16) | (data[p + 1] << 8) | data[p + 2];
+            if (key !== lastKey) {
+                const t = getTerrainType(data[p], data[p + 1], data[p + 2]);
+                lastType = t === "ROAD" ? 1 : t === "GRASS" ? 2 : t === "TRANSITION" ? 3 : BLOCKED;
+                lastKey = key;
+            }
+            type[i] = lastType;
+        }
+
+        const seen = new Uint8Array(total);
+        const stack = [];                       // frontier only; stays small
+        const comp = new Int32Array(maxSpeckSize + 1);
+        let repaired = 0, clusters = 0;
+
+        for (let start = 0; start < total; start++) {
+            if (type[start] !== BLOCKED || seen[start]) continue;
+
+            // Flood fill the WHOLE cluster (8-connected) so big objects such as
+            // buildings, trees and the river are fully marked and never revisited.
+            let n = 0, touchesEdge = false;
+            stack.push(start); seen[start] = 1;
+            while (stack.length > 0) {
+                const idx = stack.pop();
+                if (n <= maxSpeckSize) comp[n] = idx;
+                n++;
+                const x = idx % w, y = (idx - x) / w;
+                if (x === 0 || y === 0 || x === w - 1 || y === h - 1) touchesEdge = true;
+                for (let dy = -1; dy <= 1; dy++) {
+                    const ny = y + dy; if (ny < 0 || ny >= h) continue;
+                    for (let dx = -1; dx <= 1; dx++) {
+                        const nx = x + dx; if (nx < 0 || nx >= w) continue;
+                        const ni = ny * w + nx;
+                        if (type[ni] === BLOCKED && !seen[ni]) { seen[ni] = 1; stack.push(ni); }
+                    }
+                }
+            }
+            if (n > maxSpeckSize) continue;      // real object, leave untouched
+            if (touchesEdge || n === 0) continue;
+            clusters++;
+
+            // vote on the surrounding walkable terrain (ring of the cluster)
+            const votes = [0, 0, 0, 0], src = [-1, -1, -1, -1];
+            for (let k = 0; k < n; k++) {
+                const idx = comp[k], x = idx % w, y = (idx - x) / w;
+                for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+                    const ni = (y + dy) * w + (x + dx);
+                    const t = type[ni];
+                    if (t !== BLOCKED) { votes[t]++; if (src[t] < 0) src[t] = ni; }
+                }
+            }
+            let best = 1;
+            for (let t = 2; t <= 3; t++) if (votes[t] > votes[best]) best = t;
+            if (votes[best] === 0) continue;
+            const sp4 = src[best] * 4;
+            const r = data[sp4], g = data[sp4 + 1], b = data[sp4 + 2];
+            for (let k = 0; k < n; k++) {
+                const p = comp[k] * 4;
+                data[p] = r; data[p + 1] = g; data[p + 2] = b;
+                repaired++;
+            }
+        }
+        console.log(`Collision speck repair: ${clusters} clusters, ${repaired} pixels repainted.`);
+        return repaired;
+    }
     window.collisionData = collisionData;
 
     //do not touch
