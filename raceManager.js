@@ -1,4 +1,4 @@
-console.log("8889");
+console.log("89");
 // ============================================================
 // STREETBOUND RACE EVENTS MANAGER
 // ============================================================
@@ -968,8 +968,17 @@ if (
         if (typeof isPlayerCarWalkable === "function") {
                 let hitWall = false;
 
-                if (isPlayerCarWalkable(nextX, car.y)) car.x = nextX; else hitWall = true;
-                if (isPlayerCarWalkable(car.x, nextY)) car.y = nextY; else hitWall = true;
+                if (isPlayerCarWalkable(nextX, car.y, car)) {
+                    car.x = nextX;
+                } else {
+                    hitWall = true;
+                }
+
+                if (isPlayerCarWalkable(car.x, nextY, car)) {
+                    car.y = nextY;
+                } else {
+                    hitWall = true;
+                }
 
                 if (hitWall) {
                     car.speed *= 0.4;

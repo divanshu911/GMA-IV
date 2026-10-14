@@ -1,4 +1,4 @@
-console.log("jmm")
+console.log("bread")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -150,6 +150,32 @@ class Pedestrian {
     ctx.beginPath();
     ctx.arc(0, -this.size * 0.22, this.size * 0.08, 0, Math.PI * 2);
     ctx.fill();
+
+    // 5. Daytime shadow lighting: darken exactly the shapes drawn above.
+    // The Player is anchored at (x + size/2, y + size/2); NPCs and drivers at (x, y).
+    if (window.ShadowLighting) {
+      const half = (this instanceof Player) ? this.size / 2 : 0;
+      const sh = ShadowLighting.pedestrian(this, this.x + half, this.y + half);
+      if (sh > 0.01) {
+        const s = this.size;
+        const TAU = Math.PI * 2;
+        ctx.fillStyle = ShadowLighting.style(sh);
+        ctx.beginPath();
+        // one path, all circles/ellipses clockwise -> non-zero fill = union,
+        // so overlapping parts (torso/head/arms) are darkened only once
+        ctx.moveTo(-s * 0.42 + s * 0.12, -s * 0.1 + swingOffset);
+        ctx.arc(-s * 0.42, -s * 0.1 + swingOffset, s * 0.12, 0, TAU);
+        ctx.moveTo(rightArmX + s * 0.12, rightArmY);
+        ctx.arc(rightArmX, rightArmY, s * 0.12, 0, TAU);
+        ctx.moveTo(s * 0.38, 0);
+        ctx.ellipse(0, 0, s * 0.38, s * 0.22, 0, 0, TAU);
+        ctx.moveTo(s * 0.22, 0);
+        ctx.arc(0, 0, s * 0.22, 0, TAU);
+        ctx.moveTo(s * 0.08, -s * 0.22);
+        ctx.arc(0, -s * 0.22, s * 0.08, 0, TAU);
+        ctx.fill();
+      }
+    }
     }
 }
 
@@ -1549,6 +1575,40 @@ if (this.isInjured) {
     ctx.arc(headX, headY - s * 0.03, s * 0.16, Math.PI * 0.8, Math.PI * 2.2);
     ctx.fill();
 
+    // Daytime shadow lighting for the lying body (same shapes as above).
+    if (window.ShadowLighting) {
+      const sh = ShadowLighting.pedestrian(this, this.x, this.y);
+      if (sh > 0.01) {
+        const col = ShadowLighting.style(sh);
+        const TAU = Math.PI * 2;
+        ctx.fillStyle = col;
+        ctx.strokeStyle = col;
+        ctx.lineWidth = Math.max(2, s * 0.12);
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.12, s * 0.25);
+        ctx.lineTo(-s * 0.22, s * 0.50);
+        ctx.lineTo(-s * 0.18, s * 0.72);
+        ctx.moveTo(s * 0.12, s * 0.25);
+        ctx.lineTo(s * 0.16, s * 0.52);
+        ctx.lineTo(s * 0.22, s * 0.75);
+        ctx.moveTo(-s * 0.22, -s * 0.18);
+        ctx.lineTo(-s * 0.38, -s * 0.28);
+        ctx.lineTo(-s * 0.42, -s * 0.42);
+        ctx.moveTo(s * 0.22, -s * 0.18);
+        ctx.lineTo(s * 0.35, -s * 0.05);
+        ctx.lineTo(s * 0.32, s * 0.18);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(s * 0.26, 0);
+        ctx.ellipse(0, 0, s * 0.26, s * 0.32, 0, 0, TAU);
+        ctx.moveTo(headX + s * 0.16, headY);
+        ctx.arc(headX, headY, s * 0.16, 0, TAU);
+        ctx.fill();
+      }
+    }
+
     ctx.restore();
     return;
 }
@@ -2225,7 +2285,7 @@ if (typeof playerCar !== 'undefined' && playerCar && this.id === playerCar.id) r
         let nextY = this.y + Math.sin(forwardAngle) * (this.speed * dt);
 
         // Allow temporary drive over walkable grass terrain to recover
-        if (typeof isPlayerCarWalkable === 'function' && isPlayerCarWalkable(nextX, nextY)) {
+        if (typeof isPlayerCarWalkable === 'function' && isPlayerCarWalkable(nextX, nextY, this)) {
           this.x = nextX;
           this.y = nextY;
         } else {
@@ -2428,6 +2488,15 @@ if (typeof playerCar !== 'undefined' && playerCar && this.id === playerCar.id) r
     ctx.fillStyle = "#ff3333";
     ctx.fillRect(-this.width / 2 + 1, this.length / 2 - 2, 3, 2);
     ctx.fillRect(this.width / 2 - 4, this.length / 2 - 2, 3, 2);
+
+    // Daytime shadow lighting: darken the body only (smoke / sparks below stay as they are).
+    if (window.ShadowLighting) {
+      const sh = ShadowLighting.car(this);
+      if (sh > 0.01) {
+        ctx.fillStyle = ShadowLighting.style(sh);
+        ctx.fillRect(-this.width / 2, -this.length / 2, this.width, this.length);
+      }
+    }
 
     // Damage smoke visuals
 if (this.health < 60 && !this.exploded) {

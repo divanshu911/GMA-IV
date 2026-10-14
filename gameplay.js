@@ -120,7 +120,7 @@ class TaxiJobManager {
     this.pickupX = pickPos.x;
     this.pickupY = pickPos.y;
     this.hasPassenger = false;
-    this.setMessage("New customer waiting! Follow the yellow radar tracker to the pickup zone.", 240);
+    this.setMessage("New customer waiting! Follow yellow marker to the pickup zone.", 240);
   }
 
   pickUpPassengerAtPoint() {
@@ -148,7 +148,7 @@ class TaxiJobManager {
   }
 
   dropOffPassenger(player, npcs) {
-    let fare = 80 + Math.floor(Math.random() * 60);
+    let fare = 100 + Math.floor(Math.random() * 60);
     player.money += fare;
     localStorage.setItem("gma_player_money", player.money);
 
