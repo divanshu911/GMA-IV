@@ -1,7 +1,7 @@
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-console.log("mango");
+console.log("banana");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
@@ -1635,16 +1635,77 @@ function isRoadColor(x, y) {
     return type === "ROAD";
 }
 
-function isPlayerCarWalkable(x, y) {
+
+function isPlayerCarWalkable(x, y, car = null) {
     if (!collisionData || mapWidth === 0) return false;
-    let checkX = Math.floor(x);
-    let checkY = Math.floor(y);
-    if (checkX < 0 || checkX >= mapWidth || checkY < 0 || checkY >= mapHeight) return false;
 
-    const index = (checkY * mapWidth + checkX) * 4;
-    const type = getTerrainType(collisionData[index], collisionData[index + 1], collisionData[index + 2]);
+    function isWalkableAt(px, py) {
+        const checkX = Math.floor(px);
+        const checkY = Math.floor(py);
 
-    return type === "ROAD" || type === "GRASS" || type === "TRANSITION";
+        if (
+            checkX < 0 || checkX >= mapWidth ||
+            checkY < 0 || checkY >= mapHeight
+        ) {
+            return false;
+        }
+
+        const index = (checkY * mapWidth + checkX) * 4;
+        const type = getTerrainType(
+            collisionData[index],
+            collisionData[index + 1],
+            collisionData[index + 2]
+        );
+
+        return (
+            type === "ROAD" ||
+            type === "GRASS" ||
+            type === "TRANSITION"
+        );
+    }
+
+    // Preserve the original point check for non-vehicle callers.
+    if (!car || !Number.isFinite(car.angle)) {
+        return isWalkableAt(x, y);
+    }
+
+    // Sample the vehicle's footprint instead of checking only its center.
+    const halfLength = Math.max(5, (car.length || 28) * 0.35);
+    const halfWidth = Math.max(5, (car.width || 16) * 0.35);
+
+    const heading = car.angle - Math.PI / 2;
+    const fx = Math.cos(heading);
+    const fy = Math.sin(heading);
+    const sx = -fy;
+    const sy = fx;
+
+    // Check the four corners and the midpoint of each side.
+    for (let forwardSign of [-1, 1]) {
+        for (let sideSign of [-1, 1]) {
+            const px =
+                x + fx * halfLength * forwardSign +
+                sx * halfWidth * sideSign;
+            const py =
+                y + fy * halfLength * forwardSign +
+                sy * halfWidth * sideSign;
+
+            if (!isWalkableAt(px, py)) return false;
+        }
+
+        const px = x + fx * halfLength * forwardSign;
+        const py = y + fy * halfLength * forwardSign;
+
+        if (!isWalkableAt(px, py)) return false;
+    }
+
+    for (let sideSign of [-1, 1]) {
+        const px = x + sx * halfWidth * sideSign;
+        const py = y + sy * halfWidth * sideSign;
+
+        if (!isWalkableAt(px, py)) return false;
+    }
+
+    return isWalkableAt(x, y);
 }
 
 function isAICarWalkable(x, y) {
@@ -3609,114 +3670,4 @@ function drawObjectGlows(ctx) {
     }
 
     ctx.restore();
-}   
-
-window.TransitionDebug = (function () {
-    let enabled = false;
-    let overlay = null;
-    let button = null;
-    let building = false;
-
-    function buildOverlay() {
-        if (overlay || building) return;
-
-        if (!collisionData || !mapWidth || !mapHeight) {
-            if (button) button.textContent = "TRANSITION DBG: MAP NOT READY";
-            return;
-        }
-
-        building = true;
-        if (button) button.textContent = "TRANSITION DBG: BUILDING...";
-
-        // Build the mask after the current frame.
-        setTimeout(function () {
-            try {
-                const c = document.createElement("canvas");
-                c.width = mapWidth;
-                c.height = mapHeight;
-
-                const ox = c.getContext("2d");
-                const img = ox.createImageData(mapWidth, mapHeight);
-                const src = collisionData;
-                const dst = img.data;
-
-                for (let y = 0; y < mapHeight; y++) {
-                    for (let x = 0; x < mapWidth; x++) {
-                        const i = (y * mapWidth + x) * 4;
-
-                        if (
-                            getTerrainType(
-                                src[i],
-                                src[i + 1],
-                                src[i + 2]
-                            ) === "TRANSITION"
-                        ) {
-                            dst[i] = 255;
-                            dst[i + 1] = 0;
-                            dst[i + 2] = 0;
-                            dst[i + 3] = 145;
-                        }
-                    }
-                }
-
-                ox.putImageData(img, 0, 0);
-                overlay = c;
-
-                if (button) {
-                    button.textContent =
-                        "TRANSITION DBG: " + (enabled ? "ON" : "OFF");
-                }
-            } catch (e) {
-                console.error("[TransitionDebug]", e);
-                if (button) button.textContent = "TRANSITION DBG: ERROR";
-            } finally {
-                building = false;
-            }
-        }, 20);
-    }
-
-    function toggle() {
-        enabled = !enabled;
-
-        if (enabled) buildOverlay();
-
-        if (button && overlay) {
-            button.textContent =
-                "TRANSITION DBG: " + (enabled ? "ON" : "OFF");
-        }
-    }
-
-    function draw(ctx, width, height) {
-        if (!enabled) return;
-
-        if (!overlay) {
-            buildOverlay();
-            return;
-        }
-
-        ctx.save();
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(overlay, 0, 0, width, height);
-        ctx.restore();
-    }
-
-    if (/[?&]transitiondebug\b/.test(location.search)) {
-        window.addEventListener("DOMContentLoaded", function () {
-            button = document.createElement("button");
-            button.textContent = "TRANSITION DBG: OFF";
-            button.style.cssText =
-                "position:fixed;left:6px;bottom:30px;z-index:99999;" +
-                "font:11px monospace;padding:4px 6px;opacity:.9;" +
-                "background:#fff;color:#900;border:1px solid #900";
-
-            button.addEventListener("click", function (e) {
-                e.stopPropagation();
-                toggle();
-            });
-
-            document.body.appendChild(button);
-        });
-    }
-
-    return { toggle, draw };
-})();
+}    

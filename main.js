@@ -1,4 +1,4 @@
-console.log("1n00");
+console.log("ii00");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -155,8 +155,9 @@ mapImage.addEventListener('load', () => {
     mapAssetLoaded = true;
     tryEnableStartButton();
 
-    // DEBUG: kick off the shadow analysis only if the debug view was requested
-    if (window.ShadowDebug && ShadowDebug.enabled) ShadowDebug.toggle(true);
+    // Shadow lighting: analyse the map once, in the background, so entities can
+    // be shaded while they stand in a detected shadow.
+    if (window.ShadowLighting) ShadowLighting.start();
 });
 mapImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/Map2.png";
 
@@ -3907,14 +3908,14 @@ if (playerCar.health <= 0) {
         const oldX = playerCar.x;
         const oldY = playerCar.y;
 
-        if (isPlayerCarWalkable(nextX, playerCar.y)) {
+        if (isPlayerCarWalkable(nextX, playerCar.y, playerCar)) {
             playerCar.x = nextX;
         } else {
             hitWall = true;
             playerCar.x = oldX;
         }
 
-        if (isPlayerCarWalkable(playerCar.x, nextY)) {
+        if (isPlayerCarWalkable(playerCar.x, nextY, playerCar)) {
             playerCar.y = nextY;
         } else {
             hitWall = true;
@@ -4434,8 +4435,9 @@ ctx.translate(
       if (mapImage.complete && mapWidth > 0) ctx.drawImage(mapImage, 0, 0, mapWidth, mapHeight);
       else { ctx.fillStyle = "#e0deca"; ctx.fillRect(player.x - 400, player.y - 400, 800, 800); }
   }
-  // DEBUG: shadow detector overlay (no-op unless ShadowDebug is enabled)
-  if (window.ShadowDebug && ShadowDebug.enabled && !isInsideHouse && !isInsideDealership) ShadowDebug.draw(ctx, mapWidth, mapHeight);
+  // Shadow lighting: once-per-frame setup (daylight, smoothing, map scale).
+  // Nothing is drawn here; entities read it when they draw themselves.
+  if (window.ShadowLighting) ShadowLighting.beginFrame(!isInsideHouse && !isInsideDealership);
 
   if (!isInsideHouse && !isInsideDealership) {
       taxiManager.drawWorldMarkers(ctx);
@@ -4549,14 +4551,7 @@ if (!isInsideHouse && !isInsideDealership) {
     ctx.restore();
 }
 
-// DEBUG: show pixels classified as TRANSITION by the collision terrain rules
-if (
-    window.TransitionDebug &&
-    !isInsideHouse &&
-    !isInsideDealership
-) {
-    TransitionDebug.draw(ctx, mapWidth, mapHeight);
-}
+
  if (!openingCutsceneActive) { ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
   ctx.fillRect(20, 20, 150, 45);
   ctx.fillStyle = "#2ecc71";
@@ -4868,15 +4863,18 @@ window.addEventListener('load', () => {
 
 
 /* =====================================================================
- * SHADOW DEBUG OVERLAY  (detection / inspection only - no gameplay effect)
+ * SHADOW LIGHTING
  *
- * Enable with  ?shadowdebug  in the page URL (adds a small toggle button),
- * or from the console:  ShadowDebug.toggle()
- * Red = high-confidence shadow, yellow = lower confidence, nothing = rejected.
- * The original map image is never modified; the overlay is a separate canvas
- * drawn on top of the map inside the normal world transform.
- * Tunables: ShadowDebug.cfg (e.g. {highConfidence:0.7, lowConfidence:0.4,
- * scale:2}); call ShadowDebug.rerun() after changing them.
+ * The detector below (ShadowDetectorCoreFactory) analyses Map2.png once, in a
+ * background worker, and finds the cast shadows painted into the map. The
+ * result is baked into a small lookup grid (see shadowLightBake) that is
+ * invisible environmental lighting: in daytime (05:00-20:00 game time) cars,
+ * NPCs and the player look less brightly lit while they stand in a shadow.
+ * The map image itself is never modified and nothing is drawn on top of it.
+ *
+ * Detector tunables: ShadowLighting.cfg (e.g. {highConfidence:0.7,
+ * lowConfidence:0.4, scale:2}); call ShadowLighting.rerun() after changing
+ * them. Look of the effect: ShadowLighting.light (maxDarken, smoothTime...).
  * ===================================================================== */
 
 const ShadowDetectorCoreFactory = function () {
@@ -4915,8 +4913,8 @@ const ShadowDetectorCoreFactory = function () {
 
     // ---- region stage ---------------------------------------------------
     seedThr: 0.30,            // pixel evidence needed to seed a region
-    minSeedPx: 3,             // seed blobs smaller than this (analysis px) are specks
-    minAreaPx: 60,            // full-res px; smaller final regions are rejected
+    minSeedPx: 2,             // seed blobs smaller than this (analysis px) are specks
+    minAreaPx: 20,            // full-res px; smaller final regions are rejected
     growDepth: 8,             // analysis px a region may grow past its seeds
     growTexMax: 14,
     growChroma: 0.02,         // squared chroma distance allowed while growing
@@ -5444,12 +5442,36 @@ const ShadowDetectorCoreFactory = function () {
       const litSide = cs.oTot >= 3 ? cs.oLit / cs.oTot : 0.5;
       const ctx = 0.7 * occToward + 0.3 * Math.max(litAway, litSide);
       const flat = 1 - ramp01(meanTex, cfg.regionTexOk, cfg.regionTexMax);
-      const geom = ramp01(areaFull, cfg.minAreaPx, cfg.minAreaPx * 4) * (0.35 + 0.65 * ramp01(thick, 2.5, 7));
+        const geom =
+            (0.65 + 0.35 * ramp01(areaFull, cfg.minAreaPx, cfg.minAreaPx * 4)) *
+            (0.35 + 0.65 * ramp01(thick, 1.5, 7));
       const otherFrac = cs.allTot ? cs.other / cs.allTot : 0;
       const meanK = cs.mY / cs.lY;
       const kFac = 1 - ramp01(meanK, cfg.meanKOk, cfg.meanKMax);
       const evid = Math.min(1, meanP / cfg.evidenceFull);
-      const score = Math.pow(evid, 0.7) * (0.25 + 0.75 * ctx) * (0.35 + 0.65 * flat) * (0.55 + 0.45 * geom) * (0.7 + 0.3 * seedFrac) * kFac * (1 - 0.9 * ramp01(otherFrac, cfg.otherOk, cfg.otherMax));
+
+        const meanLuma = luma(cs.mR, cs.mG, cs.mB);
+        const maxChannel = Math.max(cs.mR, cs.mG, cs.mB);
+        const minChannel = Math.min(cs.mR, cs.mG, cs.mB);
+
+        // Dark, nearly neutral pixels resembling the sampled asphalt.
+        const neutralDarkRoadLike =
+            meanLuma >= 43 &&
+            meanLuma <= 61 &&
+            maxChannel - minChannel <= 12;
+
+        // Apply a penalty, not a hard rejection, to preserve possible shadows.
+        const roadColourPenalty = neutralDarkRoadLike ? 0.55 : 1;
+
+        const score =
+            Math.pow(evid, 0.7) *
+            (0.25 + 0.75 * ctx) *
+            (0.35 + 0.65 * flat) *
+            (0.55 + 0.45 * geom) *
+            (0.7 + 0.3 * seedFrac) *
+            kFac *
+            (1 - 0.9 * ramp01(otherFrac, cfg.otherOk, cfg.otherMax)) *
+            roadColourPenalty;
       cs.score = score;
       cs.f = { otherFrac, meanK, n, areaFull, meanP, seedFrac, meanTex, thick, occToward, litAway, litSide, ctx, flat, geom, evid, priorShare: cs.priorN / cs.seedN };
       const v = Math.round(255 * Math.min(1, score));
@@ -5521,22 +5543,86 @@ const ShadowDetectorCoreFactory = function () {
   return { analyseShadows, DEFAULTS };
 };
 
-window.ShadowDebug = (function () {
-  const SD = {
-    enabled: false,
-    status: 'idle',            // idle | loading | analysing | ready | error
-    message: '',
-    cfg: {},                   // overrides for the detector DEFAULTS
-    colors: { high: [255, 0, 0, 230], low: [255, 255, 0, 200] },
-    canvas: null, worker: null, result: null
-  };
-  let started = false, button = null;
-
-  function setStatus(st, msg) {
-    SD.status = st; SD.message = msg || '';
-    if (button) button.textContent = 'SHADOW DBG: ' + (SD.enabled ? (st === 'ready' ? 'ON' : st) : 'OFF');
-    if (msg) console.log('[ShadowDebug] ' + st + ': ' + msg);
+/* Bakes the detector output (cls + conf on the analysis grid) into ONE Uint8
+ * lookup grid: 0 = fully lit ... 255 = fully shaded. High-confidence shadow
+ * pixels count (almost) fully, low-confidence ones only partly, rejected
+ * pixels not at all. A small box blur then softens the shadow edges so that
+ * the shade of a moving object changes gradually instead of in a single step.
+ *
+ * Self-contained on purpose: it runs inside the analysis worker (via
+ * toString) as well as on the main thread in the no-Worker fallback. */
+function shadowLightBake(cls, conf, w, h, hiThr, loThr) {
+  const n = w * h;
+  const raw = new Uint8Array(n);
+  const loSpan = Math.max(0.01, hiThr - loThr);
+  const hiSpan = Math.max(0.01, 1 - hiThr);
+  for (let i = 0; i < n; i++) {
+    const k = cls[i];
+    if (!k) continue;
+    const score = conf[i] / 255;
+    let wgt;
+    if (k === 2) wgt = 0.85 + 0.15 * Math.min(1, Math.max(0, (score - hiThr) / hiSpan));
+    else wgt = 0.35 + 0.40 * Math.min(1, Math.max(0, (score - loThr) / loSpan));
+    raw[i] = (wgt * 255 + 0.5) | 0;
   }
+
+  // separable box blur, radius r analysis px (= 2r+1 px window), zero padded
+  const r = 2, win = 2 * r + 1;
+  const tmp = new Uint8Array(n), out = new Uint8Array(n);
+  for (let y = 0; y < h; y++) {
+    const o = y * w;
+    let sum = 0;
+    for (let k = 0; k <= r && k < w; k++) sum += raw[o + k];
+    for (let x = 0; x < w; x++) {
+      tmp[o + x] = (sum / win + 0.5) | 0;
+      const add = x + r + 1, sub = x - r;
+      if (add < w) sum += raw[o + add];
+      if (sub >= 0) sum -= raw[o + sub];
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    let sum = 0;
+    for (let k = 0; k <= r && k < h; k++) sum += tmp[k * w + x];
+    for (let y = 0; y < h; y++) {
+      out[y * w + x] = (sum / win + 0.5) | 0;
+      const add = y + r + 1, sub = y - r;
+      if (add < h) sum += tmp[add * w + x];
+      if (sub >= 0) sum -= tmp[sub * w + x];
+    }
+  }
+  return out;
+}
+
+window.ShadowLighting = (function () {
+  const SL = {
+    status: 'idle',            // idle | loading | analysing | ready | error
+    cfg: {},                   // overrides for the detector DEFAULTS (tuned values live there)
+
+    // Look of the effect.
+    light: {
+      maxDarken: 0.55,         // darkness of a fully shaded object at full daylight (0..1)
+      smoothTime: 0.12,        // seconds; temporal smoothing so shade never pops
+      dayStart: 5,             // game hours: no shading before this ...
+      dayEnd: 20,              // ... or after this
+      rampHours: 2             // fade in/out over this many hours inside the window
+    },
+
+    grid: null, gw: 0, gh: 0,  // baked shade lookup on the analysis grid (see shadowLightBake)
+    gridVersion: 0,
+    result: null, worker: null,
+
+    // per-frame state, set by beginFrame()
+    on: false, frameId: 0, k: 1, strength: 0, sx: 0, sy: 0
+  };
+  let started = false, lastT = 0;
+
+  function log(st, msg) {
+    SL.status = st;
+    if (st === 'error') console.warn('[ShadowLighting] ' + msg);
+    else if (msg) console.log('[ShadowLighting] ' + st + ': ' + msg);
+  }
+
+  /* ---------------- analysis (once, in the background) ---------------- */
 
   function readMapPixels() {
     const img = window.mapImage;
@@ -5551,93 +5637,179 @@ window.ShadowDebug = (function () {
   }
 
   function finish(res, W, H) {
-    const s = res.scale, w = res.w, h = res.h;
-    const oc = document.createElement('canvas');
-    oc.width = w; oc.height = h;
-    const ox = oc.getContext('2d');
-    const img = ox.createImageData(w, h), d = img.data, cls = res.cls;
-    const hi = SD.colors.high, lo = SD.colors.low;
-    for (let i = 0; i < cls.length; i++) {
-      const k = cls[i];
-      if (!k) continue;
-      const col = k === 2 ? hi : lo, o = i * 4;
-      d[o] = col[0]; d[o + 1] = col[1]; d[o + 2] = col[2]; d[o + 3] = col[3];
-    }
-    ox.putImageData(img, 0, 0);
-    SD.canvas = oc; SD.result = { w, h, scale: s, W, H, regions: res.regions, lightDir: res.lightDirEstimate };
-    setStatus('ready', 'done: ' + res.regions.length + ' regions in ' + res.ms + ' ms');
+    SL.grid = res.shade; SL.gw = res.w; SL.gh = res.h;
+    SL.gridVersion++;
+    SL.result = { w: res.w, h: res.h, scale: res.scale, W, H, regions: res.regions, lightDir: res.lightDirEstimate };
+    log('ready', res.regions.length + ' regions in ' + res.ms + ' ms');
   }
 
   function run() {
     if (started) return;
     started = true;
     const img = window.mapImage;
-    if (!img || !img.complete || !(img.naturalWidth > 0)) { started = false; setStatus('loading', 'map not loaded yet'); return; }
-    setStatus('analysing', 'reading map pixels');
+    if (!img || !img.complete || !(img.naturalWidth > 0)) { started = false; log('loading', 'map not loaded yet'); return; }
+    log('analysing', 'reading map pixels');
     // defer so the game's own start-up is never blocked by this work
-    setTimeout(function () {
+    const defer = window.requestIdleCallback
+      ? function (fn) { window.requestIdleCallback(fn, { timeout: 1500 }); }
+      : function (fn) { setTimeout(fn, 50); };
+    defer(function () {
       let px;
       try { px = readMapPixels(); }
-      catch (e) { setStatus('error', 'cannot read map pixels (CORS/tainted canvas?): ' + e.message); return; }
-      const cfg = Object.assign({}, SD.cfg);
+      catch (e) { log('error', 'cannot read map pixels (CORS/tainted canvas?): ' + e.message); return; }
+      const cfg = Object.assign({}, SL.cfg);
       try {
         const src = '(' + ShadowDetectorCoreFactory.toString() + ')()';
         const blob = new Blob([
           'const core=' + src + ';' +
-          'onmessage=function(e){try{var m=e.data;var r=core.analyseShadows(m.rgba,m.W,m.H,m.cfg,function(p){postMessage({p:p});});' +
-          'postMessage({done:true,w:r.w,h:r.h,scale:r.scale,cls:r.cls,regions:r.regions,lightDirEstimate:r.lightDirEstimate,ms:r.ms},[r.cls.buffer]);}' +
+          'const bake=' + shadowLightBake.toString() + ';' +
+          'onmessage=function(e){try{var m=e.data;var r=core.analyseShadows(m.rgba,m.W,m.H,m.cfg,null);' +
+          'var c=Object.assign({},core.DEFAULTS,m.cfg);' +
+          'var g=bake(r.cls,r.conf,r.w,r.h,c.highConfidence,c.lowConfidence);' +
+          'postMessage({done:true,w:r.w,h:r.h,scale:r.scale,shade:g,regions:r.regions,lightDirEstimate:r.lightDirEstimate,ms:r.ms},[g.buffer]);}' +
           'catch(err){postMessage({error:String(err&&err.message||err)});}};'
         ], { type: 'application/javascript' });
         const url = URL.createObjectURL(blob);
         const wk = new Worker(url);
-        SD.worker = wk;
+        SL.worker = wk;
         wk.onmessage = function (e) {
           const m = e.data;
-          if (m.error) { setStatus('error', m.error); wk.terminate(); return; }
-          if (m.p !== undefined) { if (button) button.textContent = 'SHADOW DBG: ' + Math.round(m.p * 100) + '%'; return; }
-          if (m.done) { finish(m, px.W, px.H); wk.terminate(); URL.revokeObjectURL(url); }
+          if (m.error) { log('error', m.error); wk.terminate(); SL.worker = null; URL.revokeObjectURL(url); return; }
+          if (m.done) { finish(m, px.W, px.H); wk.terminate(); SL.worker = null; URL.revokeObjectURL(url); }
         };
-        wk.onerror = function (e) { setStatus('error', 'worker failed: ' + e.message); };
+        wk.onerror = function (e) { log('error', 'worker failed: ' + e.message); };
         wk.postMessage({ rgba: px.rgba, W: px.W, H: px.H, cfg: cfg }, [px.rgba.buffer]);
-        setStatus('analysing', 'running in worker');
+        log('analysing', 'running in worker');
       } catch (e) {
         // no Worker / Blob support: run on the main thread (blocks briefly)
         try {
           const core = ShadowDetectorCoreFactory();
-          finish(core.analyseShadows(px.rgba, px.W, px.H, cfg, null), px.W, px.H);
-        } catch (e2) { setStatus('error', String(e2 && e2.message || e2)); }
+          const r = core.analyseShadows(px.rgba, px.W, px.H, cfg, null);
+          const c = Object.assign({}, core.DEFAULTS, cfg);
+          r.shade = shadowLightBake(r.cls, r.conf, r.w, r.h, c.highConfidence, c.lowConfidence);
+          finish(r, px.W, px.H);
+        } catch (e2) { log('error', String(e2 && e2.message || e2)); }
       }
-    }, 50);
-  }
-
-  SD.toggle = function (on) {
-    SD.enabled = (on === undefined) ? !SD.enabled : !!on;
-    if (SD.enabled && !started) run();
-    setStatus(SD.status, '');
-  };
-  SD.rerun = function () {
-    if (SD.worker) { SD.worker.terminate(); SD.worker = null; }
-    started = false; SD.canvas = null; SD.result = null;
-    if (SD.enabled) run();
-  };
-
-  /* Called from the world render, inside the camera transform, right after the map. */
-  SD.draw = function (ctx, mw, mh) {
-    if (!SD.enabled || !SD.canvas) return;
-    const prev = ctx.imageSmoothingEnabled;
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(SD.canvas, 0, 0, mw, mh);   // same coordinates as the map itself
-    ctx.imageSmoothingEnabled = prev;
-  };
-
-  if (/[?&]shadowdebug\b/.test(location.search)) {
-    window.addEventListener('DOMContentLoaded', function () {
-      button = document.createElement('button');
-      button.textContent = 'SHADOW DBG: OFF';
-      button.style.cssText = 'position:fixed;left:6px;bottom:6px;z-index:99999;font:11px monospace;padding:4px 6px;opacity:.8';
-      button.addEventListener('click', function (e) { e.stopPropagation(); SD.toggle(); });
-      document.body.appendChild(button);
     });
   }
-  return SD;
+
+  SL.start = function () { if (!started) run(); };
+  SL.rerun = function () {
+    if (SL.worker) { SL.worker.terminate(); SL.worker = null; }
+    started = false; SL.grid = null; SL.result = null;
+    run();
+  };
+
+  /* ---------------- per-frame setup ---------------- */
+
+  /* Called once per rendered frame, before any entity is drawn. `active` is
+   * false indoors (house / dealership), where nothing is shaded. */
+  SL.beginFrame = function (active) {
+    const now = performance.now();
+    let dt = (now - lastT) / 1000;
+    lastT = now;
+    if (!(dt > 0)) dt = 0; else if (dt > 0.1) dt = 0.1;
+    SL.frameId++;
+    SL.on = false;
+    if (!active || !SL.grid) return;
+    if (typeof gameSeconds === 'undefined' || typeof DAY_LENGTH === 'undefined') return;
+
+    // Daylight 0..1: only inside dayStart..dayEnd, easing in/out so the
+    // effect follows the sky instead of switching on at a fixed minute.
+    const L = SL.light;
+    const hour = gameSeconds / DAY_LENGTH * 24;
+    if (hour <= L.dayStart || hour >= L.dayEnd) return;
+    const day = Math.min(1, (hour - L.dayStart) / L.rampHours, (L.dayEnd - hour) / L.rampHours);
+    if (day <= 0.02) return;
+
+    // Same world size the map image is drawn with (see the map drawImage call).
+    if (typeof mapWidth === 'undefined' || typeof mapHeight === 'undefined' || !(mapWidth > 0) || !(mapHeight > 0)) return;
+    SL.sx = SL.gw / mapWidth;
+    SL.sy = SL.gh / mapHeight;
+    SL.strength = L.maxDarken * day;
+    SL.k = dt > 0 ? 1 - Math.exp(-dt / L.smoothTime) : 1;
+    SL.on = true;
+  };
+
+  /* ---------------- sampling ---------------- */
+
+  /* Shade weight 0..1 at a world position. */
+  function cover(wx, wy) {
+    const ix = (wx * SL.sx) | 0, iy = (wy * SL.sy) | 0;
+    if (wx < 0 || wy < 0 || ix >= SL.gw || iy >= SL.gh) return 0;
+    return SL.grid[iy * SL.gw + ix] * (1 / 255);
+  }
+
+  function newState() { return { f: -100, g: -1, x: NaN, y: NaN, a: NaN, t: 0, v: 0 }; }
+
+  /* Ease the displayed value toward the sampled target, once per frame. */
+  function advance(st) {
+    const gap = SL.frameId - st.f;
+    st.f = SL.frameId;
+    if (gap > 3) { st.v = st.t; return; }          // newly visible: no fade from a stale value
+    const d = st.t - st.v;
+    st.v += (d < 0.002 && d > -0.002) ? d : d * SL.k;
+  }
+
+  // footprint sample lattices, in fractions of the object's size
+  const CAR_X = [-0.33, 0, 0.33];
+  const CAR_Y = [-0.4, -0.13, 0.13, 0.4];
+  const PED_X = [0, 0.3, -0.3, 0, 0];
+  const PED_Y = [0, 0, 0, 0.2, -0.2];
+
+  /* Darkness alpha (0 = unchanged) for a Car, centre x,y, size width x length. */
+  SL.car = function (car) {
+    if (!SL.on) return 0;
+    const st = car._sl || (car._sl = newState());
+    if (st.f !== SL.frameId) {
+      const x = car.x, y = car.y, a = car.angle;
+      if (x !== st.x || y !== st.y || a !== st.a || st.g !== SL.gridVersion) {
+        st.x = x; st.y = y; st.a = a; st.g = SL.gridVersion;
+        const c = Math.cos(a), s = Math.sin(a);
+        let sum = 0;
+        for (let i = 0; i < 3; i++) {
+          const lx = CAR_X[i] * car.width;
+          for (let j = 0; j < 4; j++) {
+            const ly = CAR_Y[j] * car.length;
+            sum += cover(x + lx * c - ly * s, y + lx * s + ly * c);
+          }
+        }
+        st.t = sum * (1 / 12);
+      }
+      advance(st);
+    }
+    return st.v * SL.strength;
+  };
+
+  /* Darkness alpha for a pedestrian (player, NPC, driver). (wx, wy) is the
+   * body centre in WORLD coordinates. */
+  SL.pedestrian = function (p, wx, wy) {
+    if (!SL.on) return 0;
+    const st = p._sl || (p._sl = newState());
+    if (st.f !== SL.frameId) {
+      const a = p.angle || 0;
+      if (wx !== st.x || wy !== st.y || a !== st.a || st.g !== SL.gridVersion) {
+        st.x = wx; st.y = wy; st.a = a; st.g = SL.gridVersion;
+        const c = Math.cos(a), s = Math.sin(a), size = p.size;
+        let sum = 0;
+        for (let i = 0; i < 5; i++) {
+          const lx = PED_X[i] * size, ly = PED_Y[i] * size;
+          sum += cover(wx + lx * c - ly * s, wy + lx * s + ly * c);
+        }
+        st.t = sum * (1 / 5);
+      }
+      advance(st);
+    }
+    return st.v * SL.strength;
+  };
+
+  /* Cached fill style for a darkness alpha (no string building per frame).
+   * A very dark, faintly cool neutral: it scales brightness and keeps hue. */
+  const STYLE = [];
+  SL.style = function (alpha) {
+    const i = Math.min(63, Math.round(alpha * 128));
+    return STYLE[i] || (STYLE[i] = 'rgba(6,10,22,' + (i / 128).toFixed(3) + ')');
+  };
+
+  return SL;
 })();
