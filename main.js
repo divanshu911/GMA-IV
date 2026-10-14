@@ -1,4 +1,4 @@
-console.log("ii00");
+console.log("ki00");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1153,8 +1153,10 @@ collisionMapImage.addEventListener('load', () => {
     collisionCanvas.width = collisionMapImage.width;
     collisionCanvas.height = collisionMapImage.height;
 
-    const collisionCtx = collisionCanvas.getContext("2d");
-
+    const collisionCtx = collisionCanvas.getContext("2d", {
+        alpha: false
+    });
+    collisionCtx.imageSmoothingEnabled = false;
     collisionCtx.drawImage(
         collisionMapImage,
         0,
