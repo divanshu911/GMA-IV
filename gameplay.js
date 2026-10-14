@@ -730,7 +730,7 @@ function applyCarStats(car, type) {
     } else if (car.type === "Sprint, Hatchback") {
         car.width = 15; car.length = 25; car.baseSpeed = 1.15; car.turnSpeed = 0.055; car.sensorLength = 35; car.weightMultiplier = 1.0;
     } else if (car.type === "Falcon, Sports") {
-        car.width = 15; car.length = 26; car.baseSpeed = 2.1; car.turnSpeed = 0.08; car.sensorLength = 35; car.weightMultiplier = 1.2;
+        car.width = 15; car.length = 26; car.baseSpeed = 2.3; car.turnSpeed = 0.08; car.sensorLength = 35; car.weightMultiplier = 1.2;
     } else {
         car.type = "Commuter, Sedan";
         car.width = 16; car.length = 28; car.baseSpeed = 1.4; car.turnSpeed = 0.05; car.sensorLength = 35; car.weightMultiplier = 1.5;

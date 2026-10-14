@@ -1020,3 +1020,40 @@ canvas {
 #phoneMessagesCaughtUpBack:active {
     transform: scale(0.96);
 }
+
+/* Race Info screen rows (filled by RaceEventsManager.renderRaceInfo) */
+.race-info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    font-size: 11px;
+}
+
+.race-info-label {
+    color: #aaaaaa;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+
+.race-info-value {
+    color: #ffffff;
+    font-weight: 700;
+    text-align: right;
+}
+
+.race-info-prize {
+    color: #2ecc71;
+}
+
+.race-info-section {
+    margin: 10px 0 6px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    color: #f1c40f;
+    text-align: center;
+}

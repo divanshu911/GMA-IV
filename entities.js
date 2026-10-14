@@ -2108,7 +2108,7 @@ class Car {
     } else if (this.type === "Falcon, Sports") {
       this.width = 15;
       this.length = 26;
-      this.baseSpeed = 1.8 + Math.random() * 0.7;
+      this.baseSpeed = 2.0 + Math.random() * 0.7;
       this.turnSpeed = 0.08;
       this.sensorLength = 35;
     } else {

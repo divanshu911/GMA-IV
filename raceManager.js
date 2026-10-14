@@ -1,4 +1,4 @@
-console.log("89");
+console.log("8g9");
 // ============================================================
 // STREETBOUND RACE EVENTS MANAGER
 // ============================================================
@@ -41,23 +41,79 @@ const RACE_OPPONENT_COUNT = 4;
 // Preset key used when a race type has no entry of its own.
 const RACE_OPPONENT_DEFAULT_CAR = "Commuter Sedan";
 
-// raceType -> preset key. The race manager sets `this.raceType`
-// ("street" for now); add entries here when new race types exist.
+// raceType -> preset key. Every race type restricts the race to ONE
+// vehicle type: the opponents drive it and the player must use it
+// to join. Add entries here (and a matching preset below) for new types.
 const RACE_OPPONENT_CAR_BY_RACE_TYPE = {
-    street: "Commuter Sedan"
+    sedan:     "Commuter Sedan",
+    suv:       "Ranger SUV",
+    hatchback: "Sprint Hatchback",
+    van:       "Porter Van",
+    truck:     "Hauler Truck",
+    sports:    "Falcon Sports"
 };
+
+// Race types a new race can roll. `vehicleType` is the exact Car.type
+// string the player's car must have; `label` is shown to the player.
+const RACE_TYPES = {
+    sedan:     { label: "Sedan",     vehicleType: "Commuter, Sedan" },
+    suv:       { label: "SUV",       vehicleType: "Ranger, SUV" },
+    hatchback: { label: "Hatchback", vehicleType: "Sprint, Hatchback" },
+    van:       { label: "Van",       vehicleType: "Porter, Van" },
+    truck:     { label: "Truck",     vehicleType: "Hauler, Truck" },
+    sports:    { label: "Sports",    vehicleType: "Falcon, Sports" }
+};
+
+// Prize pairs: money for 1st / 2nd / 3rd place. One pair is rolled
+// per race and saved to localStorage next to the race type.
+const RACE_PRIZE_PAIRS = [
+    [1500, 800, 400],   // pair 1
+    [1200, 600, 200],   // pair 2
+    [1000, 750, 250]    // pair 3
+];
 
 // Preset key -> stats applied to the created Car.
 // `type` is the exact string the game uses for that car.
-// NOTE: width/length/baseSpeed mirror the values the existing
-// "Commuter, Sedan" police car in main.js uses. Adjust them if
-// your Commuter Sedan definition differs.
+// width/length mirror the Car class values. baseSpeed keeps the
+// Commuter Sedan at 3.2 (as before) and scales the other types by the
+// ratio of their average Car baseSpeed to the Commuter's (~1.45), so
+// every race type stays balanced against the player's same-type car.
 const RACE_OPPONENT_CAR_PRESETS = {
     "Commuter Sedan": {
         type: "Commuter, Sedan",
         width: 16,
         length: 28,
         baseSpeed: 3.2
+    },
+    "Ranger SUV": {
+        type: "Ranger, SUV",
+        width: 19,
+        length: 34,
+        baseSpeed: 3.5
+    },
+    "Sprint Hatchback": {
+        type: "Sprint, Hatchback",
+        width: 15,
+        length: 25,
+        baseSpeed: 2.6
+    },
+    "Porter Van": {
+        type: "Porter, Van",
+        width: 21,
+        length: 44,
+        baseSpeed: 2.6
+    },
+    "Hauler Truck": {
+        type: "Hauler, Truck",
+        width: 23,
+        length: 56,
+        baseSpeed: 2.4
+    },
+    "Falcon Sports": {
+        type: "Falcon, Sports",
+        width: 15,
+        length: 26,
+        baseSpeed: 3.9
     }
 };
 
@@ -86,7 +142,7 @@ const RACE_OPPONENT_AI = {
     frontSlowDistance: 46,     // ease off if a racer is right ahead
 
     buildingProbeRadius: 18,   // small building avoidance radius
-    buildingAvoidWeight: 0.5
+    buildingAvoidWeight: 0.7
 };
 
 // Pre-race staging: opponents spawn on roads when the race
@@ -1068,8 +1124,13 @@ class RaceEventsManager {
 
         this.generateAttempts = 0;
 
-        // Race type decides which car the opponents use.
-        this.raceType = "street";
+        // Race type decides which car the opponents use AND which
+        // vehicle type the player must drive to join. Both it and the
+        // prize pair are rolled once per race and kept in localStorage.
+        this.raceType = "sedan";
+        this.prizePairIndex = 0;
+        this.playerPrize = 0;
+        this.raceDetailsStorageKey = "streetbound_race_details";
         this.opponentManager = new RaceOpponentManager(this);
 
         this.createJoinButton();
@@ -1180,6 +1241,125 @@ class RaceEventsManager {
                 this.raceTimeStorageKey
             );
         } catch (e) {}
+
+        // Race type + prizes belong to the same race as the time.
+        this.clearSavedRaceDetails();
+    }
+
+    // --------------------------------------------------------
+    // PERSISTED RACE DETAILS (race type + prize pair)
+    // --------------------------------------------------------
+
+    loadSavedRaceDetails() {
+        try {
+            const raw =
+                localStorage.getItem(
+                    this.raceDetailsStorageKey
+                );
+
+            if (raw === null) {
+                return null;
+            }
+
+            const data = JSON.parse(raw);
+
+            if (
+                data &&
+                typeof data.raceType === "string" &&
+                RACE_TYPES[data.raceType] &&
+                Number.isInteger(data.prizePair) &&
+                data.prizePair >= 0 &&
+                data.prizePair < RACE_PRIZE_PAIRS.length
+            ) {
+                return data;
+            }
+        } catch (e) {
+            // Unreadable value: treated like a missing key.
+        }
+
+        return null;
+    }
+
+    saveRaceDetails(raceType, prizePair) {
+        try {
+            localStorage.setItem(
+                this.raceDetailsStorageKey,
+                JSON.stringify({
+                    raceType: raceType,
+                    prizePair: prizePair
+                })
+            );
+        } catch (e) {}
+    }
+
+    clearSavedRaceDetails() {
+        try {
+            localStorage.removeItem(
+                this.raceDetailsStorageKey
+            );
+        } catch (e) {}
+    }
+
+    // Rolls a new vehicle type + prize pair and saves them.
+    rollRaceDetails() {
+        const types = Object.keys(RACE_TYPES);
+
+        this.raceType =
+            types[Math.floor(Math.random() * types.length)];
+
+        this.prizePairIndex =
+            Math.floor(Math.random() * RACE_PRIZE_PAIRS.length);
+
+        this.saveRaceDetails(
+            this.raceType,
+            this.prizePairIndex
+        );
+
+        console.log(
+            "[RACE] New race details: " +
+            this.getRaceTypeLabel() + " race, prize pair " +
+            (this.prizePairIndex + 1)
+        );
+    }
+
+    // Reuses the saved details of today's race, or rolls new ones
+    // when none are saved (new race / unreadable value).
+    loadOrRollRaceDetails() {
+        const saved = this.loadSavedRaceDetails();
+
+        if (saved) {
+            this.raceType = saved.raceType;
+            this.prizePairIndex = saved.prizePair;
+        } else {
+            this.rollRaceDetails();
+        }
+    }
+
+    getRaceTypeLabel() {
+        const t = RACE_TYPES[this.raceType];
+
+        return t ? t.label : "Street";
+    }
+
+    getRequiredVehicleType() {
+        const t = RACE_TYPES[this.raceType];
+
+        return t ? t.vehicleType : null;
+    }
+
+    // Prize amounts for 1st / 2nd / 3rd of the chosen pair.
+    getPrizes() {
+        return (
+            RACE_PRIZE_PAIRS[this.prizePairIndex] ||
+            RACE_PRIZE_PAIRS[0]
+        );
+    }
+
+    // Prize for a finishing position (0 outside the top 3).
+    getPrizeForPlace(place) {
+        const prizes = this.getPrizes();
+
+        return prizes[place - 1] || 0;
     }
 
     // --------------------------------------------------------
@@ -1228,6 +1408,9 @@ class RaceEventsManager {
             // Reuse the saved time, never re-roll it.
             this.raceStartHour = saved.hour;
             this.raceStartMinute = saved.minute;
+
+            // Same race -> same vehicle type and prizes.
+            this.loadOrRollRaceDetails();
         } else {
             // No key: generate a new future time (existing
             // whole-hour random logic) and persist it.
@@ -1255,6 +1438,9 @@ class RaceEventsManager {
                 this.raceStartHour,
                 this.raceStartMinute
             );
+
+            // New race -> roll a new vehicle type and prize pair.
+            this.rollRaceDetails();
         }
 
         // Generate the actual race immediately.
@@ -1851,6 +2037,8 @@ class RaceEventsManager {
         const info =
             document.getElementById("phoneRaceInfoScreen");
 
+        this.updateRaceInfoScreen();
+
         if (layer) {
             layer.style.display = "none";
         }
@@ -1858,6 +2046,50 @@ class RaceEventsManager {
         if (info) {
             info.style.display = "flex";
         }
+    }
+
+    // Fills the EXISTING Race Info screen (same element the
+    // invitation's x button opens) with this race's details.
+    updateRaceInfoScreen() {
+        const content =
+            document.querySelector(
+                "#phoneRaceInfoScreen .phone-race-info-content"
+            );
+
+        if (!content) {
+            return;
+        }
+
+        const prizes = this.getPrizes();
+        const row = (label, value) => `
+            <div style="
+                display:flex;
+                justify-content:space-between;
+                align-items:center;
+                padding:6px 8px;
+                margin-bottom:5px;
+                border-radius:6px;
+                background:rgba(255,255,255,0.07);
+                font-size:11px;
+            ">
+                <span style="color:#aaaaaa;">${label}</span>
+                <span style="font-weight:bold;">${value}</span>
+            </div>
+        `;
+
+        content.innerHTML =
+            row("Car type", this.getRaceTypeLabel() + " only") +
+            row("Opponents", String(RACE_OPPONENT_COUNT)) +
+            `<div style="
+                margin:8px 0 4px;
+                font-size:10px;
+                font-weight:800;
+                letter-spacing:1px;
+                color:#f1c40f;
+            ">PRIZES</div>` +
+            row("1st", "$" + prizes[0]) +
+            row("2nd", "$" + prizes[1]) +
+            row("3rd", "$" + prizes[2]);
     }
 
     acceptRaceInfo() {
@@ -2027,6 +2259,22 @@ class RaceEventsManager {
         ) {
             this.showJoinDenied(
                 "You must be in a car to join the race"
+            );
+            return;
+        }
+
+        // Only the race's vehicle type may enter.
+        const requiredType = this.getRequiredVehicleType();
+
+        if (
+            requiredType &&
+            playerCar.type !== requiredType
+        ) {
+            this.showJoinDenied(
+                this.getRaceTypeLabel() +
+                " race only. Use a " +
+                requiredType.replace(", ", " ") +
+                " to join"
             );
             return;
         }
@@ -2606,8 +2854,16 @@ class RaceEventsManager {
             return;
         }
 
+        this.playerPrize = 0;
+
         if (!timedOut) {
             this.playerPlace = this.claimFinishPlace();
+
+            // Prize only when the player reaches the finish.
+            this.playerPrize =
+                this.getPrizeForPlace(this.playerPlace);
+
+            this.awardPrize(this.playerPrize);
         }
 
         this.state = "FINISHED";
@@ -2627,6 +2883,27 @@ class RaceEventsManager {
         console.log(
             "[RACE] Player race ended at scheduled finish time."
         );
+    }
+
+    // Adds prize money to the player and saves it (same key the
+    // rest of the game uses for the player's money).
+    awardPrize(amount) {
+        if (
+            !amount ||
+            typeof player === "undefined" ||
+            !player
+        ) {
+            return;
+        }
+
+        player.money = (Number(player.money) || 0) + amount;
+
+        try {
+            localStorage.setItem(
+                "gma_player_money",
+                player.money
+            );
+        } catch (e) {}
     }
 
     // --------------------------------------------------------
@@ -2792,6 +3069,8 @@ class RaceEventsManager {
 
             <div id="raceFinishResults" style="margin:16px 0;"></div>
 
+            <div id="raceFinishPrize" style="margin:0 0 16px; font-weight:bold; color:#2ecc71;"></div>
+
             <button
                 id="raceFinishContinue"
                 style="
@@ -2834,6 +3113,14 @@ class RaceEventsManager {
             // Positions keep updating live only when the player
             // crossed the line; after a timer end they are final.
             this.finishLive = !timedOut;
+        }
+
+        const prizeEl =
+            document.getElementById("raceFinishPrize");
+
+        if (prizeEl && this.playerPrize > 0) {
+            prizeEl.textContent =
+                "Prize: $" + this.playerPrize;
         }
 
         const continueButton =
@@ -3048,6 +3335,7 @@ class RaceEventsManager {
 
         this.finishPlaceCounter = 0;
         this.playerPlace = null;
+        this.playerPrize = 0;
 
         this.raceStartHour = null;
         this.raceStartMinute = 0;
