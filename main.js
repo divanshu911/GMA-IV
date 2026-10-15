@@ -1404,7 +1404,7 @@ if (exitBtn) {
 function checkPlayerDeath() {
   if (player.health <= 0) {
       taxiManager.setMessage("WASTED: Rushed to the hospital! Medical fee: $150", 240);
-      player.money -= 150;
+      player.money -= 100;
       player.health = player.maxHealth;
       player.hunger = 100;
 
@@ -1653,8 +1653,8 @@ function handlePhysicsAndCollisions(dt) {
               isPlayerInvolved &&
               !playerRaceCollisionDamageDisabled
             ) {
-              let dmg1 = relSpeed * 5 * (c2.weightMultiplier || 1.0);
-              let dmg2 = relSpeed * 5 * (c1.weightMultiplier || 1.0);
+              let dmg1 = relSpeed * 3 * (c2.weightMultiplier || 1.0);
+              let dmg2 = relSpeed * 3 * (c1.weightMultiplier || 1.0);
               let stolenCarStateChanged = false;
 
               if (c1.health > 0) {
