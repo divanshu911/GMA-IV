@@ -1127,33 +1127,121 @@ setInterval(() => {
     }
 }, 2000); 
 
-function getNearbyRoadPosition(startX, startY) {
-    // Check if the current player position is already a road
-    if (typeof isStrictRoadColor === 'function' && isStrictRoadColor(startX, startY)) {
-        return { x: startX, y: startY };
-    }
+// --- RESPAWN ROAD SEARCH HELPERS ---
+// Probe directions used to measure how far a point is from the nearest non-road pixel.
+const respawnProbeDirs = [];
+for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * 2 * Math.PI;
+    respawnProbeDirs.push({ x: Math.cos(a), y: Math.sin(a) });
+}
 
-    const maxRadius = 1000;
-    const step = 20;
-
-    // Search outward in expanding concentric circles
-    for (let radius = step; radius <= maxRadius; radius += step) {
-        const samples = Math.floor(2 * Math.PI * radius / step);
-        for (let i = 0; i < samples; i++) {
-            const angle = (i / samples) * 2 * Math.PI;
-            const checkX = Math.floor(startX + Math.cos(angle) * radius);
-            const checkY = Math.floor(startY + Math.sin(angle) * radius);
-
-            if (typeof isStrictRoadColor === 'function' && isStrictRoadColor(checkX, checkY)) {
-                return { x: checkX, y: checkY };
+// Distance (capped) from (x, y) to the nearest non-road pixel. Returns 0 if (x, y) itself is not road.
+function getRespawnRoadClearance(x, y, cap) {
+    if (!isStrictRoadColor(x, y)) return 0;
+    let clearance = cap;
+    for (let i = 0; i < respawnProbeDirs.length; i++) {
+        const dir = respawnProbeDirs[i];
+        for (let d = 2; d < clearance; d += 2) {
+            if (!isStrictRoadColor(x + dir.x * d, y + dir.y * d)) {
+                clearance = d;
+                break;
             }
         }
     }
+    return clearance;
+}
+
+// Hill-climbs from a road point toward the position with the most road around it
+// (i.e. the middle of the road/lane), moving from coarse to fine steps.
+function centerOnRoadForRespawn(x, y) {
+    const cap = 40;
+    let bestX = x;
+    let bestY = y;
+    let best = getRespawnRoadClearance(bestX, bestY, cap);
+
+    for (let step = 8; step >= 1; step /= 2) {
+        for (let iter = 0; iter < 40; iter++) {
+            let nextX = bestX;
+            let nextY = bestY;
+            let nextBest = best;
+
+            for (let i = 0; i < 8; i++) {
+                const a = (i / 8) * 2 * Math.PI;
+                const cx = bestX + Math.cos(a) * step;
+                const cy = bestY + Math.sin(a) * step;
+                const c = getRespawnRoadClearance(cx, cy, cap);
+                if (c > nextBest) {
+                    nextBest = c;
+                    nextX = cx;
+                    nextY = cy;
+                }
+            }
+
+            if (nextBest <= best) break;
+            best = nextBest;
+            bestX = nextX;
+            bestY = nextY;
+        }
+    }
+
+    return { x: bestX, y: bestY, clearance: best };
+}
+
+// startX/startY and the returned position are player coordinates (top-left of the player box,
+// same as player.x / player.y). The returned position puts the player's center well inside a road.
+function getNearbyRoadPosition(startX, startY) {
+    const half = ((typeof player !== 'undefined' && player.size) || 20) / 2;
+    const toPlayerPos = (p) => ({ x: Math.round(p.x - half), y: Math.round(p.y - half) });
+
+    if (typeof isStrictRoadColor === 'function') {
+        const minClearance = 8;   // road pixels needed around the spawn point on every side
+        const maxRadius = 1000;
+        const step = 6;
+        const maxFailedCandidates = 40;
+
+        const centerX = startX + half;
+        const centerY = startY + half;
+
+        let bestFallback = null;
+        const failed = [];
+
+        // Returns a well-centered road position near (px, py), or null if the spot is unsuitable.
+        const tryPoint = (px, py) => {
+            if (!isStrictRoadColor(px, py)) return null;
+            for (let i = 0; i < failed.length; i++) {
+                if (Math.hypot(px - failed[i].x, py - failed[i].y) < 24) return null;
+            }
+            const refined = centerOnRoadForRespawn(px, py);
+            if (refined.clearance >= minClearance) return refined;
+            failed.push({ x: px, y: py });
+            if (!bestFallback || refined.clearance > bestFallback.clearance) bestFallback = refined;
+            return null;
+        };
+
+        // Search outward in expanding concentric circles
+        search:
+        for (let radius = 0; radius <= maxRadius; radius += step) {
+            const samples = radius === 0 ? 1 : Math.floor(2 * Math.PI * radius / step);
+            for (let i = 0; i < samples; i++) {
+                const angle = (i / samples) * 2 * Math.PI;
+                const found = tryPoint(
+                    Math.floor(centerX + Math.cos(angle) * radius),
+                    Math.floor(centerY + Math.sin(angle) * radius)
+                );
+                if (found) return toPlayerPos(found);
+                if (failed.length >= maxFailedCandidates) break search;
+            }
+        }
+
+        // No roomy spot found: use the best (most centered) road spot seen
+        if (bestFallback) return toPlayerPos(bestFallback);
+    }
 
     // Fallback to random strict road position if search radius yields nothing
-    return typeof getRandomStrictRoadPosition === 'function' 
-        ? getRandomStrictRoadPosition() 
-        : { x: 300, y: 300 };
+    const randomPos = typeof getRandomStrictRoadPosition === 'function'
+        ? getRandomStrictRoadPosition()
+        : { x: 300 + half, y: 300 + half };
+    return toPlayerPos(randomPos);
 }
 
 
