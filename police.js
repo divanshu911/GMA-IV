@@ -1,4 +1,4 @@
-console.log("2o23");
+console.log("2t23");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -101,8 +101,14 @@ function refreshWantedScore() {
 // Add crime points with diminishing returns.
 // The current TOTAL score affects the gain, but only the
 // crime component is subject to the crime-only ceiling.
+
 function addWantedCrimeScore(baseScore) {
     const currentScore = refreshWantedScore();
+
+    // Crimes stop adding points once the TOTAL score reaches 60.
+    if (currentScore >= 60) {
+        return;
+    }
 
     const gain = Math.max(
         0,
@@ -116,7 +122,6 @@ function addWantedCrimeScore(baseScore) {
 
     refreshWantedScore();
 }
-
 // Reconstruct crime score from existing persisted counters.
 // The counters do not record the chronological order of crimes,
 // so use a consistent order when rebuilding.
@@ -184,7 +189,7 @@ function registerAssaultCrime(target = null) {
     }
 
     playerAssaultCases++;
-    addWantedCrimeScore(5);
+    addWantedCrimeScore(4);
     saveCrimeCaseCounts();
 
     player.wanted = true;
@@ -316,7 +321,7 @@ function updateHitRunIncidents() {
             pendingHitRunIncidents.splice(i, 1);
 
             playerHitRunCases++;
-            addWantedCrimeScore(15);
+            addWantedCrimeScore(10);
             
             saveCrimeCaseCounts();
 
@@ -1818,6 +1823,19 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
 
                 const coastSpeed = unit.policeCoastSpeed;
                 const coastAngle = unit.policeCoastAngle;
+                // Don't let fake inertia force the car into an obstacle.
+                const coastAvoidance = getPoliceObstacleAvoidance(
+                    unit,
+                    coastAngle,
+                    cars
+                );
+
+                if (coastAvoidance.blocked) {
+                    // Cancel the fixed-angle coast and resume normal
+                    // pursuit steering immediately.
+                    unit.policeStopTimer = 0;
+                    unit.policeChaseTimerState = "CHASING";
+                } else {
 
                 unit.speed = coastSpeed;
                 unit.angle = coastAngle + Math.PI / 2;
@@ -1848,7 +1866,7 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
                     unit.policeChaseTimerState = "STOPPED";
                 }
 
-                return;
+                }        return;
             }
 
             if (unit.policeChaseTimerState === "STOPPED") {
@@ -1991,10 +2009,9 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
         cars
     );
 
-    if (localAvoidance.blocked) {
-        unit.speed = 0;
-        return;
-    }
+    // Use the escape angle returned by obstacle avoidance.
+    // Don't freeze directly in front of an obstruction.
+    moveAngle = localAvoidance.angle;
     smoothlyTurnAIMovement(unit, moveAngle, dt, isCar);
 
     if (isCar) {
@@ -2124,7 +2141,7 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
     // Successful escape bonus; not saved to localStorage.
     chaseWantedScore = Math.min(
         100,
-        chaseWantedScore + 8
+        chaseWantedScore + 5
     );
 
     refreshWantedScore();
