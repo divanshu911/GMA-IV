@@ -1,4 +1,4 @@
-console.log("palm")
+console.log("9am")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -2099,56 +2099,13 @@ if (this.isPolice) {
       this.sensorLength = 45;
     } 
 else if (this.type === "Ranger, SUV") {
-  // Police SUVs have black bodies and dark roofs.
-  ctx.fillStyle = this.isPolice ? "#080808" : "#2c3e50";
-  ctx.fillRect(
-    -this.width / 2 + 2,
-    -this.length / 3,
-    this.width - 4,
-    this.length * 0.65
-  );
-
-  ctx.fillStyle = "#111111";
-  ctx.fillRect(
-    -this.width / 2 + 1,
-    -this.length / 6,
-    2,
-    this.length / 2
-  );
-  ctx.fillRect(
-    this.width / 2 - 3,
-    -this.length / 6,
-    2,
-    this.length / 2
-  );
-
-  if (this.isPolice) {
-    // White police marking with red and blue accents.
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(
-      -this.width / 2 + 1,
-      -1,
-      this.width - 2,
-      5
-    );
-
-    ctx.fillStyle = "#e74c3c";
-    ctx.fillRect(
-      -this.width / 2 + 2,
-      -3,
-      this.width / 2 - 2,
-      3
-    );
-
-    ctx.fillStyle = "#3498db";
-    ctx.fillRect(
-      0,
-      -3,
-      this.width / 2 - 2,
-      3
-    );
-  }
-} else if (this.type === "Sprint, Hatchback") {
+    this.width = 20;
+    this.length = 36;
+    this.baseSpeed = 1.1 + Math.random() * 0.4;
+    this.turnSpeed = 0.035;
+    this.sensorLength = 40;
+}
+else if (this.type === "Sprint, Hatchback") {
       this.width = 15;
       this.length = 25;
       this.baseSpeed = 1.0 + Math.random() * 0.3;
@@ -2493,13 +2450,55 @@ if (typeof playerCar !== 'undefined' && playerCar && this.id === playerCar.id) r
       ctx.fillStyle = "#111111";
       ctx.fillRect(-0.5, -this.length / 4, 1, this.length * 0.7);
     }
-    else if (this.type === "Ranger, SUV") {
-      ctx.fillStyle = "#2c3e50";
-      ctx.fillRect(-this.width / 2 + 2, -this.length / 3, this.width - 4, this.length * 0.65);
-      ctx.fillStyle = "#111111";
-      ctx.fillRect(-this.width / 2 + 1, -this.length / 6, 2, this.length / 2);
-      ctx.fillRect(this.width / 2 - 3, -this.length / 6, 2, this.length / 2);
-    }
+        else if (this.type === "Ranger, SUV") {
+            ctx.fillStyle = this.isPolice ? "#080808" : "#2c3e50";
+            ctx.fillRect(
+                -this.width / 2 + 2,
+                -this.length / 3,
+                this.width - 4,
+                this.length * 0.65
+            );
+
+            ctx.fillStyle = "#111111";
+            ctx.fillRect(
+                -this.width / 2 + 1,
+                -this.length / 6,
+                2,
+                this.length / 2
+            );
+            ctx.fillRect(
+                this.width / 2 - 3,
+                -this.length / 6,
+                2,
+                this.length / 2
+            );
+
+            if (this.isPolice) {
+                ctx.fillStyle = "#ffffff";
+                ctx.fillRect(
+                    -this.width / 2 + 1,
+                    -1,
+                    this.width - 2,
+                    5
+                );
+
+                ctx.fillStyle = "#e74c3c";
+                ctx.fillRect(
+                    -this.width / 2 + 2,
+                    -3,
+                    this.width / 2 - 2,
+                    3
+                );
+
+                ctx.fillStyle = "#3498db";
+                ctx.fillRect(
+                    0,
+                    -3,
+                    this.width / 2 - 2,
+                    3
+                );
+            }
+        }
     else if (this.type === "Falcon, Sports") {
       ctx.fillStyle = "#34495e";
       ctx.fillRect(-this.width / 2 + 2, -this.length / 4, this.width - 4, this.length / 3);
@@ -2957,12 +2956,12 @@ cars.push(stolenCar);
   // 3. Spawn AI Cars
   for (let i = 0; i < NUM_CARS; i++) {
     let pos = getRandomRoadPosition();
-      let isPolice = Math.random() < 0.99;
+      let isPolice = Math.random() < 0.90;
       let color = carColors[Math.floor(Math.random() * carColors.length)];
 
-      // SUVs make up 70% of spawned police cars.
+      // SUVs make up 32% of spawned police cars.
       let policeVehicleType =
-        isPolice && Math.random() < 0.85
+        isPolice && Math.random() < 0.92
           ? "Ranger, SUV"
           : null;
 
