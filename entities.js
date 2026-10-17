@@ -1,4 +1,4 @@
-console.log("bread")
+console.log("jam")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -2059,11 +2059,15 @@ class Car {
 
 
     // --- 1. DETERMINE VEHICLE TYPE ---
-    if (this.isPolice) {
-      this.type = "Commuter, Sedan"; // Police cars are strictly Commuter, Sedan
-    } else if (type) {
-      this.type = type;
-    } else {
+    // --- 1. DETERMINE VEHICLE TYPE ---
+if (this.isPolice) {
+  // Police can use sedans or SUVs.
+  this.type = type === "Ranger, SUV"
+    ? "Ranger, SUV"
+    : "Commuter, Sedan";
+} else if (type) {
+  this.type = type;
+} else {
       const roll = Math.random();
       if (roll < 0.25) {
         this.type = "Commuter, Sedan";
@@ -2093,13 +2097,58 @@ class Car {
       this.baseSpeed = 1.0 + Math.random() * 0.4;
       this.turnSpeed = 0.028;
       this.sensorLength = 45;
-    } else if (this.type === "Ranger, SUV") {
-      this.width = 19;
-      this.length = 34;
-      this.baseSpeed = 1.5 + Math.random() * 0.5;
-      this.turnSpeed = 0.065;
-      this.sensorLength = 38;
-    } else if (this.type === "Sprint, Hatchback") {
+    } 
+else if (this.type === "Ranger, SUV") {
+  // Police SUVs have black bodies and dark roofs.
+  ctx.fillStyle = this.isPolice ? "#080808" : "#2c3e50";
+  ctx.fillRect(
+    -this.width / 2 + 2,
+    -this.length / 3,
+    this.width - 4,
+    this.length * 0.65
+  );
+
+  ctx.fillStyle = "#111111";
+  ctx.fillRect(
+    -this.width / 2 + 1,
+    -this.length / 6,
+    2,
+    this.length / 2
+  );
+  ctx.fillRect(
+    this.width / 2 - 3,
+    -this.length / 6,
+    2,
+    this.length / 2
+  );
+
+  if (this.isPolice) {
+    // White police marking with red and blue accents.
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(
+      -this.width / 2 + 1,
+      -1,
+      this.width - 2,
+      5
+    );
+
+    ctx.fillStyle = "#e74c3c";
+    ctx.fillRect(
+      -this.width / 2 + 2,
+      -3,
+      this.width / 2 - 2,
+      3
+    );
+
+    ctx.fillStyle = "#3498db";
+    ctx.fillRect(
+      0,
+      -3,
+      this.width / 2 - 2,
+      3
+    );
+  }
+} else if (this.type === "Sprint, Hatchback") {
       this.width = 15;
       this.length = 25;
       this.baseSpeed = 1.0 + Math.random() * 0.3;
@@ -2837,8 +2886,8 @@ let cars = [];
 function initSpawns() {
   if (npcs.length > 0 || cars.length > 0) return;
 
-  const NUM_NPCS = 25;
-  const NUM_CARS = 20;
+  const NUM_NPCS = 28;
+  const NUM_CARS = 30;
 
   const shirtColors = ["#3498db", "#e74c3c", "#2ecc71", "#f1c40f", "#9b59b6", "#e67e22", "#1abc9c", "#e84393"];
   const hairColors = ["#2d3436", "#4a3728", "#d35400", "#f39c12"];
@@ -2908,10 +2957,18 @@ cars.push(stolenCar);
   // 3. Spawn AI Cars
   for (let i = 0; i < NUM_CARS; i++) {
     let pos = getRandomRoadPosition();
-    let isPolice = Math.random() < 0.15;
-    let color = carColors[Math.floor(Math.random() * carColors.length)];
+      let isPolice = Math.random() < 0.20;
+      let color = carColors[Math.floor(Math.random() * carColors.length)];
 
-    cars.push(new Car(i + 100, pos.x, pos.y, color, isPolice));
+      // SUVs make up 32% of spawned police cars.
+      let policeVehicleType =
+        isPolice && Math.random() < 0.32
+          ? "Ranger, SUV"
+          : null;
+
+      cars.push(
+        new Car(i + 100, pos.x, pos.y, color, isPolice, policeVehicleType)
+      );
   }
 }
 
