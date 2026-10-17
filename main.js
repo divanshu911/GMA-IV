@@ -1,4 +1,4 @@
-console.log("kp00");
+console.log("iu00");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1972,6 +1972,9 @@ car.isParked = true;
 
         
 function updateGame(dt) {
+    // River ambience: spatial river sound (fades out when not outdoors / paused).
+    if (typeof updateRiverAmbience === 'function') updateRiverAmbience(dt);
+
     if (typeof gameActive !== 'undefined' && !gameActive) return;
 
     if (typeof updateDayNight === 'function') {
@@ -2082,6 +2085,7 @@ if (!isInsideHouse && angryDrivers.length > 0) {
                 driver.targetCar.isStolen = true;
             }
             playerCarStealCases++;
+            addWantedCrimeScore(10);
     saveCrimeCaseCounts();
             player.wanted = true;
             localStorage.setItem("gma_player_wanted", "true");
@@ -3003,6 +3007,11 @@ ctx.translate(
       if (mapImage.complete && mapWidth > 0) ctx.drawImage(mapImage, 0, 0, mapWidth, mapHeight);
       else { ctx.fillStyle = "#e0deca"; ctx.fillRect(player.x - 400, player.y - 400, 800, 800); }
   }
+    
+  // River flow animation + water effects. Drawn with the map (before shadows,
+  // entities and HUD) and limited to the part of the river inside the viewport.
+  if (!isInsideHouse && !isInsideDealership && typeof drawRiverOverlay === 'function') drawRiverOverlay(ctx);
+
   // Shadow lighting: once-per-frame setup (daylight, smoothing, map scale).
   // Nothing is drawn here; entities read it when they draw themselves.
   if (window.ShadowLighting) ShadowLighting.beginFrame(!isInsideHouse && !isInsideDealership);
@@ -3414,6 +3423,27 @@ for (
     );
 
     ctx.restore();
+    }
+
+    // DEBUG: wanted score breakdown.
+    if (typeof wantedScore !== "undefined") {
+        ctx.save();
+
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+        ctx.font = "bold 12px Arial";
+
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        ctx.fillRect(8, 54, 190, 23);
+
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(
+            `WANTED ${Math.round(wantedScore)}/100 | C:${Math.round(crimeWantedScore)} P:${Math.round(chaseWantedScore)}`,
+            13,
+            59
+        );
+
+        ctx.restore();
     }
 }
 
@@ -4414,3 +4444,6 @@ window.ShadowLighting = (function () {
 
   return SL;
 })();
+
+        
+                

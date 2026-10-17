@@ -1,4 +1,4 @@
-console.log("2323");
+console.log("2o23");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -75,6 +75,94 @@ function hasActiveCrimeCases() {
     );
 }
 
+/* ============================================================
+   WANTED SCORE
+   Crime score is rebuilt from existing saved crime counters.
+   Chase points and the total score are runtime-only.
+   ============================================================ */
+
+const CRIME_WANTED_SCORE_CAP = 60;
+
+let crimeWantedScore = 0;
+let chaseWantedScore = 0;
+let wantedScore = 0;
+let chaseScoreTimer = 0;
+
+// Keep the total between 0 and 100.
+function refreshWantedScore() {
+    wantedScore = Math.max(
+        0,
+        Math.min(100, crimeWantedScore + chaseWantedScore)
+    );
+
+    return wantedScore;
+}
+
+// Add crime points with diminishing returns.
+// The current TOTAL score affects the gain, but only the
+// crime component is subject to the crime-only ceiling.
+function addWantedCrimeScore(baseScore) {
+    const currentScore = refreshWantedScore();
+
+    const gain = Math.max(
+        0,
+        baseScore * (1 - currentScore / 100)
+    );
+
+    crimeWantedScore = Math.min(
+        CRIME_WANTED_SCORE_CAP,
+        crimeWantedScore + gain
+    );
+
+    refreshWantedScore();
+}
+
+// Reconstruct crime score from existing persisted counters.
+// The counters do not record the chronological order of crimes,
+// so use a consistent order when rebuilding.
+function rebuildCrimeWantedScore() {
+    crimeWantedScore = 0;
+    chaseWantedScore = 0;
+    wantedScore = 0;
+    chaseScoreTimer = 0;
+
+    const savedCrimeTypes = [
+        { count: Math.max(0, playerHitRunCases || 0), base: 15 },
+        { count: Math.max(0, playerCarStealCases || 0), base: 10 },
+        { count: Math.max(0, playerAssaultCases || 0), base: 5 }
+    ];
+
+    for (const crime of savedCrimeTypes) {
+        for (
+            let i = 0;
+            i < crime.count &&
+            crimeWantedScore < CRIME_WANTED_SCORE_CAP;
+            i++
+        ) {
+            const gain =
+                crime.base * (1 - crimeWantedScore / 100);
+
+            crimeWantedScore = Math.min(
+                CRIME_WANTED_SCORE_CAP,
+                crimeWantedScore + gain
+            );
+        }
+    }
+
+    refreshWantedScore();
+}
+
+// Clear both components after arrest and release.
+function clearWantedScore() {
+    crimeWantedScore = 0;
+    chaseWantedScore = 0;
+    wantedScore = 0;
+    chaseScoreTimer = 0;
+}
+
+// Initialise from the saved crime counters on game startup.
+rebuildCrimeWantedScore();
+
 // ------------------------------------------------------------
 // ASSAULT CRIME
 // Generic combat never calls this directly.
@@ -96,6 +184,7 @@ function registerAssaultCrime(target = null) {
     }
 
     playerAssaultCases++;
+    addWantedCrimeScore(5);
     saveCrimeCaseCounts();
 
     player.wanted = true;
@@ -227,6 +316,8 @@ function updateHitRunIncidents() {
             pendingHitRunIncidents.splice(i, 1);
 
             playerHitRunCases++;
+            addWantedCrimeScore(15);
+            
             saveCrimeCaseCounts();
 
             player.wanted = true;
@@ -1197,6 +1288,7 @@ function startArrestTransition() {
         player.x = ARREST_STATION_X;
         player.y = ARREST_STATION_Y;
         player.speed = 0;
+        clearWantedScore();
 
         setTimeout(() => {
             overlay.style.opacity = "0";
@@ -1991,6 +2083,22 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
         return;
     }
 
+    // Add session-only points for surviving an active chase.
+    if (player.beingChased) {
+        chaseScoreTimer += Math.max(0, dt || 0);
+
+        // dt is measured in approximately 1/60-second frame units.
+        while (chaseScoreTimer >= 60) {
+            chaseScoreTimer -= 60;
+
+            chaseWantedScore = Math.min(
+                100,
+                chaseWantedScore + 0.25
+            );
+
+            refreshWantedScore();
+        }
+    }
     // --- POLICE CHASE ESCAPE ---
     if (player.beingChased) {
         const POLICE_ESCAPE_DISTANCE = 450;
@@ -2013,7 +2121,15 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
         );
 
         if (!nearbyChasingCar && !nearbyChasingOfficer) {
-            player.beingChased = false;
+    // Successful escape bonus; not saved to localStorage.
+    chaseWantedScore = Math.min(
+        100,
+        chaseWantedScore + 8
+    );
+
+    refreshWantedScore();
+
+    player.beingChased = false;
             player.wanted = true;
 
             if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
