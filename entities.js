@@ -1,4 +1,4 @@
-console.log("jam")
+console.log("pam")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -2957,12 +2957,12 @@ cars.push(stolenCar);
   // 3. Spawn AI Cars
   for (let i = 0; i < NUM_CARS; i++) {
     let pos = getRandomRoadPosition();
-      let isPolice = Math.random() < 0.20;
+      let isPolice = Math.random() < 0.50;
       let color = carColors[Math.floor(Math.random() * carColors.length)];
 
-      // SUVs make up 32% of spawned police cars.
+      // SUVs make up 70% of spawned police cars.
       let policeVehicleType =
-        isPolice && Math.random() < 0.32
+        isPolice && Math.random() < 0.70
           ? "Ranger, SUV"
           : null;
 
