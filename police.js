@@ -1037,7 +1037,7 @@ function moveArrestPoliceCar(
 
     let avoidX = 0;
     let avoidY = 0;
-    const avoidanceRadius = 30;
+    const avoidanceRadius = 43;
 
     if (typeof cars !== 'undefined') {
         cars.forEach(otherCar => {
@@ -1955,7 +1955,7 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
 
  let avoidX = 0;
     let avoidY = 0;
-    const avoidanceRadius = isCar ? 55 : 32;
+    const avoidanceRadius = isCar ? 55 : 42;
 
     cars.forEach(otherCar => {
         if (otherCar !== unit && otherCar !== playerCar && otherCar.isPolice) {

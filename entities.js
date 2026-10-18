@@ -2956,12 +2956,12 @@ cars.push(stolenCar);
   // 3. Spawn AI Cars
   for (let i = 0; i < NUM_CARS; i++) {
     let pos = getRandomRoadPosition();
-      let isPolice = Math.random() < 0.90;
+      let isPolice = Math.random() < 0.20;
       let color = carColors[Math.floor(Math.random() * carColors.length)];
 
-      // SUVs make up 32% of spawned police cars.
+      // SUVs make up 35% of spawned police cars.
       let policeVehicleType =
-        isPolice && Math.random() < 0.92
+        isPolice && Math.random() < 0.35
           ? "Ranger, SUV"
           : null;
 
