@@ -1988,6 +1988,7 @@ function updateGame(dt) {
         raceEventManager.update(dt);
     }
     updateHitRunIncidents();    updateAssaultWitnessSystem(dt);
+    if (typeof updateRoadblocks === "function") updateRoadblocks(dt);
         if (playerPhoneOpen && player.isArrestPassenger) {
         closePlayerPhone();
         }
@@ -3047,6 +3048,11 @@ if (!isInsideHouse && !isInsideDealership) {
     }
 });
       
+  }
+
+  // Police roadblock barricades (world space, same transform as cars).
+  if (typeof drawRoadblocks === "function") {
+      drawRoadblocks(ctx);
   }
 
   // 2. Draw exhaust smoke and flying debris

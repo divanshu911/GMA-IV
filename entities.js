@@ -322,6 +322,13 @@ function npcReactionIsWalkable(
     y,
     allowGrass
 ) {
+    if (
+        typeof isRoadblockBlocking === "function" &&
+        isRoadblockBlocking(x, y)
+    ) {
+        return false;
+    }
+
     if (allowGrass) {
         return (
             typeof isGrassOrRoad === "function" &&
@@ -2348,6 +2355,19 @@ if (typeof playerCar !== 'undefined' && playerCar && this.id === playerCar.id) r
             if (other.id !== this.id && !other.exploded) {
                 checkObstacle(other.x, other.y, (other.length || 30) * 0.5);
             }
+        }
+    }
+
+    // Intact police roadblock barricades — civilians slow/steer away.
+    if (
+        typeof roadblockState !== "undefined" &&
+        roadblockState.barricades &&
+        roadblockState.barricades.length
+    ) {
+        for (let bi = 0; bi < roadblockState.barricades.length; bi++) {
+            const barr = roadblockState.barricades[bi];
+            if (!barr.intact) continue;
+            checkObstacle(barr.x, barr.y, Math.max(barr.length, barr.thickness) * 0.55);
         }
     }
 

@@ -1619,7 +1619,19 @@ function isWalkableColor(nextX, nextY, entitySize = 24) {
     const index = (checkY * currentMapWidth + checkX) * 4;
     const type = getTerrainType(data[index], data[index + 1], data[index + 2]);
 
-    return type === "ROAD" || type === "GRASS" || type === "TRANSITION";
+    if (!(type === "ROAD" || type === "GRASS" || type === "TRANSITION")) {
+        return false;
+    }
+
+    // Intact police roadblock barricades block pedestrians on foot.
+    if (
+        typeof isRoadblockBlocking === "function" &&
+        isRoadblockBlocking(checkX, checkY)
+    ) {
+        return false;
+    }
+
+    return true;
 }
 
 // --- ROAD DETECTION CONTROLLERS ---
@@ -1717,7 +1729,19 @@ function isAICarWalkable(x, y) {
     const index = (checkY * mapWidth + checkX) * 4;
     const type = getTerrainType(collisionData[index], collisionData[index + 1], collisionData[index + 2]);
 
-    return type === "ROAD" || type === "TRANSITION";
+    if (!(type === "ROAD" || type === "TRANSITION")) {
+        return false;
+    }
+
+    // Civilian / AI traffic treats intact barricades as impassable.
+    if (
+        typeof isRoadblockBlocking === "function" &&
+        isRoadblockBlocking(checkX, checkY)
+    ) {
+        return false;
+    }
+
+    return true;
 }
 
 function isStrictRoadColor(x, y) {
@@ -2197,7 +2221,19 @@ class NavigationSystem {
             return false;
         }
 
-        return this.grid[gridY][gridX] === 0;
+        if (this.grid[gridY][gridX] !== 0) {
+            return false;
+        }
+
+        // Dynamic police roadblock barricades block A* routes.
+        if (typeof isRoadblockBlocking === "function") {
+            const world = this.gridToWorld(gridX, gridY);
+            if (isRoadblockBlocking(world.x, world.y)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     // --------------------------------------------------------

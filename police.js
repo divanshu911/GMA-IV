@@ -2335,7 +2335,20 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
                  warningOrArrestingUnit.warningTimer <= 0)) {
 
                 player.beingChased = true;
-                warningOrArrestingUnit.policeState = "CHASE";
+
+                // Roadblock officers report the chase but stay parked at the block.
+                if (warningOrArrestingUnit.isRoadblockUnit) {
+                    warningOrArrestingUnit.policeState = "PATROL";
+                    warningOrArrestingUnit.speed = 0;
+                    warningOrArrestingUnit.isParked = true;
+                    if (typeof warningOrArrestingUnit.stopSiren === "function") {
+                        warningOrArrestingUnit.stopSiren();
+                    } else {
+                        warningOrArrestingUnit.sirenState = 0;
+                    }
+                } else {
+                    warningOrArrestingUnit.policeState = "CHASE";
+                }
 
                 if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
                     taxiManager.setMessage("You are being chased!", 180);
@@ -2369,6 +2382,7 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
                     !c.isStolen &&
                     !c.exploded &&
                     c.health > 0 &&
+                    !c.isRoadblockUnit &&
                     (!c.policeState || c.policeState === "PATROL")
                 ) {
                     if (Math.hypot(player.x - c.x, player.y - c.y) <= 240) {
@@ -2416,3 +2430,691 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
         });
     }
 }
+// ============================================================
+// POLICE ROADBLOCK SYSTEM (StreetBound)
+// Include / load after police.js (wanted score + police AI).
+// ============================================================
+// Activates cumulatively with wanted score. Parked police cars
+// + physical barricades. Geometry is detected from the collision
+// map; placement is deferred until the player is far enough away.
+// ============================================================
+
+const ROADBLOCK_SAFE_DISTANCE = 550;
+const ROADBLOCK_MIN_ROAD_WIDTH = 28;
+const ROADBLOCK_MAX_SEARCH = 90;
+const ROADBLOCK_THRESHOLDS = [23, 35, 45, 55, 65];
+
+const ROADBLOCK_CANDIDATES = [
+    { id: "A", x: 3821, y: 1138 },
+    { id: "B", x: 2792, y: 1802 },
+    { id: "C", x: 764,  y: 1343 },
+    { id: "D", x: 2469, y: 484  },
+    { id: "E", x: 2537, y: 1246 }
+];
+
+const roadblockLocations = {};
+
+const roadblockState = {
+    activeIds: [],
+    pendingIds: [],
+    selectedOrder: [],
+    selectionSeeded: false,
+    barricades: [],
+    cars: [],
+    nextBarricadeId: 1,
+    nextCarIdBase: 810000
+};
+
+function roadblockResetSelection() {
+    roadblockState.activeIds = [];
+    roadblockState.pendingIds = [];
+    roadblockState.selectedOrder = [];
+    roadblockState.selectionSeeded = false;
+    for (const id of Object.keys(roadblockLocations)) {
+        const loc = roadblockLocations[id];
+        loc.active = false;
+        loc.pending = false;
+        loc.spawned = false;
+        loc.geometry = null;
+        loc.invalid = loc.invalid || false;
+    }
+}
+
+function roadblockInitLocations() {
+    for (const c of ROADBLOCK_CANDIDATES) {
+        if (!roadblockLocations[c.id]) {
+            roadblockLocations[c.id] = {
+                id: c.id,
+                x: c.x,
+                y: c.y,
+                active: false,
+                pending: false,
+                spawned: false,
+                geometry: null,
+                invalid: false,
+                invalidReason: null
+            };
+        }
+    }
+}
+
+function roadblockSampleRoadPoint(cx, cy, radius) {
+    if (typeof isRoadColor === "function" && isRoadColor(cx, cy)) {
+        return { x: cx, y: cy };
+    }
+
+    let best = null;
+    let bestDist = Infinity;
+    const step = 6;
+
+    for (let r = step; r <= radius; r += step) {
+        const samples = Math.max(8, Math.floor((Math.PI * 2 * r) / step));
+        for (let i = 0; i < samples; i++) {
+            const a = (i / samples) * Math.PI * 2;
+            const x = cx + Math.cos(a) * r;
+            const y = cy + Math.sin(a) * r;
+            if (typeof isRoadColor === "function" && isRoadColor(x, y)) {
+                const d = Math.hypot(x - cx, y - cy);
+                if (d < bestDist) {
+                    bestDist = d;
+                    best = { x, y };
+                }
+            }
+        }
+        if (best && bestDist <= r) break;
+    }
+    return best;
+}
+
+function roadblockMeasureWidth(px, py, nx, ny) {
+    let left = 0;
+    let right = 0;
+    const max = 80;
+    for (let d = 2; d <= max; d += 2) {
+        if (typeof isRoadColor === "function" && isRoadColor(px - nx * d, py - ny * d)) {
+            left = d;
+        } else break;
+    }
+    for (let d = 2; d <= max; d += 2) {
+        if (typeof isRoadColor === "function" && isRoadColor(px + nx * d, py + ny * d)) {
+            right = d;
+        } else break;
+    }
+    return { left, right, width: left + right };
+}
+
+function roadblockEstimateDirection(px, py) {
+    const R = 36;
+    let sumX = 0, sumY = 0, sumXX = 0, sumYY = 0, sumXY = 0, n = 0;
+    const step = 4;
+
+    for (let dy = -R; dy <= R; dy += step) {
+        for (let dx = -R; dx <= R; dx += step) {
+            if (dx * dx + dy * dy > R * R) continue;
+            if (typeof isRoadColor === "function" && isRoadColor(px + dx, py + dy)) {
+                sumX += dx;
+                sumY += dy;
+                sumXX += dx * dx;
+                sumYY += dy * dy;
+                sumXY += dx * dy;
+                n++;
+            }
+        }
+    }
+
+    if (n < 8) return null;
+
+    const meanX = sumX / n;
+    const meanY = sumY / n;
+    const covXX = sumXX / n - meanX * meanX;
+    const covYY = sumYY / n - meanY * meanY;
+    const covXY = sumXY / n - meanX * meanY;
+
+    const trace = covXX + covYY;
+    const det = covXX * covYY - covXY * covXY;
+    const disc = Math.sqrt(Math.max(0, trace * trace / 4 - det));
+    const eig = trace / 2 + disc;
+
+    let vx, vy;
+    if (Math.abs(covXY) > 1e-6) {
+        vx = eig - covYY;
+        vy = covXY;
+    } else if (covXX >= covYY) {
+        vx = 1;
+        vy = 0;
+    } else {
+        vx = 0;
+        vy = 1;
+    }
+
+    const len = Math.hypot(vx, vy) || 1;
+    vx /= len;
+    vy /= len;
+
+    return { tx: vx, ty: vy, nx: -vy, ny: vx };
+}
+
+function roadblockAnalyzeGeometry(loc) {
+    if (loc.geometry) return loc.geometry;
+    if (loc.invalid) return null;
+
+    if (
+        typeof collisionData === "undefined" ||
+        !collisionData ||
+        typeof mapWidth === "undefined" ||
+        mapWidth <= 0
+    ) {
+        return null;
+    }
+
+    const center = roadblockSampleRoadPoint(loc.x, loc.y, ROADBLOCK_MAX_SEARCH);
+    if (!center) {
+        loc.invalid = true;
+        loc.invalidReason = "no road near candidate";
+        console.log("[ROADBLOCK] Rejected " + loc.id + ": " + loc.invalidReason);
+        return null;
+    }
+
+    const dir = roadblockEstimateDirection(center.x, center.y);
+    if (!dir) {
+        loc.invalid = true;
+        loc.invalidReason = "could not estimate road direction";
+        console.log("[ROADBLOCK] Rejected " + loc.id + ": " + loc.invalidReason);
+        return null;
+    }
+
+    const measure = roadblockMeasureWidth(center.x, center.y, dir.nx, dir.ny);
+    if (measure.width < ROADBLOCK_MIN_ROAD_WIDTH) {
+        loc.invalid = true;
+        loc.invalidReason = "road too narrow (" + measure.width.toFixed(0) + "px)";
+        console.log("[ROADBLOCK] Rejected " + loc.id + ": " + loc.invalidReason);
+        return null;
+    }
+
+    const midOffset = (measure.right - measure.left) * 0.5;
+    const cx = center.x + dir.nx * midOffset;
+    const cy = center.y + dir.ny * midOffset;
+
+    if (typeof isRoadColor === "function" && !isRoadColor(cx, cy)) {
+        loc.invalid = true;
+        loc.invalidReason = "centerline not on road";
+        console.log("[ROADBLOCK] Rejected " + loc.id + ": " + loc.invalidReason);
+        return null;
+    }
+
+    loc.geometry = {
+        cx,
+        cy,
+        tx: dir.tx,
+        ty: dir.ty,
+        nx: dir.nx,
+        ny: dir.ny,
+        halfWidth: measure.width * 0.5,
+        width: measure.width
+    };
+    return loc.geometry;
+}
+
+function roadblockCreateBarricade(x, y, angle, length, thickness) {
+    return {
+        id: roadblockState.nextBarricadeId++,
+        x,
+        y,
+        angle,
+        length: length || 22,
+        thickness: thickness || 10,
+        intact: true,
+        locationId: null
+    };
+}
+
+function roadblockPointInBarricade(px, py, b) {
+    if (!b || !b.intact) return false;
+    const cos = Math.cos(b.angle);
+    const sin = Math.sin(b.angle);
+    const dx = px - b.x;
+    const dy = py - b.y;
+    const localX = dx * cos + dy * sin;
+    const localY = -dx * sin + dy * cos;
+    return (
+        Math.abs(localX) <= b.length * 0.5 + 2 &&
+        Math.abs(localY) <= b.thickness * 0.5 + 2
+    );
+}
+
+function roadblockBlocksPoint(px, py) {
+    for (let i = 0; i < roadblockState.barricades.length; i++) {
+        const b = roadblockState.barricades[i];
+        if (b.intact && roadblockPointInBarricade(px, py, b)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function roadblockCircleHitsBarricade(cx, cy, radius, b) {
+    if (!b || !b.intact) return false;
+    const cos = Math.cos(b.angle);
+    const sin = Math.sin(b.angle);
+    const dx = cx - b.x;
+    const dy = cy - b.y;
+    const localX = dx * cos + dy * sin;
+    const localY = -dx * sin + dy * cos;
+    const closestX = Math.max(-b.length * 0.5, Math.min(b.length * 0.5, localX));
+    const closestY = Math.max(-b.thickness * 0.5, Math.min(b.thickness * 0.5, localY));
+    const ex = localX - closestX;
+    const ey = localY - closestY;
+    return ex * ex + ey * ey <= radius * radius;
+}
+
+function roadblockDestroyBarricade(b) {
+    if (!b || !b.intact) return;
+    b.intact = false;
+
+    if (typeof spawnExplosionDebris === "function") {
+        spawnExplosionDebris(b.x, b.y, 8);
+    }
+    if (typeof playSpatialSound === "function" && typeof carCrashPool !== "undefined") {
+        playSpatialSound(carCrashPool, b.x, b.y, 0.55, 350);
+    }
+}
+
+function roadblockCanVehicleBreak(car) {
+    if (!car || car.exploded || car.health <= 0) return false;
+    if (typeof playerCar !== "undefined" && playerCar && car === playerCar) return true;
+    if (car.isRaceOpponent) return true;
+    if (car.isPolice && car.policeState === "CHASE") return true;
+    return false;
+}
+
+function roadblockHandleVehicleCollision(car) {
+    if (!car || car.exploded || car.health <= 0) return;
+    if (car.isRoadblockUnit) return;
+
+    const radius = Math.max(car.width || 16, car.length || 28) * 0.35;
+
+    for (let i = 0; i < roadblockState.barricades.length; i++) {
+        const b = roadblockState.barricades[i];
+        if (!b.intact) continue;
+        if (!roadblockCircleHitsBarricade(car.x, car.y, radius, b)) continue;
+
+        if (roadblockCanVehicleBreak(car)) {
+            roadblockDestroyBarricade(b);
+        } else {
+            const dx = car.x - b.x;
+            const dy = car.y - b.y;
+            const d = Math.hypot(dx, dy) || 1;
+            car.x += (dx / d) * 2;
+            car.y += (dy / d) * 2;
+            car.speed = Math.min(car.speed, 0.4);
+        }
+    }
+}
+
+function roadblockSpawnAt(loc) {
+    const geo = roadblockAnalyzeGeometry(loc);
+    if (!geo) return false;
+
+    if (typeof Car !== "function" || typeof cars === "undefined") {
+        return false;
+    }
+
+    const roadHeading = Math.atan2(geo.ty, geo.tx);
+    const carAngle = roadHeading + Math.PI / 2;
+    const barricadeAngle = Math.atan2(geo.ny, geo.nx);
+
+    const halfW = geo.halfWidth;
+    const segmentLen = 20;
+    const count = Math.max(1, Math.min(3, Math.ceil((halfW * 2) / (segmentLen + 4))));
+    const totalSpan = count * segmentLen + (count - 1) * 4;
+    const startOffset = -totalSpan * 0.5 + segmentLen * 0.5;
+
+    for (let i = 0; i < count; i++) {
+        const along = startOffset + i * (segmentLen + 4);
+        const bx = geo.cx + geo.nx * along;
+        const by = geo.cy + geo.ny * along;
+
+        if (typeof isRoadColor === "function" && !isRoadColor(bx, by)) {
+            continue;
+        }
+
+        const b = roadblockCreateBarricade(bx, by, barricadeAngle, segmentLen, 10);
+        b.locationId = loc.id;
+        roadblockState.barricades.push(b);
+    }
+
+    const carCount = halfW > 40 ? 2 : 1;
+    const carBack = 28;
+
+    for (let i = 0; i < carCount; i++) {
+        const side = carCount === 1 ? 0 : (i === 0 ? -0.35 : 0.35);
+        let cx = geo.cx - geo.tx * carBack + geo.nx * halfW * side;
+        let cy = geo.cy - geo.ty * carBack + geo.ny * halfW * side;
+
+        if (typeof isAICarWalkable === "function" && !isAICarWalkable(cx, cy)) {
+            cx = geo.cx - geo.tx * carBack;
+            cy = geo.cy - geo.ty * carBack;
+            if (typeof isAICarWalkable === "function" && !isAICarWalkable(cx, cy)) {
+                continue;
+            }
+        }
+
+        const id =
+            Date.now() +
+            roadblockState.nextCarIdBase +
+            Math.floor(Math.random() * 900) +
+            i;
+
+        const policeCar = new Car(id, cx, cy, "#111111", true);
+        policeCar.isPolice = true;
+        policeCar.ownerType = "police";
+        policeCar.type = "Commuter, Sedan";
+        policeCar.width = 16;
+        policeCar.length = 28;
+        policeCar.baseSpeed = 3.2;
+        policeCar.speed = 0;
+        policeCar.isParked = true;
+        policeCar.hasDriver = true;
+        policeCar.angle = carAngle;
+        policeCar.policeState = "PATROL";
+        policeCar.isRoadblockUnit = true;
+        policeCar.roadblockLocationId = loc.id;
+        policeCar.updateAI = function () {};
+
+        if (typeof policeCar.setSirenState === "function") {
+            policeCar.setSirenState(0);
+        } else {
+            policeCar.sirenState = 0;
+        }
+
+        cars.push(policeCar);
+        roadblockState.cars.push(policeCar);
+    }
+
+    loc.spawned = true;
+    loc.active = true;
+    loc.pending = false;
+
+    console.log(
+        "[ROADBLOCK] Activated " +
+            loc.id +
+            " at (" +
+            geo.cx.toFixed(0) +
+            "," +
+            geo.cy.toFixed(0) +
+            ") width=" +
+            geo.width.toFixed(0)
+    );
+    return true;
+}
+
+function roadblockPlayerDistanceTo(loc) {
+    if (typeof player === "undefined" || !player) return Infinity;
+    const geo = loc.geometry;
+    const x = geo ? geo.cx : loc.x;
+    const y = geo ? geo.cy : loc.y;
+    return Math.hypot(player.x - x, player.y - y);
+}
+
+function roadblockDesiredCount() {
+    if (typeof wantedScore === "undefined") return 0;
+    const score = wantedScore;
+    let count = 0;
+    for (let i = 0; i < ROADBLOCK_THRESHOLDS.length; i++) {
+        if (score >= ROADBLOCK_THRESHOLDS[i]) count = i + 1;
+    }
+    return count;
+}
+
+function roadblockEnsureSelection() {
+    if (roadblockState.selectionSeeded) return;
+
+    roadblockInitLocations();
+
+    const ids = ROADBLOCK_CANDIDATES.map(c => c.id);
+    for (let i = ids.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const t = ids[i];
+        ids[i] = ids[j];
+        ids[j] = t;
+    }
+
+    const valid = [];
+    for (const id of ids) {
+        const loc = roadblockLocations[id];
+        if (roadblockAnalyzeGeometry(loc)) {
+            valid.push(id);
+        }
+    }
+
+    roadblockState.selectedOrder = valid;
+    roadblockState.selectionSeeded = true;
+}
+
+function roadblockTryActivatePending() {
+    if (!roadblockState.pendingIds.length) return;
+
+    const stillPending = [];
+    for (const id of roadblockState.pendingIds) {
+        const loc = roadblockLocations[id];
+        if (!loc || loc.spawned || loc.invalid) continue;
+
+        if (roadblockPlayerDistanceTo(loc) < ROADBLOCK_SAFE_DISTANCE) {
+            stillPending.push(id);
+            continue;
+        }
+
+        if (roadblockPlayerDistanceTo(loc) >= ROADBLOCK_SAFE_DISTANCE) {
+            const ok = roadblockSpawnAt(loc);
+            if (ok) {
+                if (roadblockState.activeIds.indexOf(id) < 0) {
+                    roadblockState.activeIds.push(id);
+                }
+            } else if (!loc.invalid) {
+                stillPending.push(id);
+            }
+        } else {
+            stillPending.push(id);
+        }
+    }
+    roadblockState.pendingIds = stillPending;
+}
+
+function roadblockSyncToWantedScore() {
+    if (
+        typeof player === "undefined" ||
+        !player ||
+        (!player.wanted && !player.beingChased)
+    ) {
+        return;
+    }
+
+    if (player.isBeingArrested || player.isArrestPassenger) {
+        return;
+    }
+
+    const desired = roadblockDesiredCount();
+    if (desired <= 0) return;
+
+    roadblockEnsureSelection();
+
+    const currentlyTracked =
+        roadblockState.activeIds.length + roadblockState.pendingIds.length;
+
+    if (currentlyTracked >= desired) {
+        roadblockTryActivatePending();
+        return;
+    }
+
+    for (const id of roadblockState.selectedOrder) {
+        if (roadblockState.activeIds.length + roadblockState.pendingIds.length >= desired) {
+            break;
+        }
+        if (roadblockState.activeIds.indexOf(id) >= 0) continue;
+        if (roadblockState.pendingIds.indexOf(id) >= 0) continue;
+
+        const loc = roadblockLocations[id];
+        if (!loc || loc.invalid || loc.spawned) continue;
+
+        if (!roadblockAnalyzeGeometry(loc)) continue;
+
+        loc.pending = true;
+        roadblockState.pendingIds.push(id);
+    }
+
+    roadblockTryActivatePending();
+}
+
+function clearRoadblocks() {
+    roadblockState.barricades = [];
+
+    if (typeof cars !== "undefined" && Array.isArray(cars)) {
+        for (const car of roadblockState.cars) {
+            if (!car) continue;
+            if (car.humAudio) {
+                car.humAudio.pause();
+                car.humAudio = null;
+            }
+            if (typeof car.stopSiren === "function") {
+                car.stopSiren();
+            } else {
+                car.sirenState = 0;
+            }
+            const idx = cars.indexOf(car);
+            if (idx >= 0) cars.splice(idx, 1);
+        }
+    }
+    roadblockState.cars = [];
+
+    roadblockResetSelection();
+}
+
+function updateRoadblocks(dt) {
+    roadblockInitLocations();
+
+    if (
+        typeof player !== "undefined" &&
+        player &&
+        !player.wanted &&
+        !player.beingChased &&
+        !player.isBeingArrested
+    ) {
+        if (
+            roadblockState.activeIds.length > 0 ||
+            roadblockState.pendingIds.length > 0 ||
+            roadblockState.barricades.length > 0 ||
+            roadblockState.cars.length > 0
+        ) {
+            clearRoadblocks();
+        }
+        return;
+    }
+
+    roadblockSyncToWantedScore();
+
+    for (const car of roadblockState.cars) {
+        if (!car) continue;
+        if (car.health <= 0 || car.exploded) continue;
+        car.speed = 0;
+        car.isParked = true;
+        car.hasDriver = true;
+        if (
+            car.policeState !== "WARNING" &&
+            car.policeState !== "ARRESTING" &&
+            car.policeState !== "CHASE"
+        ) {
+            car.policeState = "PATROL";
+        }
+        if (car.policeState === "CHASE" && car.isRoadblockUnit) {
+            car.policeState = "PATROL";
+            car.speed = 0;
+            car.isParked = true;
+            if (typeof car.stopSiren === "function") car.stopSiren();
+            else car.sirenState = 0;
+        }
+    }
+
+    if (typeof cars !== "undefined" && Array.isArray(cars)) {
+        for (let i = 0; i < cars.length; i++) {
+            roadblockHandleVehicleCollision(cars[i]);
+        }
+    }
+}
+
+function drawRoadblocks(ctx) {
+    if (!roadblockState.barricades.length) return;
+
+    for (let i = 0; i < roadblockState.barricades.length; i++) {
+        const b = roadblockState.barricades[i];
+        if (!b.intact) continue;
+
+        ctx.save();
+        ctx.translate(b.x, b.y);
+        ctx.rotate(b.angle);
+
+        ctx.fillStyle = "#c8c2b4";
+        ctx.strokeStyle = "#3a3a3a";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        if (typeof ctx.roundRect === "function") {
+            ctx.roundRect(
+                -b.length * 0.5,
+                -b.thickness * 0.5,
+                b.length,
+                b.thickness,
+                2
+            );
+        } else {
+            ctx.rect(
+                -b.length * 0.5,
+                -b.thickness * 0.5,
+                b.length,
+                b.thickness
+            );
+        }
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.strokeStyle = "#c0392b";
+        ctx.lineWidth = 2;
+        const stripeStep = 6;
+        for (let s = -b.length * 0.5; s < b.length * 0.5; s += stripeStep) {
+            ctx.beginPath();
+            ctx.moveTo(s, -b.thickness * 0.45);
+            ctx.lineTo(s + 4, b.thickness * 0.45);
+            ctx.stroke();
+        }
+
+        ctx.fillStyle = "#f1c40f";
+        ctx.fillRect(-b.length * 0.5 - 1, -2, 3, 4);
+        ctx.fillRect(b.length * 0.5 - 2, -2, 3, 4);
+
+        ctx.restore();
+    }
+}
+
+function isRoadblockBlocking(x, y) {
+    return roadblockBlocksPoint(x, y);
+}
+
+function roadblockObstacleNear(x, y, radius) {
+    for (let i = 0; i < roadblockState.barricades.length; i++) {
+        const b = roadblockState.barricades[i];
+        if (!b.intact) continue;
+        if (roadblockCircleHitsBarricade(x, y, radius, b)) return true;
+    }
+    return false;
+}
+
+// Hook wanted-score clear when available (police.js loads first).
+(function hookClearWantedScore() {
+    if (typeof clearWantedScore === "function") {
+        const prev = clearWantedScore;
+        clearWantedScore = function () {
+            prev();
+            clearRoadblocks();
+        };
+    }
+})();
+
+roadblockInitLocations();
