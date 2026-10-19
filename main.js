@@ -2085,7 +2085,7 @@ if (!isInsideHouse && angryDrivers.length > 0) {
                 driver.targetCar.isStolen = true;
             }
             playerCarStealCases++;
-            addWantedCrimeScore(10);
+            addWantedCrimeScore(8);
     saveCrimeCaseCounts();
             player.wanted = true;
             localStorage.setItem("gma_player_wanted", "true");

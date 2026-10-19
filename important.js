@@ -3670,31 +3670,525 @@ function drawObjectGlows(ctx) {
     }
 
     ctx.restore();
-}  
-// --- MOBILE TRACKING TOOL: Temporarily copy to the bottom of script.js ---
-canvas.addEventListener('touchstart', (e) => {
-  if (!gameActive || showFullMap) return;
+}    
 
-  // Track the first finger touch point
-  const touch = e.touches[0];
-  const rect = canvas.getBoundingClientRect();
-  const touchX = touch.clientX - rect.left;
-  const touchY = touch.clientY - rect.top;
 
-  // 1. Reverse the screen center translation matrix
-  let dx = touchX - canvas.width / 2;
-  let dy = touchY - canvas.height / 2;
+/* =====================================================================
+ * RIVER WATER  -  flowing animation overlay + spatial river sound
+ *
+ * Animation
+ *  - The two rivers are described by flow centre-lines (RIVER_CFG.rivers),
+ *    listed IN THE DIRECTION THE WATER FLOWS. Set `reverse: true` on a river
+ *    to flip it. Everything else (bank-to-bank width) is measured once from
+ *    the collision map using the same blue-pixel rule the game already uses
+ *    for the non-walkable river (see getTerrainType in main.js).
+ *  - drawRiverOverlay() is called from drawGame() right after the map is
+ *    drawn, inside the camera transform, so every other object and the HUD
+ *    draw on top of it.
+ *  - Only the part of the river inside the viewport is processed: rivers are
+ *    split into ~240px chunks, chunks outside the view circle are skipped
+ *    and the remaining streaks are batched into a handful of canvas strokes.
+ *    Nothing is allocated per frame.
+ *
+ * Sound
+ *  - A looping river.MP3 plays through Web Audio. Volume, low-pass
+ *    brightness and stereo pan follow the nearest river pixels (blue pixels
+ *    of the collision map), taking the camera rotation into account.
+ *  - The map scan for river pixels is spread over many frames at start-up.
+ * ===================================================================== */
+const RIVER_SOUND_URL = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/river.MP3";
 
-  // 2. Reverse the camera angle rotation matrix
-  let cos = Math.cos(camera.angle);
-  let sin = Math.sin(camera.angle);
-  let rotatedX = dx * cos - dy * sin;
-  let rotatedY = dx * sin + dy * cos;
+const RIVER_CFG = {
+    CHUNK: 240,            // world px of river per culling chunk
+    LINES: 14,             // bright current streaks per chunk
+    BANDS: 4,              // soft dark current bands per chunk
+    FOAM: 8,               // bank foam dashes per chunk
+    SPARKS: 6,             // twinkling glints per chunk
+    MAX_HALF_WIDTH: 160,   // measuring limit (world px)
+    VIEW_MARGIN: 30,       // extra radius around the viewport
+    rivers: [
+        // West river: from the park pond out to the left map edge.
+        { name: "west", reverse: false, pts: [1597,1565,1604,1522,1579,1481,1546,1446,1500,1433,1452,1432,1405,1440,1359,1451,1313,1465,1266,1475,1218,1473,1172,1459,1134,1430,1107,1391,1094,1345,1088,1297,1086,1249,1078,1202,1063,1156,1044,1112,1018,1072,983,1039,941,1017,900,993,856,975,809,965,764,951,732,915,710,873,691,829,668,786,639,749,603,717,563,690,519,672,472,662,424,663,379,680,343,711,319,752,302,797,296,845,296,893,312,938,336,979,356,1023,368,1069,369,1117,368,1165,349,1208,314,1241,272,1263,227,1279,181,1294,138,1314,96,1338,56,1365,26,1402,17,1411] },
+        // East river: from the right map edge down to the bottom map edge.
+        { name: "east", reverse: false, pts: [4076,627,4039,657,4014,698,3971,719,3926,733,3879,744,3831,748,3783,748,3736,740,3688,736,3640,732,3594,721,3546,720,3498,725,3453,740,3415,769,3391,811,3381,857,3386,905,3398,951,3409,998,3412,1046,3408,1093,3408,1141,3407,1189,3383,1230,3361,1273,3336,1314,3307,1352,3273,1386,3242,1422,3213,1456,3166,1444,3120,1432,3084,1460,3045,1485,3002,1506,2962,1534,2925,1564,2894,1601,2868,1641,2849,1685,2839,1732,2839,1779,2866,1818,2857,1865,2841,1910,2870,1941,2907,1971,2939,2007,2966,2046,2984,2091,2992,2138,2992,2186,2968,2226,2950,2264] }
+    ]
+};
 
-  // 3. Reverse the player tracking camera offsets to get precise image coordinates
-  let finalMapX = Math.floor(rotatedX + player.x + player.size / 2);
-  let finalMapY = Math.floor(rotatedY + player.y + player.size / 2);
+const RIVER_STATE = {
+    ready: false,
+    paths: [],
+    sx: 0, sy: 0,          // scratch result of riverSample()
+    camX: 0, camY: 0,      // scratch camera centre
+    MAXB: 700,
+    bufBand: new Float32Array(700 * 4),
+    bufLine: new Float32Array(700 * 4),
+    bufFoam: new Float32Array(700 * 4),
+    bufSpark: new Float32Array(700 * 3)
+};
 
-  // 4. Send an alert popup to your phone screen so you can see it without dev-tools
-  alert(`Door Coordinates:\nX: ${finalMapX}\nY: ${finalMapY}`);
-});
+// Same "Non-walkable Blue River" test as getTerrainType() in main.js.
+function riverIsWater(x, y) {
+    if (!collisionData || mapWidth === 0) return false;
+    if (x < 0 || y < 0) return false;
+    const ix = x | 0, iy = y | 0;
+    if (ix >= mapWidth || iy >= mapHeight) return false;
+    const i = (iy * mapWidth + ix) * 4;
+    const b = collisionData[i + 2];
+    return b > collisionData[i] + 20 && b > collisionData[i + 1] + 10;
+}
+
+function riverRand(n) {
+    n = Math.imul(n ^ (n >>> 15), 0x85ebca6b);
+    n = Math.imul(n ^ (n >>> 13), 0xc2b2ae35);
+    n ^= n >>> 16;
+    return (n >>> 0) / 4294967296;
+}
+
+// Distance from (x,y) to the bank, marching along (nx,ny). Tolerates a few
+// stray non-blue pixels inside the water.
+function riverMeasure(x, y, nx, ny) {
+    if (!riverIsWater(x, y)) return 0;
+    let best = 0, miss = 0;
+    for (let d = 2; d <= RIVER_CFG.MAX_HALF_WIDTH; d += 2) {
+        if (riverIsWater(x + nx * d, y + ny * d)) { best = d; miss = 0; }
+        else if (++miss > 2) break;
+    }
+    return best;
+}
+
+// Position on river path P at arc length s, shifted sideways by u
+// (-1 = right bank, +1 = left bank) keeping `margin` px inside the water.
+// Result in RIVER_STATE.sx / sy.
+function riverSample(P, s, u, margin) {
+    let lo = 0, hi = P.n - 2;
+    while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (P.cum[mid] <= s) lo = mid; else hi = mid - 1;
+    }
+    const len = P.cum[lo + 1] - P.cum[lo] || 1;
+    let f = (s - P.cum[lo]) / len;
+    f = f < 0 ? 0 : f > 1 ? 1 : f;
+    const a = lo, b = lo + 1;
+    let tx = P.tx[a] + (P.tx[b] - P.tx[a]) * f;
+    let ty = P.ty[a] + (P.ty[b] - P.ty[a]) * f;
+    const tl = Math.hypot(tx, ty) || 1;
+    tx /= tl; ty /= tl;
+    const wl = P.wl[a] + (P.wl[b] - P.wl[a]) * f;
+    const wr = P.wr[a] + (P.wr[b] - P.wr[a]) * f;
+    let off;
+    if (u >= 0) off = u * Math.max(0, wl - margin);
+    else off = u * Math.max(0, wr - margin);
+    RIVER_STATE.sx = P.px[a] + (P.px[b] - P.px[a]) * f - ty * off;
+    RIVER_STATE.sy = P.py[a] + (P.py[b] - P.py[a]) * f + tx * off;
+}
+
+function riverInit() {
+    if (RIVER_STATE.ready) return true;
+    if (!collisionData || mapWidth === 0) return false;
+
+    const CH = RIVER_CFG.CHUNK;
+    const perChunk = RIVER_CFG.LINES + RIVER_CFG.BANDS + RIVER_CFG.FOAM + RIVER_CFG.SPARKS;
+
+    for (let r = 0; r < RIVER_CFG.rivers.length; r++) {
+        const def = RIVER_CFG.rivers[r];
+        const n = def.pts.length >> 1;
+        const P = {
+            n,
+            px: new Float32Array(n), py: new Float32Array(n),
+            tx: new Float32Array(n), ty: new Float32Array(n),
+            wl: new Float32Array(n), wr: new Float32Array(n),
+            cum: new Float32Array(n),
+            total: 0, chunks: 0,
+            ccx: null, ccy: null, ccr: null, items: null
+        };
+        for (let i = 0; i < n; i++) {
+            const j = def.reverse ? n - 1 - i : i;
+            P.px[i] = def.pts[j * 2];
+            P.py[i] = def.pts[j * 2 + 1];
+        }
+        for (let i = 1; i < n; i++) {
+            P.cum[i] = P.cum[i - 1] + Math.hypot(P.px[i] - P.px[i - 1], P.py[i] - P.py[i - 1]);
+        }
+        for (let i = 0; i < n; i++) {
+            const a = Math.max(0, i - 1), b = Math.min(n - 1, i + 1);
+            let dx = P.px[b] - P.px[a], dy = P.py[b] - P.py[a];
+            const l = Math.hypot(dx, dy) || 1;
+            dx /= l; dy /= l;
+            P.tx[i] = dx; P.ty[i] = dy;
+            P.wl[i] = riverMeasure(P.px[i], P.py[i], -dy, dx);
+            P.wr[i] = riverMeasure(P.px[i], P.py[i], dy, -dx);
+        }
+        P.total = P.cum[n - 1];
+        P.chunks = Math.max(1, Math.ceil(P.total / CH));
+
+        P.ccx = new Float32Array(P.chunks);
+        P.ccy = new Float32Array(P.chunks);
+        P.ccr = new Float32Array(P.chunks);
+        P.items = new Float32Array(P.chunks * perChunk * 5);
+
+        let o = 0;
+        for (let c = 0; c < P.chunks; c++) {
+            const s0 = c * CH, s1 = Math.min(P.total, s0 + CH);
+            riverSample(P, (s0 + s1) / 2, 0, 0);
+            P.ccx[c] = RIVER_STATE.sx;
+            P.ccy[c] = RIVER_STATE.sy;
+            let maxW = 0;
+            for (let i = 0; i < n; i++) {
+                if (P.cum[i] >= s0 - 48 && P.cum[i] <= s1 + 48) {
+                    maxW = Math.max(maxW, P.wl[i], P.wr[i]);
+                }
+            }
+            P.ccr[c] = (s1 - s0) / 2 + maxW + 50;
+
+            const seed = (r + 1) * 7919 + c * 104729;
+            let k = 0;
+            const put = (type, phase, u, speed, len) => {
+                P.items[o++] = type; P.items[o++] = phase; P.items[o++] = u;
+                P.items[o++] = speed; P.items[o++] = len; k++;
+            };
+            for (let i = 0; i < RIVER_CFG.LINES; i++) {
+                const q = seed + (k + 1) * 31;
+                put(0, riverRand(q + 1), (riverRand(q + 2) * 2 - 1) * 0.85,
+                    34 + riverRand(q + 3) * 28, 14 + riverRand(q + 4) * 22);
+            }
+            for (let i = 0; i < RIVER_CFG.BANDS; i++) {
+                const q = seed + (k + 1) * 31;
+                put(1, riverRand(q + 1), (riverRand(q + 2) * 2 - 1) * 0.6,
+                    22 + riverRand(q + 3) * 18, 30 + riverRand(q + 4) * 30);
+            }
+            for (let i = 0; i < RIVER_CFG.FOAM; i++) {
+                const q = seed + (k + 1) * 31;
+                put(2, riverRand(q + 1), (i & 1) ? 1 : -1,
+                    6 + riverRand(q + 3) * 8, 6 + riverRand(q + 4) * 8);
+            }
+            for (let i = 0; i < RIVER_CFG.SPARKS; i++) {
+                const q = seed + (k + 1) * 31;
+                put(3, riverRand(q + 1), (riverRand(q + 2) * 2 - 1) * 0.9,
+                    14 + riverRand(q + 3) * 14, 1.5 + riverRand(q + 4) * 2.5);
+            }
+        }
+        RIVER_STATE.paths.push(P);
+    }
+    RIVER_STATE.ready = true;
+    return true;
+}
+
+// Camera centre in world space (same target the camera transform uses).
+function riverCameraCenter() {
+    const t = (player.isArrestPassenger && arrestTransportCar) ? arrestTransportCar : player;
+    const h = (t.size || player.size) / 2;
+    RIVER_STATE.camX = t.x + h;
+    RIVER_STATE.camY = t.y + h;
+}
+
+// Called from drawGame() right after the map is drawn (world space).
+function drawRiverOverlay(c) {
+    if (!RIVER_STATE.ready && !riverInit()) return;
+
+    riverCameraCenter();
+    const S = RIVER_STATE;
+    const camX = S.camX, camY = S.camY;
+    const viewR = Math.hypot(canvas.width, canvas.height) / 2 + RIVER_CFG.VIEW_MARGIN;
+    const viewR2 = viewR * viewR;
+    const CH = RIVER_CFG.CHUNK;
+    const t = performance.now() * 0.001;
+    const PI = Math.PI;
+
+    let nBand = 0, nLine = 0, nFoam = 0, nSpark = 0;
+    const MAXB = S.MAXB;
+    const bBand = S.bufBand, bLine = S.bufLine, bFoam = S.bufFoam, bSpark = S.bufSpark;
+    const per = RIVER_CFG.LINES + RIVER_CFG.BANDS + RIVER_CFG.FOAM + RIVER_CFG.SPARKS;
+
+    for (let r = 0; r < S.paths.length; r++) {
+        const P = S.paths[r];
+        for (let ch = 0; ch < P.chunks; ch++) {
+            const cdx = P.ccx[ch] - camX, cdy = P.ccy[ch] - camY;
+            const rr = viewR + P.ccr[ch];
+            if (cdx * cdx + cdy * cdy > rr * rr) continue;      // chunk outside the viewport
+
+            let o = ch * per * 5;
+            for (let k = 0; k < per; k++, o += 5) {
+                const type = P.items[o];
+                const u = P.items[o + 2];
+                let spd = P.items[o + 3];
+                if (type < 2) spd *= 1.2 - 0.45 * u * u;        // faster mid-stream
+                let tt = P.items[o + 1] + t * spd / CH;
+                tt -= Math.floor(tt);
+                const s = (ch + tt) * CH;
+                if (s >= P.total) continue;
+                const env = Math.sin(PI * tt);                  // fade in / out along the chunk
+
+                if (type === 3) {                               // glint
+                    const w = Math.sin(t * (1.5 + spd * 0.1) + P.items[o + 1] * 50);
+                    if (w < 0.8) continue;
+                    riverSample(P, s, u, 4);
+                    const x = S.sx, y = S.sy;
+                    const dx = x - camX, dy = y - camY;
+                    if (dx * dx + dy * dy > viewR2 || !riverIsWater(x, y) || nSpark >= MAXB) continue;
+                    bSpark[nSpark * 3] = x; bSpark[nSpark * 3 + 1] = y;
+                    bSpark[nSpark * 3 + 2] = Math.min(1, (w - 0.8) * 5) * env;
+                    nSpark++;
+                    continue;
+                }
+
+                const L = P.items[o + 4] * env;
+                if (L < 2) continue;
+                const margin = type === 2 ? 2.5 : type === 1 ? 5 : 3;
+                riverSample(P, s, u, margin);
+                const hx = S.sx, hy = S.sy;
+                const dx = hx - camX, dy = hy - camY;
+                if (dx * dx + dy * dy > viewR2) continue;
+                riverSample(P, Math.max(0, s - L), u, margin);
+                const tx = S.sx, ty = S.sy;
+                if (!riverIsWater(hx, hy) || !riverIsWater(tx, ty)) continue;   // bridges / banks
+
+                if (type === 0) {
+                    if (nLine >= MAXB) continue;
+                    const q = nLine++ * 4;
+                    bLine[q] = tx; bLine[q + 1] = ty; bLine[q + 2] = hx; bLine[q + 3] = hy;
+                } else if (type === 1) {
+                    if (nBand >= MAXB) continue;
+                    const q = nBand++ * 4;
+                    bBand[q] = tx; bBand[q + 1] = ty; bBand[q + 2] = hx; bBand[q + 3] = hy;
+                } else {
+                    if (nFoam >= MAXB) continue;
+                    const q = nFoam++ * 4;
+                    bFoam[q] = tx; bFoam[q + 1] = ty; bFoam[q + 2] = hx; bFoam[q + 3] = hy;
+                }
+            }
+        }
+    }
+
+    if (nBand + nLine + nFoam + nSpark === 0) return;
+
+    c.save();
+    c.lineCap = "round";
+
+    if (nBand) {                                   // soft dark current bands
+        c.strokeStyle = "rgba(8, 45, 120, 0.13)";
+        c.lineWidth = 7;
+        c.beginPath();
+        for (let i = 0; i < nBand; i++) {
+            const q = i * 4;
+            c.moveTo(bBand[q], bBand[q + 1]); c.lineTo(bBand[q + 2], bBand[q + 3]);
+        }
+        c.stroke();
+    }
+    if (nLine) {                                   // current streaks: soft glow + bright core
+        c.strokeStyle = "rgba(170, 215, 255, 0.16)";
+        c.lineWidth = 4;
+        c.beginPath();
+        for (let i = 0; i < nLine; i++) {
+            const q = i * 4;
+            c.moveTo(bLine[q], bLine[q + 1]); c.lineTo(bLine[q + 2], bLine[q + 3]);
+        }
+        c.stroke();
+        c.strokeStyle = "rgba(225, 242, 255, 0.5)";
+        c.lineWidth = 1.3;
+        c.stroke();
+    }
+    if (nFoam) {                                   // bank foam
+        c.strokeStyle = "rgba(255, 255, 255, 0.55)";
+        c.lineWidth = 2;
+        c.beginPath();
+        for (let i = 0; i < nFoam; i++) {
+            const q = i * 4;
+            c.moveTo(bFoam[q], bFoam[q + 1]); c.lineTo(bFoam[q + 2], bFoam[q + 3]);
+        }
+        c.stroke();
+    }
+    if (nSpark) {                                  // twinkling glints
+        c.fillStyle = "#ffffff";
+        for (let i = 0; i < nSpark; i++) {
+            const q = i * 3;
+            c.globalAlpha = bSpark[q + 2] * 0.9;
+            c.fillRect(bSpark[q] - 1, bSpark[q + 1] - 1, 2, 2);
+        }
+    }
+    c.restore();
+}
+
+/* ---------------------------------------------------------------------
+ * River sound (spatial)
+ * ------------------------------------------------------------------- */
+const RIVER_SND = {
+    RANGE: 420,          // audible distance from the nearest river pixel (world px)
+    LOAD_RANGE: 1000,    // start downloading the sound when this close
+    MAX_GAIN: 0.8,
+    ac: null, lp: null, pan: null, gain: null, src: null, buffer: null,
+    loading: false, failed: false, fallback: null,
+    // river pixel grid (8px blocks that are mostly blue), scanned over many frames
+    scanRow: 0, gridReady: false, bx: [], by: [],
+    cellsW: 0, cellsH: 0, cellStart: null, cellItems: null,
+    frame: 0, nearX: 0, nearY: 0, nearFound: false, quiet: 0
+};
+
+function riverScanStep() {
+    const S = RIVER_SND;
+    if (S.gridReady || !collisionData || mapWidth === 0) return;
+    const W = mapWidth, H = mapHeight, d = collisionData;
+    const blocksX = Math.floor(W / 8), blocksY = Math.floor(H / 8);
+
+    for (let n = 0; n < 6 && S.scanRow < blocksY; n++, S.scanRow++) {
+        const y0 = S.scanRow * 8;
+        for (let bxi = 0; bxi < blocksX; bxi++) {
+            let count = 0;
+            for (let yy = 0; yy < 8; yy++) {
+                let p = ((y0 + yy) * W + bxi * 8) * 4;
+                for (let xx = 0; xx < 8; xx++, p += 4) {
+                    const b = d[p + 2];
+                    if (b > d[p] + 20 && b > d[p + 1] + 10) count++;
+                }
+            }
+            if (count >= 32) { S.bx.push(bxi * 8 + 4); S.by.push(y0 + 4); }
+        }
+    }
+    if (S.scanRow < blocksY) return;
+
+    // bucket the river blocks into 64px cells (CSR layout)
+    const CW = Math.ceil(W / 64), CHt = Math.ceil(H / 64), N = S.bx.length;
+    const start = new Int32Array(CW * CHt + 1);
+    for (let i = 0; i < N; i++) start[(S.by[i] >> 6) * CW + (S.bx[i] >> 6) + 1]++;
+    for (let i = 0; i < CW * CHt; i++) start[i + 1] += start[i];
+    const fill = start.slice(0, CW * CHt);
+    const items = new Int32Array(N);
+    for (let i = 0; i < N; i++) items[fill[(S.by[i] >> 6) * CW + (S.bx[i] >> 6)]++] = i;
+    S.cellsW = CW; S.cellsH = CHt; S.cellStart = start; S.cellItems = items;
+    S.gridReady = true;
+}
+
+function riverFindNearest(px, py, range) {
+    const S = RIVER_SND;
+    const x0 = Math.max(0, Math.floor((px - range) / 64)), x1 = Math.min(S.cellsW - 1, Math.floor((px + range) / 64));
+    const y0 = Math.max(0, Math.floor((py - range) / 64)), y1 = Math.min(S.cellsH - 1, Math.floor((py + range) / 64));
+    let best = range * range, found = false;
+    for (let cy = y0; cy <= y1; cy++) {
+        for (let cx = x0; cx <= x1; cx++) {
+            const c = cy * S.cellsW + cx;
+            for (let k = S.cellStart[c], e = S.cellStart[c + 1]; k < e; k++) {
+                const i = S.cellItems[k];
+                const dx = S.bx[i] - px, dy = S.by[i] - py;
+                const d2 = dx * dx + dy * dy;
+                if (d2 < best) { best = d2; S.nearX = S.bx[i]; S.nearY = S.by[i]; found = true; }
+            }
+        }
+    }
+    S.nearFound = found;
+}
+
+function riverSndPrepare() {
+    const S = RIVER_SND;
+    if (S.ac || S.loading || S.failed) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) { S.failed = true; return; }
+    try {
+        S.ac = new AC();
+        S.gain = S.ac.createGain();
+        S.gain.gain.value = 0;
+        S.lp = S.ac.createBiquadFilter();
+        S.lp.type = "lowpass";
+        S.lp.frequency.value = 800;
+        S.lp.connect(S.gain);
+        if (S.ac.createStereoPanner) {
+            S.pan = S.ac.createStereoPanner();
+            S.gain.connect(S.pan);
+            S.pan.connect(S.ac.destination);
+        } else {
+            S.gain.connect(S.ac.destination);
+        }
+    } catch (e) { S.failed = true; S.ac = null; return; }
+
+    S.loading = true;
+    fetch(RIVER_SOUND_URL, { mode: "cors" })
+        .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.arrayBuffer(); })
+        .then(ab => new Promise((res, rej) => S.ac.decodeAudioData(ab, res, rej)))
+        .then(buf => { S.buffer = buf; S.loading = false; })
+        .catch(err => {
+            console.warn("River sound: Web Audio load failed, using plain audio.", err);
+            S.loading = false;
+            S.failed = true;
+            try { S.ac.close(); } catch (e) {}
+            S.ac = null;
+        });
+}
+
+function riverSndStop() {
+    const S = RIVER_SND;
+    if (S.src) {
+        try { S.src.stop(); } catch (e) {}
+        try { S.src.disconnect(); } catch (e) {}
+        S.src = null;
+    }
+    if (S.fallback && !S.fallback.paused) S.fallback.pause();
+}
+document.addEventListener("visibilitychange", () => { if (document.hidden) riverSndStop(); });
+
+// Called every frame from updateGame().
+function updateRiverAmbience(dt) {
+    const S = RIVER_SND;
+    riverScanStep();
+
+    const outdoors = !(typeof isInsideHouse !== "undefined" && isInsideHouse) &&
+                     !(typeof isInsideDealership !== "undefined" && isInsideDealership);
+    const active = gameActive && outdoors && !showFullMap && !fullMapAnimating &&
+                   !document.hidden && S.gridReady;
+
+    let target = 0, cutoff = 800, panValue = 0;
+
+    if (active) {
+        riverCameraCenter();
+        const cx = RIVER_STATE.camX, cy = RIVER_STATE.camY;
+        if ((S.frame++ & 3) === 0) riverFindNearest(cx, cy, S.LOAD_RANGE);
+
+        if (S.nearFound) {
+            const dx = S.nearX - cx, dy = S.nearY - cy;
+            const d = Math.max(0, Math.hypot(dx, dy) - 4);
+            if (d < S.LOAD_RANGE) riverSndPrepare();
+            if (d < S.RANGE) {
+                const k = 1 - d / S.RANGE;
+                target = S.MAX_GAIN * k * k;
+                cutoff = 800 + 17200 * k * k;
+                // world offset -> screen space (the camera is rotated by -camera.angle)
+                const a = camera.angle;
+                const sx = dx * Math.cos(a) + dy * Math.sin(a);
+                panValue = Math.max(-1, Math.min(1, sx / (d + 60))) * 0.9;
+            }
+        }
+    }
+
+    if (S.buffer && S.ac) {
+        if (target > 0.004) {
+            S.quiet = 0;
+            if (!S.src) {
+                const src = S.ac.createBufferSource();
+                src.buffer = S.buffer;
+                src.loop = true;
+                src.connect(S.lp);
+                src.start(0, Math.random() * S.buffer.duration);
+                S.src = src;
+            }
+            if (S.ac.state === "suspended") S.ac.resume().catch(() => {});
+        } else if (S.src) {
+            S.quiet += dt / 60;
+            if (S.quiet > 1.5) riverSndStop();
+        }
+        if (S.src) {
+            const now = S.ac.currentTime;
+            S.gain.gain.setTargetAtTime(target, now, 0.12);
+            S.lp.frequency.setTargetAtTime(cutoff, now, 0.12);
+            if (S.pan) S.pan.pan.setTargetAtTime(panValue, now, 0.08);
+        }
+    } else if (S.failed && !S.ac) {
+        // Fallback: plain looping audio, distance volume only (no pan).
+        if (!S.fallback) {
+            S.fallback = new Audio(RIVER_SOUND_URL);
+            S.fallback.loop = true;
+        }
+        if (target > 0.004) {
+            S.fallback.volume = Math.min(1, target);
+            if (S.fallback.paused) S.fallback.play().catch(() => {});
+        } else if (!S.fallback.paused) {
+            S.fallback.pause();
+        }
+    }
+}
