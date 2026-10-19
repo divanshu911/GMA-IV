@@ -2498,8 +2498,41 @@ function roadblockInitLocations() {
     }
 }
 
+function roadblockIsRoadSurface(x, y) {
+    if (
+        !collisionData ||
+        typeof mapWidth !== "number" ||
+        typeof mapHeight !== "number" ||
+        mapWidth <= 0 ||
+        mapHeight <= 0
+    ) {
+        return false;
+    }
+
+    const px = Math.floor(x);
+    const py = Math.floor(y);
+    if (px < 0 || py < 0 || px >= mapWidth || py >= mapHeight) {
+        return false;
+    }
+
+    const index = (py * mapWidth + px) * 4;
+    const terrain = getTerrainType(
+        collisionData[index],
+        collisionData[index + 1],
+        collisionData[index + 2]
+    );
+
+    // Road edges and antialiased asphalt are classified as TRANSITION by the
+    // map parser. Excluding them reduces the apparent road to isolated pixels.
+    return terrain === "ROAD" || terrain === "TRANSITION";
+}
+
 function roadblockSampleRoadPoint(cx, cy, radius) {
-    if (typeof isRoadColor === "function" && isRoadColor(cx, cy)) {
+    const isCoreRoad = typeof isRoadColor === "function"
+        ? isRoadColor
+        : roadblockIsRoadSurface;
+
+    if (isCoreRoad(cx, cy)) {
         return { x: cx, y: cy };
     }
 
@@ -2513,7 +2546,7 @@ function roadblockSampleRoadPoint(cx, cy, radius) {
             const a = (i / samples) * Math.PI * 2;
             const x = cx + Math.cos(a) * r;
             const y = cy + Math.sin(a) * r;
-            if (typeof isRoadColor === "function" && isRoadColor(x, y)) {
+            if (isCoreRoad(x, y)) {
                 const d = Math.hypot(x - cx, y - cy);
                 if (d < bestDist) {
                     bestDist = d;
@@ -2531,12 +2564,12 @@ function roadblockMeasureWidth(px, py, nx, ny) {
     let right = 0;
     const max = 80;
     for (let d = 2; d <= max; d += 2) {
-        if (typeof isRoadColor === "function" && isRoadColor(px - nx * d, py - ny * d)) {
+        if (roadblockIsRoadSurface(px - nx * d, py - ny * d)) {
             left = d;
         } else break;
     }
     for (let d = 2; d <= max; d += 2) {
-        if (typeof isRoadColor === "function" && isRoadColor(px + nx * d, py + ny * d)) {
+        if (roadblockIsRoadSurface(px + nx * d, py + ny * d)) {
             right = d;
         } else break;
     }
@@ -2551,7 +2584,7 @@ function roadblockEstimateDirection(px, py) {
     for (let dy = -R; dy <= R; dy += step) {
         for (let dx = -R; dx <= R; dx += step) {
             if (dx * dx + dy * dy > R * R) continue;
-            if (typeof isRoadColor === "function" && isRoadColor(px + dx, py + dy)) {
+            if (roadblockIsRoadSurface(px + dx, py + dy)) {
                 sumX += dx;
                 sumY += dy;
                 sumXX += dx * dx;
@@ -2635,7 +2668,7 @@ function roadblockAnalyzeGeometry(loc) {
     const cx = center.x + dir.nx * midOffset;
     const cy = center.y + dir.ny * midOffset;
 
-    if (typeof isRoadColor === "function" && !isRoadColor(cx, cy)) {
+    if (!roadblockIsRoadSurface(cx, cy)) {
         loc.invalid = true;
         loc.invalidReason = "centerline not on road";
         console.log("[ROADBLOCK] Rejected " + loc.id + ": " + loc.invalidReason);
@@ -2774,7 +2807,7 @@ function roadblockSpawnAt(loc) {
         const bx = geo.cx + geo.nx * along;
         const by = geo.cy + geo.ny * along;
 
-        if (typeof isRoadColor === "function" && !isRoadColor(bx, by)) {
+        if (!roadblockIsRoadSurface(bx, by)) {
             continue;
         }
 
