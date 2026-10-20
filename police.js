@@ -1,4 +1,4 @@
-console.log("police.js v2 - surrender-visibility update");
+console.log("police.js v2 -");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -2450,7 +2450,7 @@ const ROADBLOCK_MAX_SEARCH = 90;
 const ROADBLOCK_THRESHOLDS = [23, 35, 45, 55, 65];
 
 const ROADBLOCK_CANDIDATES = [
-    { id: "A", x: 3193, y: 1208 },
+    { id: "A", x: 3285, y: 1140 },
     { id: "B", x: 2792, y: 1802 },
     { id: "C", x: 843,  y: 1272 },
     { id: "D", x: 2469, y: 484  },
