@@ -1,4 +1,4 @@
-console.log("2w23");
+console.log("police.js v2 - surrender-visibility update");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -1542,41 +1542,46 @@ surrenderBtn.addEventListener('click', () => {
 function isPlayerNearPoliceUnit(maxDistance = 120, specificUnit = null) {
     if (!player) return false;
 
+    const distanceTo = unit =>
+        Math.hypot(player.x - unit.x, player.y - unit.y);
+
     if (specificUnit) {
         return (
             specificUnit.isPolice &&
             specificUnit.policeState === "CHASE" &&
-            Math.hypot(player.x - specificUnit.x, player.y - specificUnit.y) <= maxDistance
+            !specificUnit.exploded &&
+            (specificUnit.health === undefined || specificUnit.health > 0) &&
+            !specificUnit.isInjured &&
+            distanceTo(specificUnit) <= maxDistance
         );
     }
 
-    let nearby = false;
+    const eligible = unit =>
+        unit &&
+        unit.isPolice &&
+        unit !== playerCar &&
+        (unit.policeState === "CHASE" ||
+         unit.policeState === "WARNING") &&
+        !unit.exploded &&
+        (unit.health === undefined || unit.health > 0) &&
+        !unit.isInjured &&
+        distanceTo(unit) <= maxDistance;
 
-    cars.forEach(c => {
-        if (
-            c.isPolice &&
-            c !== playerCar &&
-            c.policeState === "CHASE"
-        ) {
-            if (Math.hypot(player.x - c.x, player.y - c.y) <= maxDistance) {
-                nearby = true;
-            }
-        }
-    });
+    return cars.some(eligible) || npcs.some(eligible);
+}
 
-    npcs.forEach(n => {
-        if (
-            n.isPolice &&
-            n.policeState === "CHASE"
-        ) {
-            if (Math.hypot(player.x - n.x, player.y - n.y) <= maxDistance) {
-                nearby = true;
-            }
-        }
-    });
+function updateSurrenderButtonVisibility() {
+    if (!surrenderBtn) return;
 
-    return nearby;
-}              
+    const shouldShow =
+        !!player &&
+        !!player.wanted &&
+        !player.isBeingArrested &&
+        !isPlayerSurrendered &&
+        isPlayerNearPoliceUnit(120);
+
+    surrenderBtn.style.display = shouldShow ? 'block' : 'none';
+}
 
 // --- STAGE 4A: POLICE RECOGNITION, WARNING & ARREST SYSTEM ---
 
@@ -2095,6 +2100,8 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
         }
     });
 
+    updateSurrenderButtonVisibility();
+
     if (player.isBeingArrested) {
         updateArrestTransport(dt);
         return;
@@ -2301,7 +2308,7 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
         );
 
         if (warningOrArrestingUnit.policeState === "WARNING") {
-            if (surrenderBtn) surrenderBtn.style.display = 'block';
+            updateSurrenderButtonVisibility();
             warningOrArrestingUnit.warningTimer -= dt;
             warningOrArrestingUnit.speed = 0;
 
@@ -2366,9 +2373,7 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
 
     // 4. JOIN CHASE MECHANIC FOR NEARBY UNITS
     if (player.beingChased) {
-        if (surrenderBtn) {
-            surrenderBtn.style.display = isPlayerNearPoliceUnit(120) ? 'block' : 'none';
-        }
+        updateSurrenderButtonVisibility();
         let activeChasingCars = cars.filter(c => c.isPolice && c.policeState === "CHASE").length;
         let activeChasingOfficers = npcs.filter(n => n.isPolice && n.policeState === "CHASE").length;
 
