@@ -1,4 +1,4 @@
-console.log("police.js v2 -");
+console.log("police.js v3");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -1724,6 +1724,226 @@ function smoothlyTurnAIMovement(unit, moveAngle, dt, isCar) {
     unit.angle += Math.sign(angleDiff) * Math.min(turnAmount, maxTurn);
 }
 
+let policeInterceptionTimer = 0;
+let policeInterceptionCar = null;
+
+function getPoliceInterceptionTarget(player) {
+    if (playerCar && !playerCar.exploded && playerCar.health > 0) {
+        return {
+            target: playerCar,
+            speed: Math.abs(playerCar.speed || 0),
+            heading: (playerCar.angle || 0) - Math.PI / 2
+        };
+    }
+
+    return {
+        target: player,
+        speed: Math.abs(player.speed || 0),
+        heading: player.angle || 0
+    };
+}
+
+function releasePoliceInterception(car) {
+    if (car) {
+        car.policeInterceptionPhase = null;
+        car.policeInterceptionTimer = 0;
+        car.policeInterceptionSide = 0;
+    }
+
+    if (!car || policeInterceptionCar === car) {
+        policeInterceptionCar = null;
+    }
+}
+
+function updatePoliceInterception(dt, player, cars) {
+    if (!player || !Array.isArray(cars) || !player.beingChased ||
+        player.isBeingArrested) {
+        if (policeInterceptionCar) {
+            releasePoliceInterception(policeInterceptionCar);
+        }
+        policeInterceptionTimer = 0;
+        return;
+    }
+
+    const motion = getPoliceInterceptionTarget(player);
+    const target = motion.target;
+
+    // Once a police car has started its interception, no other
+    // police car can become the interceptor until it finishes.
+    if (policeInterceptionCar) {
+        const interceptor = policeInterceptionCar;
+
+        if (
+            interceptor.health <= 0 ||
+            interceptor.exploded ||
+            interceptor.policeState !== "CHASE" ||
+            !cars.includes(interceptor)
+        ) {
+            releasePoliceInterception(interceptor);
+            policeInterceptionTimer = 0;
+        } else {
+            return;
+        }
+    }
+
+    if (motion.speed <= 2.2) {
+        policeInterceptionTimer = 0;
+        return;
+    }
+
+    const nearbyPolice = cars
+        .filter(car =>
+            car &&
+            car !== playerCar &&
+            car.isPolice &&
+            car.policeState === "CHASE" &&
+            car.health > 0 &&
+            !car.exploded &&
+            car.length !== undefined &&
+            Math.hypot(car.x - target.x, car.y - target.y) <= 110
+        )
+        .sort((a, b) =>
+            Math.hypot(a.x - target.x, a.y - target.y) -
+            Math.hypot(b.x - target.x, b.y - target.y)
+        );
+
+    if (nearbyPolice.length === 0) {
+        policeInterceptionTimer = 0;
+        return;
+    }
+
+    policeInterceptionTimer += Math.max(0, dt || 0);
+
+    // dt is approximately 1/60-second frame units in this system.
+    if (policeInterceptionTimer < 3.7 * 60) {
+        return;
+    }
+
+    const forwardX = Math.cos(motion.heading);
+    const forwardY = Math.sin(motion.heading);
+    const sideX = -forwardY;
+    const sideY = forwardX;
+
+    // Prefer the side with sufficient clear road space.
+    for (const candidate of nearbyPolice) {
+        let chosenSide = 0;
+
+        for (const side of [1, -1]) {
+            const checkX =
+                target.x + forwardX * 100 + sideX * side * 48;
+            const checkY =
+                target.y + forwardY * 100 + sideY * side * 48;
+
+            const aheadX = target.x + forwardX * 145;
+            const aheadY = target.y + forwardY * 145;
+
+            if (
+                isGrassOrRoad(checkX, checkY) &&
+                isGrassOrRoad(aheadX, aheadY)
+            ) {
+                chosenSide = side;
+                break;
+            }
+        }
+
+        if (!chosenSide) continue;
+
+        policeInterceptionCar = candidate;
+        candidate.policeInterceptionPhase = "OVERTAKE";
+        candidate.policeInterceptionTimer = 0;
+        candidate.policeInterceptionSide = chosenSide;
+        policeInterceptionTimer = 0;
+        return;
+    }
+
+    // No suitable passing space yet; retry while the conditions hold.
+    policeInterceptionTimer = 3.7 * 60;
+}
+
+function updatePoliceInterceptionMovement(car, dt, player, cars) {
+    if (
+        !car ||
+        car !== policeInterceptionCar ||
+        !car.policeInterceptionPhase
+    ) {
+        return false;
+    }
+
+    const motion = getPoliceInterceptionTarget(player);
+    const target = motion.target;
+    const heading = motion.heading;
+    const forwardX = Math.cos(heading);
+    const forwardY = Math.sin(heading);
+    const sideX = -forwardY;
+    const sideY = forwardX;
+    const side = car.policeInterceptionSide || 1;
+
+    const phase = car.policeInterceptionPhase;
+
+    if (phase === "BLOCK") {
+        car.speed = 0;
+        car.policeInterceptionTimer -= Math.max(0, dt || 0);
+
+        // Face the player while blocking the road.
+        const faceAngle =
+            Math.atan2(target.y - car.y, target.x - car.x) + Math.PI / 2;
+
+        smoothlyTurnAIMovement(car, faceAngle - Math.PI / 2, dt, true);
+
+        if (car.policeInterceptionTimer <= 0) {
+            releasePoliceInterception(car);
+        }
+
+        return true;
+    }
+
+    const desiredX = phase === "OVERTAKE"
+        ? target.x + forwardX * 85 + sideX * side * 48
+        : target.x + forwardX * 40;
+
+    const desiredY = phase === "OVERTAKE"
+        ? target.y + forwardY * 85 + sideY * side * 48
+        : target.y + forwardY * 40;
+
+    const distance = Math.hypot(desiredX - car.x, desiredY - car.y);
+
+    if (phase === "OVERTAKE" && distance < 24) {
+        car.policeInterceptionPhase = "CUT_IN";
+        car.policeInterceptionTimer = 0;
+        return true;
+    }
+
+    if (phase === "CUT_IN" && distance < 20) {
+        car.policeInterceptionPhase = "BLOCK";
+        car.policeInterceptionTimer = 60;
+        car.speed = 0;
+        return true;
+    }
+
+    const moveAngle = Math.atan2(desiredY - car.y, desiredX - car.x);
+    const avoidance = getPoliceObstacleAvoidance(car, moveAngle, cars);
+
+    if (avoidance.blocked) {
+        releasePoliceInterception(car);
+        return false;
+    }
+
+    smoothlyTurnAIMovement(car, avoidance.angle, dt, true);
+
+    const interceptSpeed = phase === "OVERTAKE" ? 4.6 : 3.8;
+    const nextX = car.x + Math.cos(avoidance.angle) * interceptSpeed * dt;
+    const nextY = car.y + Math.sin(avoidance.angle) * interceptSpeed * dt;
+
+    if (!isGrassOrRoad(nextX, nextY)) {
+        releasePoliceInterception(car);
+        return false;
+    }
+
+    car.speed = interceptSpeed;
+    car.x = nextX;
+    car.y = nextY;
+    return true;
+}
 function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
     const isCar = unit.length !== undefined;
 
@@ -1795,7 +2015,12 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
             return;
         }
     }
-
+if (
+    isCar &&
+    updatePoliceInterceptionMovement(unit, dt, player, cars)
+) {
+    return;
+}
  if (isCar) {
         const playerIsMoving = Math.abs(player.speed || 0) > 0.05;
         const policeCarIsNearPlayer = isPlayerNearPoliceUnit(120, unit);
@@ -2106,6 +2331,7 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
         updateArrestTransport(dt);
         return;
     }
+    updatePoliceInterception(dt, player, cars);
 
     // Add session-only points for surviving an active chase.
     if (player.beingChased) {
