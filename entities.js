@@ -1,4 +1,4 @@
-console.log("9am")
+console.log("6am")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -2316,22 +2316,44 @@ if (typeof playerCar !== 'undefined' && playerCar && this.id === playerCar.id) r
     let avoidRight = false;
     const detectDist = (this.sensorLength || 40) + Math.max(0, this.speed * 12);
 
+    
+    // Cache the forward vector once per vehicle update.
+    const forwardX = Math.cos(forwardAngle);
+    const forwardY = Math.sin(forwardAngle);
+    const coneSlope = Math.tan(0.7);
+
     const checkObstacle = (obsX, obsY, obsRadius) => {
-        let dx = obsX - this.x;
-        let dy = obsY - this.y;
-        let dist = Math.hypot(dx, dy);
+        const dx = obsX - this.x;
+        const dy = obsY - this.y;
+        const range = detectDist + obsRadius;
 
-        if (dist > 0 && dist < detectDist + obsRadius) {
-            let angleToObs = Math.atan2(dy, dx);
-            let diff = angleToObs - forwardAngle;
+        // Fast rejection: outside the sensor's bounding square.
+        if (Math.abs(dx) >= range || Math.abs(dy) >= range) {
+            return;
+        }
 
-            while (diff < -Math.PI) diff += Math.PI * 2;
-            while (diff > Math.PI) diff -= Math.PI * 2;
+        // Avoid square roots for distance comparisons.
+        const distSquared = dx * dx + dy * dy;
 
-            if (Math.abs(diff) < 0.7) {
-                obstacleInFront = true;
-                if (diff < 0) avoidRight = true;
-                else avoidLeft = true;
+        if (distSquared <= 0 || distSquared >= range * range) {
+            return;
+        }
+
+        // Check the forward detection cone without atan2()
+        // or angle-normalization loops.
+        const forwardDot = dx * forwardX + dy * forwardY;
+
+        if (forwardDot <= 0) return;
+
+        const cross = forwardX * dy - forwardY * dx;
+
+        if (Math.abs(cross) < coneSlope * forwardDot) {
+            obstacleInFront = true;
+
+            if (cross < 0) {
+                avoidRight = true;
+            } else {
+                avoidLeft = true;
             }
         }
     };
@@ -2976,7 +2998,7 @@ cars.push(stolenCar);
   // 3. Spawn AI Cars
   for (let i = 0; i < NUM_CARS; i++) {
     let pos = getRandomRoadPosition();
-      let isPolice = Math.random() < 0.20;
+      let isPolice = Math.random() < 0.17;
       let color = carColors[Math.floor(Math.random() * carColors.length)];
 
       // SUVs make up 35% of spawned police cars.
