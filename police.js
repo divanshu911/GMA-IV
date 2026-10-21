@@ -1,4 +1,4 @@
-console.log("good");
+console.log("good4");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -473,6 +473,11 @@ function executeArrestProcess() {
     player.ispassenger = false;
     player.arrestTransportCar = null;
     player.beingChased = false;
+
+    // Cancel pending reinforcement timers / scheduled spawns.
+    if (typeof policeResponseCancelReinforcements === "function") {
+        policeResponseCancelReinforcements();
+    }
 
     // Stop player input immediately.
     player.speed = 0;
@@ -1294,6 +1299,12 @@ function startArrestTransition() {
         player.y = ARREST_STATION_Y;
         player.speed = 0;
         clearWantedScore();
+
+        // Remove additional patrols / reinforcements created by the
+        // wanted-level response system (ordinary city police are untouched).
+        if (typeof clearPoliceResponseUnits === "function") {
+            clearPoliceResponseUnits();
+        }
 
         setTimeout(() => {
             overlay.style.opacity = "0";
@@ -2373,13 +2384,16 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
     // 4. JOIN CHASE MECHANIC FOR NEARBY UNITS
     if (player.beingChased) {
         updateSurrenderButtonVisibility();
-        let activeChasingCars = cars.filter(c => c.isPolice && c.policeState === "CHASE").length;
-        let activeChasingOfficers = npcs.filter(n => n.isPolice && n.policeState === "CHASE").length;
+        // Caps follow the current wantedScore tier and are recalculated every
+        // frame. Only units actively chasing count (roadblock units never do).
+        const chaseCaps = getPoliceChaseCaps();
+        let activeChasingCars = countActivePoliceChasers(cars);
+        let activeChasingOfficers = countActivePoliceChasers(npcs);
 
-        if (activeChasingCars < 3) {
+        if (activeChasingCars < chaseCaps.cars) {
             cars.forEach(c => {
                 if (
-                    activeChasingCars < 3 &&
+                    activeChasingCars < chaseCaps.cars &&
                     c.isPolice &&
                     c !== playerCar &&
                     c.hasDriver &&
@@ -2401,10 +2415,10 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
             });
         }
 
-        if (activeChasingOfficers < 2) {
+        if (activeChasingOfficers < chaseCaps.officers) {
             npcs.forEach(n => {
                 if (
-                    activeChasingOfficers < 2 &&
+                    activeChasingOfficers < chaseCaps.officers &&
                     n.isPolice &&
                     !n.isInjured &&
                     (!n.policeState || n.policeState === "PATROL")
@@ -3163,3 +3177,759 @@ function roadblockObstacleNear(x, y, radius) {
 })();
 
 roadblockInitLocations();
+
+// ============================================================
+// WANTED-LEVEL POLICE RESPONSE
+// Additional patrols + chase reinforcements + active chase caps.
+// Extension of the existing system: every unit created here is a
+// normal Car / NPC pushed into the shared cars / npcs arrays and
+// driven by the existing AI (Car.updateAI, NPC.update and
+// updateSinglePoliceChase). Nothing here steers, paths or
+// simulates a vehicle itself.
+//
+// Unit metadata (minimal, explicit):
+//   unit.isResponseUnit = true
+//   unit.responseRole   = "PATROL" | "REINFORCEMENT"
+// Roadblock units are never tracked or touched here.
+// All timers are in the game's frame units (60 = 1 second).
+// ============================================================
+
+const POLICE_RESPONSE_DEBUG = true; // red = additional patrol, blue = reinforcement
+
+// cars/officers = max ACTIVELY CHASING; patrol* = [min, max] extra patrol targets.
+const POLICE_RESPONSE_TIERS = [
+    { max: 20,  cars: 3, officers: 2, patrolCars: [1, 2], patrolOfficers: [1, 1] },
+    { max: 45,  cars: 4, officers: 2, patrolCars: [2, 3], patrolOfficers: [1, 2] },
+    { max: 65,  cars: 5, officers: 3, patrolCars: [3, 4], patrolOfficers: [2, 3] },
+    { max: 80,  cars: 6, officers: 3, patrolCars: [4, 5], patrolOfficers: [2, 3] },
+    { max: 100, cars: 7, officers: 4, patrolCars: [5, 6], patrolOfficers: [3, 4] }
+];
+
+const POLICE_PATROL_MIN_SPAWN_DISTANCE = 500;
+const POLICE_PATROL_CHECK_INTERVAL = 120;      // ~2 s between maintenance passes
+const POLICE_PATROL_COOLDOWN_MIN = 180;        // ~3-5 s between patrol spawns
+const POLICE_PATROL_COOLDOWN_RANGE = 120;
+const POLICE_PATROL_BACKOFF = 600;             // after repeated spawn failures
+const POLICE_SPAWN_CANDIDATES = 10;            // road samples per attempt
+const POLICE_SPAWN_MAX_FAILS = 5;
+const POLICE_RETIRE_MIN_DISTANCE = 700;        // only retire units this far away AND off-screen
+
+const POLICE_REINFORCE_FIRST_DELAY = 360;      // ~6 s
+const POLICE_REINFORCE_COOLDOWN_MIN = 300;     // ~5-7 s
+const POLICE_REINFORCE_COOLDOWN_RANGE = 120;
+const POLICE_REINFORCE_RETRY = 90;             // ~1.5 s after a failed spawn
+const POLICE_REINFORCE_RECHECK = 60;           // ~1 s while the car cap is full
+const POLICE_REINFORCE_MIN_DISTANCE = 300;
+
+const POLICE_CAP_ENFORCE_INTERVAL = 120;
+const POLICE_RESPONSE_ID_BASE = 910000;
+
+const policeResponseState = {
+    nextId: POLICE_RESPONSE_ID_BASE,
+
+    // Tracking (each unit lives in exactly one list).
+    patrolCars: [],
+    patrolOfficers: [],
+    reinforcements: [],
+
+    // Patrol maintenance.
+    tierIndex: -1,
+    targetCars: 0,
+    targetOfficers: 0,
+    patrolCheckTimer: 0,
+    patrolCooldown: 0,
+    patrolFails: 0,
+
+    // Reinforcement scheduling (player.beingChased is the only chase flag).
+    chaseActive: false,
+    reinforceTimer: 0,
+    reinforceCooldown: 0,
+    reinforceFails: 0,
+    reinforceWasAtCap: false,
+
+    capTimer: 0,
+    debugInstalled: false
+};
+
+// ---------- tiers / caps ----------
+
+// -1 = not wanted (no patrols). Otherwise 0..4.
+function getPoliceTierIndex(score) {
+    if (!(score > 0)) return -1;
+    for (let i = 0; i < POLICE_RESPONSE_TIERS.length; i++) {
+        if (score <= POLICE_RESPONSE_TIERS[i].max) return i;
+    }
+    return POLICE_RESPONSE_TIERS.length - 1;
+}
+
+// Active-chase caps. A score of 0 keeps the lowest tier (the previous
+// behaviour was already 3 cars / 2 officers).
+function getPoliceChaseCaps(score = wantedScore) {
+    const tier = POLICE_RESPONSE_TIERS[Math.max(0, getPoliceTierIndex(score))];
+    return { cars: tier.cars, officers: tier.officers };
+}
+
+function isPoliceUnitAlive(u) {
+    return !!u && !u.exploded && !(u.health <= 0) && !u.isInjured;
+}
+
+// A unit is an ACTIVE chaser only when it is police, in the CHASE state,
+// alive, and not a roadblock unit (roadblock units never stay in CHASE).
+function isActivePoliceChaser(u) {
+    return (
+        !!u &&
+        u.isPolice &&
+        u.policeState === "CHASE" &&
+        !u.isRoadblockUnit &&
+        isPoliceUnitAlive(u) &&
+        (typeof playerCar === "undefined" || u !== playerCar)
+    );
+}
+
+function countActivePoliceChasers(list) {
+    let n = 0;
+    for (let i = 0; i < list.length; i++) {
+        if (isActivePoliceChaser(list[i])) n++;
+    }
+    return n;
+}
+
+// ---------- spawn point search (reuses existing road helpers) ----------
+
+function policeResponseWorldReady() {
+    return (
+        typeof getRandomRoadPosition === "function" &&
+        typeof isRoadColor === "function" &&
+        typeof isAICarWalkable === "function" &&
+        typeof collisionData !== "undefined" &&
+        !!collisionData &&
+        typeof mapWidth === "number" &&
+        mapWidth > 0
+    );
+}
+
+function policeResponseCandidateValid(pos, forCar, minDist, requireOffscreen) {
+    if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return false;
+
+    if (
+        pos.x < 20 || pos.y < 20 ||
+        pos.x > mapWidth - 20 || pos.y > mapHeight - 20
+    ) {
+        return false;
+    }
+
+    // getRandomRoadPosition has unvalidated fallbacks; re-check here.
+    if (!isRoadColor(pos.x, pos.y)) return false;
+
+    if (forCar) {
+        const r = 14;
+        if (
+            !isAICarWalkable(pos.x, pos.y) ||
+            !isAICarWalkable(pos.x + r, pos.y) ||
+            !isAICarWalkable(pos.x - r, pos.y) ||
+            !isAICarWalkable(pos.x, pos.y + r) ||
+            !isAICarWalkable(pos.x, pos.y - r)
+        ) {
+            return false;
+        }
+    }
+
+    if (Math.hypot(player.x - pos.x, player.y - pos.y) < minDist) return false;
+
+    if (
+        requireOffscreen &&
+        typeof isEntityOnScreen === "function" &&
+        isEntityOnScreen(pos, 150)
+    ) {
+        return false;
+    }
+
+    if (
+        typeof roadblockObstacleNear === "function" &&
+        roadblockObstacleNear(pos.x, pos.y, 45)
+    ) {
+        return false;
+    }
+
+    // Don't spawn on top of other vehicles / pedestrians.
+    for (let i = 0; i < cars.length; i++) {
+        const c = cars[i];
+        if (c && Math.hypot(c.x - pos.x, c.y - pos.y) < 60) return false;
+    }
+    for (let i = 0; i < npcs.length; i++) {
+        const n = npcs[i];
+        if (n && Math.hypot(n.x - pos.x, n.y - pos.y) < 40) return false;
+    }
+
+    return true;
+}
+
+// Bounded: samples at most `attempts` road positions. Returns a point or null.
+function findPoliceResponseSpawnPoint(forCar, minDist, requireOffscreen, attempts, preferNearest) {
+    if (!policeResponseWorldReady()) return null;
+
+    let best = null;
+    let bestDist = Infinity;
+
+    for (let i = 0; i < attempts; i++) {
+        const pos = getRandomRoadPosition();
+        if (!policeResponseCandidateValid(pos, forCar, minDist, requireOffscreen)) continue;
+
+        if (!preferNearest) return { x: pos.x, y: pos.y };
+
+        const d = Math.hypot(player.x - pos.x, player.y - pos.y);
+        if (d < bestDist) {
+            bestDist = d;
+            best = { x: pos.x, y: pos.y };
+        }
+    }
+
+    return best;
+}
+
+// ---------- unit creation (normal Car / NPC, normal arrays) ----------
+
+function policeResponseNextId() {
+    return policeResponseState.nextId++;
+}
+
+function policeResponseMakeCar(pos, role) {
+    // Same sedan/SUV mix as the existing police car spawner.
+    const type = Math.random() < 0.35 ? "Ranger, SUV" : null;
+    const car = new Car(policeResponseNextId(), pos.x, pos.y, "#111111", true, type);
+
+    car.isPolice = true;
+    car.hasDriver = true;
+    car.isParked = false;
+    car.isResponseUnit = true;
+    car.responseRole = role;
+
+    cars.push(car);
+    return car;
+}
+
+// Additional patrol: ordinary unaware police car (existing patrol AI).
+function spawnPolicePatrolCar(pos) {
+    const car = policeResponseMakeCar(pos, "PATROL");
+    car.policeState = "PATROL";
+    policeResponseState.patrolCars.push(car);
+    return car;
+}
+
+// Reinforcement: enters the existing chase pathway immediately.
+// updatePoliceStage4A() runs updateSinglePoliceChase() for every CHASE car.
+function spawnPoliceReinforcementCar(pos) {
+    const car = policeResponseMakeCar(pos, "REINFORCEMENT");
+    car.policeState = "CHASE";
+    car.angle = Math.atan2(player.y - pos.y, player.x - pos.x) + Math.PI / 2;
+    policeResponseState.reinforcements.push(car);
+    return car;
+}
+
+// Additional patrol officer: ordinary unaware police NPC (existing officer AI).
+function spawnPolicePatrolOfficer(pos) {
+    const shirts = ["#3498db", "#e74c3c", "#2ecc71", "#f1c40f"];
+    const hairs = ["#2d3436", "#4a3728", "#d35400", "#f39c12"];
+    const skins = ["#ffdbac", "#f1c27d", "#e0ac69", "#c68642", "#8d5524"];
+
+    const officer = new NPC(
+        policeResponseNextId(),
+        pos.x,
+        pos.y,
+        shirts[Math.floor(Math.random() * shirts.length)],
+        hairs[Math.floor(Math.random() * hairs.length)],
+        skins[Math.floor(Math.random() * skins.length)],
+        true
+    );
+
+    officer.isPolice = true;
+    officer.policeState = "PATROL";
+    officer.isResponseUnit = true;
+    officer.responseRole = "PATROL";
+
+    npcs.push(officer);
+    policeResponseState.patrolOfficers.push(officer);
+    return officer;
+}
+
+// ---------- removal / bookkeeping ----------
+
+function policeResponseDisposeCar(car) {
+    if (!car) return;
+    if (car.humAudio) {
+        try { car.humAudio.pause(); } catch (e) {}
+        car.humAudio = null;
+    }
+    if (typeof car.stopSiren === "function") {
+        car.stopSiren();
+    } else {
+        car.sirenState = 0;
+    }
+}
+
+// Removes one tracked unit from the world and from all tracking lists.
+function removePoliceResponseUnit(unit) {
+    if (!unit || unit.isRoadblockUnit) return;
+
+    let idx = cars.indexOf(unit);
+    if (idx >= 0) {
+        policeResponseDisposeCar(unit);
+        cars.splice(idx, 1);
+    } else {
+        idx = npcs.indexOf(unit);
+        if (idx >= 0) npcs.splice(idx, 1);
+    }
+
+    policeResponseUntrack(unit);
+}
+
+function policeResponseUntrack(unit) {
+    const S = policeResponseState;
+    for (const list of [S.patrolCars, S.patrolOfficers, S.reinforcements]) {
+        const i = list.indexOf(unit);
+        if (i >= 0) list.splice(i, 1);
+    }
+}
+
+// Drops stale references (unit no longer in the world, or taken over by
+// the player) so counts never include ghosts.
+function policeResponsePrune() {
+    const S = policeResponseState;
+
+    const prune = (list, world) => {
+        for (let i = list.length - 1; i >= 0; i--) {
+            const u = list[i];
+            if (!u || world.indexOf(u) < 0) {
+                list.splice(i, 1);
+                continue;
+            }
+            const playerOwned =
+                (typeof playerCar !== "undefined" && u === playerCar) || u.isStolen;
+            if (playerOwned) {
+                // Player took the vehicle: it is no longer part of this system.
+                u.isResponseUnit = false;
+                u.responseRole = null;
+                list.splice(i, 1);
+            }
+        }
+    };
+
+    prune(S.patrolCars, cars);
+    prune(S.reinforcements, cars);
+    prune(S.patrolOfficers, npcs);
+}
+
+function policeResponseIsHidden(u) {
+    if (typeof isEntityOnScreen === "function" && isEntityOnScreen(u, 150)) return false;
+    return Math.hypot(player.x - u.x, player.y - u.y) >= POLICE_RETIRE_MIN_DISTANCE;
+}
+
+function policeResponseCountLive(list) {
+    let n = 0;
+    for (let i = 0; i < list.length; i++) {
+        if (isPoliceUnitAlive(list[i])) n++;
+    }
+    return n;
+}
+
+// Quietly retire wrecks / injured officers / disengaged reinforcements of
+// THIS system, only when far away and off-screen.
+function policeResponseRetireStale() {
+    const S = policeResponseState;
+    const all = S.patrolCars.concat(S.patrolOfficers, S.reinforcements);
+
+    for (let i = 0; i < all.length; i++) {
+        const u = all[i];
+        if (!u || u.isRoadblockUnit) continue;
+        if (!policeResponseIsHidden(u)) continue;
+
+        const dead = !isPoliceUnitAlive(u);
+        const idleReinforcement =
+            u.responseRole === "REINFORCEMENT" &&
+            !player.beingChased &&
+            u.policeState !== "CHASE" &&
+            u.policeState !== "WARNING" &&
+            u.policeState !== "ARRESTING";
+
+        if (dead || idleReinforcement) removePoliceResponseUnit(u);
+    }
+}
+
+// ---------- patrol population ----------
+
+function policeRollTarget(range) {
+    return range[0] + Math.floor(Math.random() * (range[1] - range[0] + 1));
+}
+
+function updatePolicePatrols(dt) {
+    const S = policeResponseState;
+
+    if (S.patrolCooldown > 0) S.patrolCooldown = Math.max(0, S.patrolCooldown - dt);
+
+    S.patrolCheckTimer -= dt;
+    if (S.patrolCheckTimer > 0) return;
+    S.patrolCheckTimer = POLICE_PATROL_CHECK_INTERVAL;
+
+    policeResponsePrune();
+    policeResponseRetireStale();
+
+    // Re-roll the targets only when the tier changes (both directions).
+    const tier = getPoliceTierIndex(wantedScore);
+    if (tier !== S.tierIndex) {
+        S.tierIndex = tier;
+        if (tier < 0) {
+            S.targetCars = 0;
+            S.targetOfficers = 0;
+        } else {
+            S.targetCars = policeRollTarget(POLICE_RESPONSE_TIERS[tier].patrolCars);
+            S.targetOfficers = policeRollTarget(POLICE_RESPONSE_TIERS[tier].patrolOfficers);
+        }
+    }
+
+    const liveCars = policeResponseCountLive(S.patrolCars);
+    const liveOfficers = policeResponseCountLive(S.patrolOfficers);
+
+    // Surplus: retire a single idle, hidden, far-away patrol. Never abrupt.
+    if (liveCars > S.targetCars || liveOfficers > S.targetOfficers) {
+        const pool = liveCars > S.targetCars ? S.patrolCars : S.patrolOfficers;
+        for (let i = 0; i < pool.length; i++) {
+            const u = pool[i];
+            if (
+                isPoliceUnitAlive(u) &&
+                (!u.policeState || u.policeState === "PATROL") &&
+                policeResponseIsHidden(u)
+            ) {
+                removePoliceResponseUnit(u);
+                break;
+            }
+        }
+        return;
+    }
+
+    if (S.patrolCooldown > 0) return;
+
+    const carDeficit = S.targetCars - liveCars;
+    const officerDeficit = S.targetOfficers - liveOfficers;
+    if (carDeficit <= 0 && officerDeficit <= 0) {
+        S.patrolFails = 0;
+        return;
+    }
+
+    const spawnCar =
+        carDeficit > 0 && (officerDeficit <= 0 || Math.random() < 0.5);
+
+    const pos = findPoliceResponseSpawnPoint(
+        spawnCar,
+        POLICE_PATROL_MIN_SPAWN_DISTANCE,
+        true,
+        POLICE_SPAWN_CANDIDATES,
+        false
+    );
+
+    if (!pos) {
+        // Skip this attempt; try again at the next pass. Back off if it keeps failing.
+        S.patrolFails++;
+        if (S.patrolFails >= POLICE_SPAWN_MAX_FAILS) {
+            S.patrolFails = 0;
+            S.patrolCooldown = POLICE_PATROL_BACKOFF;
+        }
+        return;
+    }
+
+    S.patrolFails = 0;
+    if (spawnCar) spawnPolicePatrolCar(pos);
+    else spawnPolicePatrolOfficer(pos);
+
+    // One unit per pass, spread over time.
+    S.patrolCooldown =
+        POLICE_PATROL_COOLDOWN_MIN + Math.random() * POLICE_PATROL_COOLDOWN_RANGE;
+}
+
+// ---------- chase reinforcements ----------
+
+function policeResponseCancelReinforcements() {
+    const S = policeResponseState;
+    S.chaseActive = false;
+    S.reinforceTimer = 0;
+    S.reinforceCooldown = 0;
+    S.reinforceFails = 0;
+    S.reinforceWasAtCap = false;
+}
+
+function policeReinforceCooldown() {
+    return (
+        POLICE_REINFORCE_COOLDOWN_MIN +
+        Math.random() * POLICE_REINFORCE_COOLDOWN_RANGE
+    );
+}
+
+function updatePoliceReinforcements(dt) {
+    const S = policeResponseState;
+
+    // player.beingChased is the single source of truth for the chase.
+    if (!player.beingChased) {
+        if (S.chaseActive || S.reinforceTimer || S.reinforceCooldown) {
+            policeResponseCancelReinforcements();
+        }
+        return;
+    }
+
+    if (!S.chaseActive) {
+        S.chaseActive = true;
+        S.reinforceTimer = POLICE_REINFORCE_FIRST_DELAY;
+        S.reinforceCooldown = 0;
+        S.reinforceFails = 0;
+        S.reinforceWasAtCap = false;
+        return;
+    }
+
+    if (S.reinforceCooldown > 0) {
+        S.reinforceCooldown = Math.max(0, S.reinforceCooldown - dt);
+    }
+
+    S.reinforceTimer -= dt;
+    if (S.reinforceTimer > 0) return;
+
+    // Recompute the cap and the real active count at decision time.
+    const caps = getPoliceChaseCaps();
+    const active = countActivePoliceChasers(cars);
+
+    if (active >= caps.cars) {
+        S.reinforceWasAtCap = true;
+        S.reinforceFails = 0;
+        S.reinforceTimer = POLICE_REINFORCE_RECHECK;
+        return;
+    }
+
+    // A slot opened after the cap was full: respect the normal cooldown.
+    if (S.reinforceWasAtCap) {
+        S.reinforceWasAtCap = false;
+        S.reinforceCooldown = Math.max(S.reinforceCooldown, policeReinforceCooldown());
+    }
+
+    if (S.reinforceCooldown > 0) {
+        S.reinforceTimer = Math.max(1, S.reinforceCooldown);
+        return;
+    }
+
+    // At most ONE car per decision.
+    const pos = findPoliceResponseSpawnPoint(
+        true,
+        POLICE_REINFORCE_MIN_DISTANCE,
+        true,
+        POLICE_SPAWN_CANDIDATES,
+        true
+    );
+
+    if (pos) {
+        spawnPoliceReinforcementCar(pos);
+        S.reinforceFails = 0;
+        S.reinforceCooldown = policeReinforceCooldown();
+        S.reinforceTimer = S.reinforceCooldown;
+        return;
+    }
+
+    S.reinforceFails++;
+    if (S.reinforceFails >= POLICE_SPAWN_MAX_FAILS) {
+        S.reinforceFails = 0;
+        S.reinforceCooldown = policeReinforceCooldown();
+        S.reinforceTimer = S.reinforceCooldown;
+    } else {
+        S.reinforceTimer = POLICE_REINFORCE_RETRY;
+    }
+}
+
+// ---------- cap enforcement (soft: one unit per pass, uses existing disengage) ----------
+
+function policeDisengageUnit(unit) {
+    if (unit.length !== undefined) {
+        // Same steps the existing chase-escape code applies to cars.
+        if (typeof unit.stopSiren === "function") unit.stopSiren();
+        else unit.sirenState = 0;
+        unit.policeState = "PATROL";
+        unit.isParked = false;
+        unit.warningTimer = 0;
+        unit.graceTimer = 0;
+        unit.arrestStage = 0;
+        unit.arrestTimer = 0;
+    } else {
+        // Same steps the existing chase-escape code applies to officers.
+        unit.policeState = "PATROL";
+        unit.speed = 0.3 + Math.random() * 0.4;
+    }
+}
+
+function policeReleaseFarthestOverCap(list, cap) {
+    const chasers = [];
+    for (let i = 0; i < list.length; i++) {
+        if (isActivePoliceChaser(list[i])) chasers.push(list[i]);
+    }
+    if (chasers.length <= cap) return;
+
+    let farthest = null;
+    let farthestDist = -1;
+    for (const u of chasers) {
+        const d = Math.hypot(player.x - u.x, player.y - u.y);
+        if (d > farthestDist) {
+            farthestDist = d;
+            farthest = u;
+        }
+    }
+    if (farthest) policeDisengageUnit(farthest);
+}
+
+function enforcePoliceChaseCaps(dt) {
+    const S = policeResponseState;
+    S.capTimer -= dt;
+    if (S.capTimer > 0) return;
+    S.capTimer = POLICE_CAP_ENFORCE_INTERVAL;
+
+    if (!player.beingChased) return;
+
+    const caps = getPoliceChaseCaps();
+    policeReleaseFarthestOverCap(cars, caps.cars);
+    policeReleaseFarthestOverCap(npcs, caps.officers);
+}
+
+// ---------- arrest / release cleanup ----------
+
+// Removes every unit created by this system (patrols + reinforcements) and
+// resets all bookkeeping. Ordinary city police, roadblock units, race
+// participants and other NPC/traffic are untouched.
+function clearPoliceResponseUnits() {
+    const S = policeResponseState;
+    policeResponseCancelReinforcements();
+
+    const doomed = new Set(
+        S.patrolCars.concat(S.patrolOfficers, S.reinforcements)
+    );
+
+    if (typeof cars !== "undefined" && Array.isArray(cars)) {
+        for (let i = cars.length - 1; i >= 0; i--) {
+            const c = cars[i];
+            if (!c) continue;
+            if (c.isRoadblockUnit) continue;
+            if (c.isResponseUnit || doomed.has(c)) {
+                policeResponseDisposeCar(c);
+                cars.splice(i, 1);
+            }
+        }
+    }
+
+    if (typeof npcs !== "undefined" && Array.isArray(npcs)) {
+        for (let i = npcs.length - 1; i >= 0; i--) {
+            const n = npcs[i];
+            if (!n) continue;
+            if (n.isResponseUnit || doomed.has(n)) {
+                npcs.splice(i, 1);
+            }
+        }
+    }
+
+    S.patrolCars.length = 0;
+    S.patrolOfficers.length = 0;
+    S.reinforcements.length = 0;
+    S.tierIndex = -1;
+    S.targetCars = 0;
+    S.targetOfficers = 0;
+    S.patrolCheckTimer = 0;
+    S.patrolCooldown = 0;
+    S.patrolFails = 0;
+    S.capTimer = 0;
+}
+
+// ---------- per-frame entry point ----------
+
+function updatePoliceResponse(dt) {
+    if (
+        typeof player === "undefined" || !player ||
+        typeof cars === "undefined" || typeof npcs === "undefined" ||
+        typeof Car !== "function" || typeof NPC !== "function"
+    ) {
+        return;
+    }
+
+    installPoliceResponseDebugDraw();
+
+    // Frame-unit delta, clamped so a stalled tab can't fire a burst of timers.
+    dt = Number.isFinite(dt) ? Math.min(Math.max(dt, 0), 3) : 1;
+
+    // Nothing spawns during the arrest sequence; unit cleanup happens when
+    // the arrest transition completes (see startArrestTransition).
+    if (player.isBeingArrested || player.isArrestPassenger) {
+        policeResponseCancelReinforcements();
+        return;
+    }
+
+    updatePoliceReinforcements(dt);
+    updatePolicePatrols(dt);
+    enforcePoliceChaseCaps(dt);
+}
+
+// ---------- debug overlay (red = patrol, blue = reinforcement) ----------
+
+function policeResponseDrawDebugBox(ctx, unit, isCar) {
+    if (!POLICE_RESPONSE_DEBUG || !unit || !unit.isResponseUnit || !unit.responseRole) return;
+    if (unit.isPassenger) return;
+
+    ctx.save();
+    ctx.translate(unit.x, unit.y);
+    if (isCar) ctx.rotate(unit.angle);
+
+    ctx.fillStyle =
+        unit.responseRole === "REINFORCEMENT"
+            ? "rgba(0, 100, 255, 0.45)"
+            : "rgba(255, 0, 0, 0.45)";
+
+    const w = isCar ? unit.width : 20;
+    const h = isCar ? unit.length : 20;
+    ctx.fillRect(-w / 2, -h / 2, w, h);
+    ctx.restore();
+}
+
+// Wraps the existing draw methods once (after entities.js has loaded).
+function installPoliceResponseDebugDraw() {
+    const S = policeResponseState;
+    if (S.debugInstalled) return;
+    if (typeof Car !== "function" || typeof NPC !== "function") return;
+
+    const carDraw = Car.prototype.draw;
+    const npcDraw = NPC.prototype.draw;
+    if (typeof carDraw !== "function" || typeof npcDraw !== "function") return;
+
+    Car.prototype.draw = function (ctx) {
+        const result = carDraw.apply(this, arguments);
+        policeResponseDrawDebugBox(ctx, this, true);
+        return result;
+    };
+
+    NPC.prototype.draw = function (ctx) {
+        const result = npcDraw.apply(this, arguments);
+        policeResponseDrawDebugBox(ctx, this, false);
+        return result;
+    };
+
+    S.debugInstalled = true;
+}
+
+// Run the manager after the existing police update every frame.
+(function hookPoliceResponseUpdate() {
+    if (
+        typeof updatePoliceStage4A !== "function" ||
+        updatePoliceStage4A.__policeResponseHooked
+    ) {
+        return;
+    }
+
+    const prev = updatePoliceStage4A;
+    updatePoliceStage4A = function () {
+        const result = prev.apply(this, arguments);
+        try {
+            updatePoliceResponse(arguments[0]);
+        } catch (err) {
+            console.error("[POLICE RESPONSE]", err);
+        }
+        return result;
+    };
+    updatePoliceStage4A.__policeResponseHooked = true;
+})();
