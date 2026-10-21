@@ -1,4 +1,4 @@
-console.log("good8");
+console.log("good3");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -1382,32 +1382,107 @@ function updateArrestTransport(dt) {
             arrestTransportCar.stuckTimer += dt;
         }
 
+
         if (arrestTransportCar.stuckTimer >= 300) {
-            const safeRoadPosition = getRandomStrictRoadPosition();
+            const transport = arrestTransportCar;
 
-            arrestTransportCar.x = safeRoadPosition.x;
-            arrestTransportCar.y = safeRoadPosition.y;
-
-            arrestTransportCar.speed = 0;
-            arrestTransportCar.velocityX = 0;
-            arrestTransportCar.velocityY = 0;
-
-            arrestTransportCar.stuckX = arrestTransportCar.x;
-            arrestTransportCar.stuckY = arrestTransportCar.y;
-            arrestTransportCar.stuckTimer = 0;
-
-            arrestTransportCar.arrestTransportPath = null;
-            arrestTransportCar.arrestTransportRepathTimer = 0;
-
-            if (player.isArrestPassenger) {
-                player.x = arrestTransportCar.x;
-                player.y = arrestTransportCar.y;
-                player.angle = arrestTransportCar.angle;
-            }
-
-            console.log(
-                "Arrest transport stuck for 5 seconds — respawned on road."
+            const playerDistance = Math.hypot(
+                player.x - transport.x,
+                player.y - transport.y
             );
+
+            // Recover nearby players into the arrest transport instead
+            // of repeatedly respawning the transport car.
+            if (
+                playerDistance <= 250 &&
+                !player.isArrestPassenger &&
+                !arrestTransitionStarted
+            ) {
+                arrestTransitionStarted = true;
+                arrestTransportState = "RECOVERY_TRANSITION";
+
+                transport.speed = 0;
+                transport.velocityX = 0;
+                transport.velocityY = 0;
+
+                const overlay = getArrestFadeOverlay();
+                overlay.style.opacity = "1";
+
+                setTimeout(() => {
+                    // The transport may have been removed meanwhile.
+                    if (
+                        arrestTransportCar !== transport ||
+                        !cars.includes(transport) ||
+                        !player.isBeingArrested
+                    ) {
+                        overlay.style.opacity = "0";
+                        arrestTransitionStarted = false;
+                        return;
+                    }
+
+                    // Attach the player using the normal arrest-passenger state.
+                    player.x = transport.x;
+                    player.y = transport.y;
+                    player.angle = transport.angle;
+                    player.speed = 0;
+
+                    player.isArrestPassenger = true;
+                    player.ispassenger = true;
+                    player.arrestTransportCar = transport;
+
+                    transport.hasArrestPassenger = true;
+                    transport.arrestTransportPath = null;
+                    transport.arrestTransportRepathTimer = 0;
+
+                    transport.stuckX = transport.x;
+                    transport.stuckY = transport.y;
+                    transport.stuckTimer = 0;
+
+                    arrestTransportState = "CARRYING";
+
+                    // Keep the screen black briefly, then resume the journey.
+                    setTimeout(() => {
+                        overlay.style.opacity = "0";
+
+                        setTimeout(() => {
+                            arrestTransitionStarted = false;
+                        }, 450);
+                    }, 250);
+
+                    console.log(
+                        "Arrest transport recovery: player placed inside transport."
+                    );
+                }, 450);
+
+            } else {
+                // Preserve the existing fallback when the player is too far
+                // away, or is already riding in the transport.
+                const safeRoadPosition = getRandomStrictRoadPosition();
+
+                transport.x = safeRoadPosition.x;
+                transport.y = safeRoadPosition.y;
+
+                transport.speed = 0;
+                transport.velocityX = 0;
+                transport.velocityY = 0;
+
+                transport.stuckX = transport.x;
+                transport.stuckY = transport.y;
+                transport.stuckTimer = 0;
+
+                transport.arrestTransportPath = null;
+                transport.arrestTransportRepathTimer = 0;
+
+                if (player.isArrestPassenger) {
+                    player.x = transport.x;
+                    player.y = transport.y;
+                    player.angle = transport.angle;
+                }
+
+                console.log(
+                    "Arrest transport stuck for 5 seconds — respawned on road."
+                );
+            }
         }
     }
 
@@ -2081,6 +2156,272 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
     }
 }
 
+function dispatchRoadblockFallback() {
+    if (
+        typeof player === "undefined" ||
+        !player ||
+        !player.beingChased
+    ) {
+        return null;
+    }
+
+    const spawnPos = findPoliceResponseSpawnPoint(
+        true,
+        POLICE_REINFORCE_MIN_DISTANCE,
+        true,
+        POLICE_SPAWN_CANDIDATES,
+        true
+    );
+
+    if (!spawnPos) {
+        // Retry later if the map has no valid spawn point right now.
+        policeResponseState.reinforceTimer =
+            POLICE_REINFORCE_RETRY;
+        return null;
+    }
+
+    const reinforcement =
+        spawnPoliceReinforcementCar(spawnPos);
+
+    reinforcement.angle = Math.atan2(
+        player.y - reinforcement.y,
+        player.x - reinforcement.x
+    ) + Math.PI / 2;
+
+    policeResponseState.roadblockResponder = null;
+    policeResponseState.reinforceFails = 0;
+    policeResponseState.reinforceWasAtCap = false;
+    policeResponseState.reinforceCooldown =
+        policeReinforceCooldown();
+    policeResponseState.reinforceTimer =
+        policeResponseState.reinforceCooldown;
+
+    if (
+        typeof taxiManager !== "undefined" &&
+        taxiManager.setMessage
+    ) {
+        taxiManager.setMessage(
+            "Police reinforcements dispatched!",
+            180
+        );
+    }
+
+    return reinforcement;
+}
+
+
+function updateRoadblockPatrolResponse(dt, player, cars) {
+    const S = policeResponseState;
+    const patrol = S.roadblockResponder;
+
+    if (!patrol) return;
+
+    // If the chase ends, release the patrol instead of spawning
+    // an unnecessary reinforcement.
+    if (!player.beingChased) {
+        if (
+            patrol.policeState === "RESPONDING"
+        ) {
+            patrol.policeState = "PATROL";
+            patrol.speed = 0;
+            patrol.isParked = false;
+
+            if (typeof patrol.stopSiren === "function") {
+                patrol.stopSiren();
+            } else {
+                patrol.sirenState = 0;
+            }
+        }
+
+        S.roadblockResponder = null;
+        return;
+    }
+
+    // A destroyed, stolen, removed, or otherwise invalid responder
+    // cannot fulfil the request. Fall back to a new car.
+    if (
+        !cars.includes(patrol) ||
+        !patrol.isPolice ||
+        patrol.isRoadblockUnit ||
+        patrol.isStolen ||
+        patrol.exploded ||
+        patrol.health <= 0 ||
+        !patrol.hasDriver ||
+        patrol.policeState !== "RESPONDING"
+    ) {
+        S.roadblockResponder = null;
+        dispatchRoadblockFallback();
+        return;
+    }
+
+    const distance = Math.hypot(
+        player.x - patrol.x,
+        player.y - patrol.y
+    );
+
+    // Once close enough, the normal chase AI takes over.
+    if (distance <= 240) {
+        patrol.policeState = "CHASE";
+        patrol.isParked = false;
+
+        patrol.roadblockResponseTimer = 0;
+        patrol.roadblockResponseRepathTimer = 0;
+
+        S.roadblockResponder = null;
+        S.reinforceTimer = POLICE_REINFORCE_FIRST_DELAY;
+        S.reinforceCooldown = 0;
+        S.reinforceFails = 0;
+        S.reinforceWasAtCap = false;
+        return;
+    }
+
+    patrol.roadblockResponseTimer -= dt;
+
+    if (patrol.roadblockResponseTimer <= 0) {
+        // The patrol failed to arrive within 12 seconds.
+        patrol.policeState = "PATROL";
+        patrol.speed = 0;
+        patrol.isParked = false;
+
+        if (typeof patrol.stopSiren === "function") {
+            patrol.stopSiren();
+        } else {
+            patrol.sirenState = 0;
+        }
+
+        S.roadblockResponder = null;
+        dispatchRoadblockFallback();
+        return;
+    }
+
+    // Follow the player's LIVE coordinates using the existing
+    // navigation/path-following helper.
+    // Recalculate the route periodically as the player moves.
+    patrol.roadblockResponseRepathTimer -= dt;
+
+    if (patrol.roadblockResponseRepathTimer <= 0) {
+        patrol.roadblockResponseRepathTimer = 30;
+
+        patrol.arrestTransportPath = null;
+        patrol.arrestTransportRepathTimer = 0;
+    }
+
+    moveArrestPoliceCar(
+        patrol,
+        player.x,
+        player.y,
+        dt,
+        3.2
+    );
+}
+
+const POLICE_STATIONARY_ARREST_RADIUS = 100;
+const POLICE_STATIONARY_ARREST_TIME = 300; // 5 seconds at 60 FPS
+const POLICE_STATIONARY_DISPLACEMENT = 80;  // Meaningful movement in pixels
+
+let policeStationaryArrest = {
+    x: null,
+    y: null,
+    timer: 0
+};
+
+function updatePoliceStationaryArrest(dt, player, cars, npcs) {
+    const reset = () => {
+        policeStationaryArrest.x = null;
+        policeStationaryArrest.y = null;
+        policeStationaryArrest.timer = 0;
+    };
+
+    if (
+        !player ||
+        player.isBeingArrested ||
+        player.isArrestPassenger
+    ) {
+        reset();
+        return false;
+    }
+
+    // A living police officer or police car must remain within 100 px.
+    const validPoliceUnit = unit =>
+        unit &&
+        unit.isPolice &&
+        unit !== playerCar &&
+        !unit.isStolen &&
+        !unit.exploded &&
+        !(unit.health <= 0) &&
+        !unit.isInjured &&
+        !unit.isPassenger &&
+        (
+            unit.length === undefined ||
+            unit.hasDriver !== false
+        ) &&
+        (
+            !unit.policeState ||
+            unit.policeState === "PATROL" ||
+            unit.policeState === "WARNING" ||
+            unit.policeState === "CHASE" ||
+            unit.policeState === "ARRESTING" ||
+            unit.policeState === "RESPONDING"
+        );
+
+    const nearbyPolice =
+        cars.some(unit =>
+            validPoliceUnit(unit) &&
+            Math.hypot(
+                player.x - unit.x,
+                player.y - unit.y
+            ) <= POLICE_STATIONARY_ARREST_RADIUS
+        ) ||
+        npcs.some(unit =>
+            validPoliceUnit(unit) &&
+            Math.hypot(
+                player.x - unit.x,
+                player.y - unit.y
+            ) <= POLICE_STATIONARY_ARREST_RADIUS
+        );
+
+    if (!nearbyPolice) {
+        reset();
+        return false;
+    }
+
+    const state = policeStationaryArrest;
+
+    if (state.x === null || state.y === null) {
+        state.x = player.x;
+        state.y = player.y;
+        state.timer = 0;
+        return false;
+    }
+
+    const displacement = Math.hypot(
+        player.x - state.x,
+        player.y - state.y
+    );
+
+    if (displacement >= POLICE_STATIONARY_DISPLACEMENT) {
+        // Player moved meaningfully: begin a fresh 5-second window.
+        state.x = player.x;
+        state.y = player.y;
+        state.timer = 0;
+        return false;
+    }
+
+    state.timer += Math.max(0, dt || 0);
+
+    if (state.timer < POLICE_STATIONARY_ARREST_TIME) {
+        return false;
+    }
+
+    reset();
+
+    console.log(
+        "Police arrest: player remained stationary near police for 5 seconds."
+    );
+
+    executeArrestProcess();
+    return true;
+}
 // --- STAGE 4A: REVISED POLICE RECOGNITION, WARNING, ARREST & CHASE SYSTEM ---
 function updatePoliceStage4A(dt, player, cars, npcs) {
     if (!player) return;
@@ -2116,6 +2457,19 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
         updateArrestTransport(dt);
         return;
     }
+    
+    // Automatically arrest a stationary player near valid police.
+    if (
+        updatePoliceStationaryArrest(
+            dt,
+            player,
+            cars,
+            npcs
+        )
+    ) {
+        return;
+    }
+    updateRoadblockPatrolResponse(dt, player, cars);
 
     // Add session-only points for surviving an active chase.
     if (player.beingChased) {
@@ -2382,60 +2736,94 @@ if (warningOrArrestingUnit.isRoadblockUnit) {
     warningOrArrestingUnit.roadblockEscapeAwarded = true;
 
     // Only dispatch a special reinforcement if no chase is active.
-    if (!player.beingChased) {
-        // Award the roadblock escape bonus.
-        chaseWantedScore = Math.min(
-            100,
-            chaseWantedScore + 5
+    
+if (!player.beingChased) {
+    // Award the successful roadblock escape.
+    chaseWantedScore = Math.min(100, chaseWantedScore + 5);
+    refreshWantedScore();
+
+    let nearestPatrol = null;
+    let nearestDistance = 1100;
+    const MAX_PATROL_DISTANCE = 1100;
+
+    // Search ALL police cars, including ordinary city police.
+    for (let i = 0; i < cars.length; i++) {
+        const patrol = cars[i];
+
+        if (
+            !patrol ||
+            patrol === playerCar ||
+            !patrol.isPolice ||
+            patrol.isRoadblockUnit ||
+            patrol.isStolen ||
+            patrol.exploded ||
+            patrol.health <= 0 ||
+            patrol.isInjured ||
+            !patrol.hasDriver ||
+            patrol.isPassenger ||
+            patrol.hasArrestPassenger ||
+            (
+                patrol.policeState &&
+                patrol.policeState !== "PATROL"
+            )
+        ) {
+            continue;
+        }
+
+        const distance = Math.hypot(
+            player.x - patrol.x,
+            player.y - patrol.y
         );
-        refreshWantedScore();
 
-        // Find a valid road position outside the player's viewport.
-        const spawnPos = findPoliceResponseSpawnPoint(
-            true,                       // Spawn a car
-            POLICE_REINFORCE_MIN_DISTANCE,
-            true,                       // Must be off-screen
-            POLICE_SPAWN_CANDIDATES,
-            true                        // Prefer the nearest valid road
-        );
-
-        if (spawnPos) {
-            // Spawn a reinforcement directly into the existing chase AI.
-            const reinforcement =
-                spawnPoliceReinforcementCar(spawnPos);
-
-            // Activate the global chase state.
-            player.beingChased = true;
-
-            // Synchronize the normal reinforcement scheduler.
-            // This prevents an immediate duplicate dispatch.
-            policeResponseState.chaseActive = true;
-            policeResponseState.reinforceFails = 0;
-            policeResponseState.reinforceWasAtCap = false;
-            policeResponseState.reinforceCooldown =
-                policeReinforceCooldown();
-            policeResponseState.reinforceTimer =
-                policeResponseState.reinforceCooldown;
-
-            // Make the reinforcement face toward the player's current position.
-            reinforcement.angle =
-                Math.atan2(
-                    player.y - reinforcement.y,
-                    player.x - reinforcement.x
-                ) + Math.PI / 2;
-
-            // Notify the player through the existing message system.
-            if (
-                typeof taxiManager !== "undefined" &&
-                taxiManager.setMessage
-            ) {
-                taxiManager.setMessage(
-                    "Police reinforcements dispatched!",
-                    180
-                );
-            }
+        if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestPatrol = patrol;
         }
     }
+
+    // The chase flag activates immediately, but the responding
+    // patrol does not become an active chaser until it gets close.
+    player.beingChased = true;
+
+    policeResponseState.chaseActive = true;
+    policeResponseState.reinforceFails = 0;
+    policeResponseState.reinforceWasAtCap = false;
+    policeResponseState.reinforceCooldown = 0;
+
+    if (nearestPatrol) {
+        // Reserve this unit so the normal scheduler won't dispatch
+        // a duplicate while it is approaching the player.
+        nearestPatrol.policeState = "RESPONDING";
+        nearestPatrol.isParked = false;
+        nearestPatrol.roadblockResponseTimer = 720;
+        nearestPatrol.roadblockResponseRepathTimer = 0;
+
+        policeResponseState.roadblockResponder = nearestPatrol;
+        policeResponseState.reinforceTimer = 720;
+
+        if (typeof nearestPatrol.playSiren === "function") {
+            nearestPatrol.playSiren(2);
+        } else {
+            nearestPatrol.sirenState = 2;
+        }
+
+        if (
+            typeof taxiManager !== "undefined" &&
+            taxiManager.setMessage
+        ) {
+            taxiManager.setMessage(
+                "Nearby patrol responding!",
+                180
+            );
+        }
+    } else {
+        // No eligible patrol within 1,100 pixels: spawn immediately.
+        policeResponseState.roadblockResponder = null;
+        policeResponseState.reinforceTimer = 0;
+
+        dispatchRoadblockFallback();
+    }
+}
     }
 
     // Release the warning slot so other police can respond.
@@ -3784,6 +4172,15 @@ function updatePoliceReinforcements(dt) {
         S.reinforceWasAtCap = false;
         return;
     }
+    // The roadblock escape already has a patrol responding.
+// Do not dispatch another unit while that patrol is en route.
+if (S.roadblockResponder) {
+    S.reinforceTimer = Math.max(
+        S.reinforceTimer,
+        1
+    );
+    return;
+}
 
     if (S.reinforceCooldown > 0) {
         S.reinforceCooldown = Math.max(0, S.reinforceCooldown - dt);
@@ -3814,7 +4211,77 @@ function updatePoliceReinforcements(dt) {
         return;
     }
 
-    // At most ONE car per decision.
+    
+    // At most ONE responder per reinforcement decision.
+    // Prefer recruiting a nearby patrol over creating a new car.
+    let nearestPatrol = null;
+    let nearestDistance = 1100;
+
+    for (const car of cars) {
+        if (
+            !car ||
+            !car.isPolice ||
+            car === playerCar ||
+            car.isRoadblockUnit ||
+            car.isStolen ||
+            car.exploded ||
+            car.isInjured ||
+            car.health <= 0 ||
+            !car.hasDriver ||
+            car.isPassenger ||
+            car.isArrestPassenger ||
+            (car.policeState &&
+                car.policeState !== "PATROL")
+        ) {
+            continue;
+        }
+
+        const distance = Math.hypot(
+            player.x - car.x,
+            player.y - car.y
+        );
+
+        if (distance <= nearestDistance) {
+            nearestDistance = distance;
+            nearestPatrol = car;
+        }
+    }
+
+    if (nearestPatrol) {
+        // Recruit this patrol. The shared responder update will
+        // steer it toward the player's live position.
+        S.roadblockResponder = nearestPatrol;
+
+        nearestPatrol.policeState = "RESPONDING";
+        nearestPatrol.isParked = false;
+        nearestPatrol.hasDriver = true;
+        nearestPatrol.roadblockResponseTimer = 720;
+        nearestPatrol.roadblockResponseRepathTimer = 0;
+
+        if (typeof nearestPatrol.playSiren === "function") {
+            nearestPatrol.playSiren(2);
+        } else {
+            nearestPatrol.sirenState = 2;
+        }
+
+        // Don't schedule another car while this patrol responds.
+        S.reinforceFails = 0;
+        S.reinforceTimer = 720;
+
+        if (
+            typeof taxiManager !== "undefined" &&
+            taxiManager.setMessage
+        ) {
+            taxiManager.setMessage(
+                "Nearby police unit responding!",
+                180
+            );
+        }
+
+        return;
+    }
+
+    // No suitable patrol nearby: use the existing spawn system.
     const pos = findPoliceResponseSpawnPoint(
         true,
         POLICE_REINFORCE_MIN_DISTANCE,
@@ -3832,6 +4299,7 @@ function updatePoliceReinforcements(dt) {
     }
 
     S.reinforceFails++;
+
     if (S.reinforceFails >= POLICE_SPAWN_MAX_FAILS) {
         S.reinforceFails = 0;
         S.reinforceCooldown = policeReinforceCooldown();
