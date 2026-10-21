@@ -1,4 +1,4 @@
-console.log("good4");
+console.log("good6");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -2346,32 +2346,69 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
                 warningOrArrestingUnit.arrestStage = 0;
                 warningOrArrestingUnit.arrestTimer = 30;
                 if (surrenderBtn) surrenderBtn.style.display = 'none';
+            
             } else if (warningOrArrestingUnit.graceTimer <= 0 &&
-                (Math.hypot(player.x - warningOrArrestingUnit.x, player.y - warningOrArrestingUnit.y) > 250 ||
-                 (playerCar ? Math.abs(playerCar.speed) : Math.abs(player.speed || 0)) > 2.5 ||
-                 warningOrArrestingUnit.warningTimer <= 0)) {
+                (
+                    Math.hypot(
+                        player.x - warningOrArrestingUnit.x,
+                        player.y - warningOrArrestingUnit.y
+                    ) > 250 ||
+                    (playerCar
+                        ? Math.abs(playerCar.speed || 0)
+                        : Math.abs(player.speed || 0)) > 2.5 ||
+                    warningOrArrestingUnit.warningTimer <= 0
+                )) {
 
-                player.beingChased = true;
-
-                // Roadblock officers report the chase but stay parked at the block.
+                // ROADBLOCK UNITS ONLY WARN THE PLAYER.
+                // They never initiate a chase or change player.beingChased.
                 if (warningOrArrestingUnit.isRoadblockUnit) {
-                    warningOrArrestingUnit.policeState = "PATROL";
+                    // Only count a genuine getaway: distance or speed.
+                    // The warning timer expiring alone is not an escape.
+                    const actuallyEscaped =
+                        Math.hypot(
+                            player.x - warningOrArrestingUnit.x,
+                            player.y - warningOrArrestingUnit.y
+                        ) > 250 ||
+                        (playerCar
+                            ? Math.abs(playerCar.speed || 0)
+                            : Math.abs(player.speed || 0)) > 2.5;
+
+                    if (
+                        actuallyEscaped &&
+                        !warningOrArrestingUnit.roadblockEscapeAwarded
+                    ) {
+                        // Mark this roadblock's warning escape as used,
+                        // even if the player is already in a chase.
+                        warningOrArrestingUnit.roadblockEscapeAwarded = true;
+
+                        // Do not award a second escape bonus during a chase.
+                        if (!player.beingChased) {
+                            chaseWantedScore = Math.min(
+                                100,
+                                chaseWantedScore + 5
+                            );
+                            refreshWantedScore();
+                        }
+                    }
+
+                    // Keep the roadblock unit permanently in WARNING.
+                    warningOrArrestingUnit.policeState = "WARNING";
                     warningOrArrestingUnit.speed = 0;
                     warningOrArrestingUnit.isParked = true;
-                    if (typeof warningOrArrestingUnit.stopSiren === "function") {
-                        warningOrArrestingUnit.stopSiren();
-                    } else {
-                        warningOrArrestingUnit.sirenState = 0;
-                    }
                 } else {
+                    // Preserve the existing behavior for ordinary police.
+                    player.beingChased = true;
                     warningOrArrestingUnit.policeState = "CHASE";
-                }
 
-                if (typeof taxiManager !== 'undefined' && taxiManager.setMessage) {
-                    taxiManager.setMessage("You are being chased!", 180);
+                    if (
+                        typeof taxiManager !== "undefined" &&
+                        taxiManager.setMessage
+                    ) {
+                        taxiManager.setMessage("You are being chased!", 180);
+                    }
                 }
             }
-        } else if (warningOrArrestingUnit.policeState === "ARRESTING") {
+            } else if (warningOrArrestingUnit.policeState === "ARRESTING") {
             if (surrenderBtn) {
                 surrenderBtn.style.display = 'none';
             }
@@ -2877,6 +2914,7 @@ function roadblockSpawnAt(loc) {
         policeCar.angle = carAngle;
         policeCar.policeState = "PATROL";
         policeCar.isRoadblockUnit = true;
+        policeCar.roadblockEscapeAwarded = false;
         policeCar.roadblockLocationId = loc.id;
         policeCar.updateAI = function () {};
 
