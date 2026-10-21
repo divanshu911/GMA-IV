@@ -1,4 +1,4 @@
-console.log("good7");
+console.log("good8");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -2262,7 +2262,7 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
                 c.hasDriver &&
                 !c.isStolen &&
                 !c.exploded &&
-                c.health > 0 &&       !c.roadblockWarningResolved &&
+                c.health > 0 &&   
                 (!c.policeState || c.policeState === "PATROL")
             ) {
                 let dist = Math.hypot(player.x - c.x, player.y - c.y);
@@ -2290,7 +2290,9 @@ function updatePoliceStage4A(dt, player, cars, npcs) {
         if (closestUnit) {
             warningOrArrestingUnit = closestUnit;
             warningOrArrestingUnit.policeState = "WARNING";
-            warningOrArrestingUnit.warningTimer = 480;
+  if (warningOrArrestingUnit.isRoadblockUnit) {
+    warningOrArrestingUnit.roadblockEscapeAwarded = false;
+  }          warningOrArrestingUnit.warningTimer = 480;
             warningOrArrestingUnit.saidStepOut = false;
             warningOrArrestingUnit.saidArrested = false;
 
@@ -2373,20 +2375,67 @@ if (warningOrArrestingUnit.isRoadblockUnit) {
             : Math.abs(player.speed || 0)) > 2.5;
 
     if (
-        actuallyEscaped &&
-        !warningOrArrestingUnit.roadblockEscapeAwarded
-    ) {
-        // One escape reward per roadblock unit.
-        warningOrArrestingUnit.roadblockEscapeAwarded = true;
+    actuallyEscaped &&
+    !warningOrArrestingUnit.roadblockEscapeAwarded
+) {
+    // One response per successful escape encounter.
+    warningOrArrestingUnit.roadblockEscapeAwarded = true;
 
-        // Do not double-reward an escape during an existing chase.
-        if (!player.beingChased) {
-            chaseWantedScore = Math.min(
-                100,
-                chaseWantedScore + 5
-            );
-            refreshWantedScore();
+    // Only dispatch a special reinforcement if no chase is active.
+    if (!player.beingChased) {
+        // Award the roadblock escape bonus.
+        chaseWantedScore = Math.min(
+            100,
+            chaseWantedScore + 5
+        );
+        refreshWantedScore();
+
+        // Find a valid road position outside the player's viewport.
+        const spawnPos = findPoliceResponseSpawnPoint(
+            true,                       // Spawn a car
+            POLICE_REINFORCE_MIN_DISTANCE,
+            true,                       // Must be off-screen
+            POLICE_SPAWN_CANDIDATES,
+            true                        // Prefer the nearest valid road
+        );
+
+        if (spawnPos) {
+            // Spawn a reinforcement directly into the existing chase AI.
+            const reinforcement =
+                spawnPoliceReinforcementCar(spawnPos);
+
+            // Activate the global chase state.
+            player.beingChased = true;
+
+            // Synchronize the normal reinforcement scheduler.
+            // This prevents an immediate duplicate dispatch.
+            policeResponseState.chaseActive = true;
+            policeResponseState.reinforceFails = 0;
+            policeResponseState.reinforceWasAtCap = false;
+            policeResponseState.reinforceCooldown =
+                policeReinforceCooldown();
+            policeResponseState.reinforceTimer =
+                policeResponseState.reinforceCooldown;
+
+            // Make the reinforcement face toward the player's current position.
+            reinforcement.angle =
+                Math.atan2(
+                    player.y - reinforcement.y,
+                    player.x - reinforcement.x
+                ) + Math.PI / 2;
+
+            // Notify the player through the existing message system.
+            if (
+                typeof taxiManager !== "undefined" &&
+                taxiManager.setMessage
+            ) {
+                taxiManager.setMessage(
+                    "Police reinforcements dispatched!",
+                    180
+                );
+            }
         }
+    }
     }
 
     // Release the warning slot so other police can respond.
@@ -3247,7 +3296,7 @@ roadblockInitLocations();
 // All timers are in the game's frame units (60 = 1 second).
 // ============================================================
 
-const POLICE_RESPONSE_DEBUG = true; // red = additional patrol, blue = reinforcement
+const POLICE_RESPONSE_DEBUG = false; // red = additional patrol, blue = reinforcement
 
 // cars/officers = max ACTIVELY CHASING; patrol* = [min, max] extra patrol targets.
 const POLICE_RESPONSE_TIERS = [
