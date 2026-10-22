@@ -1,4 +1,4 @@
-console.log("good13");
+console.log("good3");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -528,10 +528,8 @@ function playArrestCinematicEffect() {
     window.streetBoundTimeScale = 0.30;
 
     // Sound URL can be filled in later with a raw audio URL.
-    if (
-        ARREST_SOUND_URL &&
-        ARREST_SOUND_URL !== "https://raw.githubusercontent.com/divanshu911/My-game-assets/main/arrest.mp3"
-    ) {
+    // Play the arrest sting using the configured raw audio URL.
+if (ARREST_SOUND_URL) {
         try {
             if (!arrestCinematicSound) {
                 arrestCinematicSound = new Audio(ARREST_SOUND_URL);
