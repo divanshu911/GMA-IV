@@ -1,4 +1,4 @@
-console.log("good9");
+console.log("good11");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -465,10 +465,120 @@ surrenderBtn.style.display = 'none';
 
 (document.getElementById('gameContainer') || document.body).appendChild(surrenderBtn);
 
+/* Arrest cinematic effect — separate from the station black fade. */
+const ARREST_SOUND_URL = "https://raw.githubusercontent.com/divanshu911/My-game-assets/main/arrest.mp3";
+
+let arrestCinematicOverlay = null;
+let arrestCinematicSound = null;
+
+function playArrestCinematicEffect() {
+    // Create the overlay only once; never reuse the station fade.
+    if (!arrestCinematicOverlay) {
+        const overlay = document.createElement("div");
+        overlay.id = "arrestCinematicOverlay";
+
+        Object.assign(overlay.style, {
+            position: "fixed",
+            inset: "0",
+            width: "100vw",
+            height: "100vh",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            pointerEvents: "none",
+            zIndex: "99998",
+            opacity: "0",
+            backgroundColor: "rgba(80, 165, 255, 0.42)",
+            transition:
+                "opacity 0.35s ease, background-color 0.35s ease"
+        });
+
+        const label = document.createElement("div");
+        label.textContent = "ARRESTED";
+
+        Object.assign(label.style, {
+            color: "#ffffff",
+            fontFamily: "Arial, sans-serif",
+            fontSize: "clamp(38px, 10vw, 76px)",
+            fontWeight: "900",
+            letterSpacing: "0.12em",
+            textAlign: "center",
+            textShadow:
+                "0 3px 0 #254e7d, 0 0 18px rgba(0, 20, 60, 0.65)",
+            transform: "scale(0.88)",
+            transition: "transform 0.35s ease"
+        });
+
+        overlay.appendChild(label);
+        document.body.appendChild(overlay);
+        arrestCinematicOverlay = overlay;
+    }
+
+    const overlay = arrestCinematicOverlay;
+    const label = overlay.firstElementChild;
+
+    // Reset styles so the effect always starts cleanly.
+    overlay.style.transition = "none";
+    overlay.style.opacity = "0";
+    overlay.style.backgroundColor = "rgba(80, 165, 255, 0.42)";
+    label.style.transition = "none";
+    label.style.transform = "scale(0.88)";
+
+    // Start slow motion in the main game loop.
+    window.streetBoundTimeScale = 0.30;
+
+    // Sound URL can be filled in later with a raw audio URL.
+    if (
+        ARREST_SOUND_URL &&
+        ARREST_SOUND_URL !== "https://raw.githubusercontent.com/divanshu911/My-game-assets/main/arrest.mp3"
+    ) {
+        try {
+            if (!arrestCinematicSound) {
+                arrestCinematicSound = new Audio(ARREST_SOUND_URL);
+                arrestCinematicSound.volume = 0.7;
+            }
+
+            arrestCinematicSound.currentTime = 0;
+            arrestCinematicSound.play().catch(() => {});
+        } catch (error) {
+            // Audio must never interrupt the arrest sequence.
+        }
+    }
+
+    // Establish the initial styles before transitioning.
+    void overlay.offsetWidth;
+
+    overlay.style.transition =
+        "opacity 0.35s ease, background-color 0.35s ease";
+    label.style.transition = "transform 0.35s ease";
+
+    overlay.style.opacity = "1";
+    label.style.transform = "scale(1)";
+
+    // Ease into a subtler blue wash after the initial arrest flash.
+    setTimeout(() => {
+        if (!arrestCinematicOverlay) return;
+        overlay.style.backgroundColor = "rgba(80, 165, 255, 0.22)";
+    }, 350);
+
+    // Fade out at 1.65 seconds; finish at approximately 2.2 seconds.
+    setTimeout(() => {
+        if (!arrestCinematicOverlay) return;
+
+        overlay.style.opacity = "0";
+        label.style.transform = "scale(1.04)";
+    }, 1650);
+
+    setTimeout(() => {
+        window.streetBoundTimeScale = 1;
+    }, 2200);
+}
+
 function executeArrestProcess() {
     if (player.isBeingArrested) return;
 
     player.isBeingArrested = true;
+  playArrestCinematicEffect();
     player.isArrestPassenger = false;
     player.ispassenger = false;
     player.arrestTransportCar = null;
