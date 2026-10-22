@@ -1,4 +1,4 @@
-console.log("iu00");
+console.log("ko00");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -175,7 +175,40 @@ collisionMapImage.crossOrigin = "Anonymous";
 // ============================================================
 
 window.buildingLightShapes = [];
+window.buildingLightChunks = new Map();
 window.detectedBuildings = [];
+
+const BUILDING_LIGHT_CHUNK_SIZE = 512;
+
+function rebuildBuildingLightChunks() {
+    const chunks = new Map();
+    const lights = window.buildingLightShapes || [];
+
+    for (let i = 0; i < lights.length; i++) {
+        const light = lights[i];
+        const cx = Math.floor(light.x / BUILDING_LIGHT_CHUNK_SIZE);
+        const cy = Math.floor(light.y / BUILDING_LIGHT_CHUNK_SIZE);
+        const key = cx + "," + cy;
+
+        let chunk = chunks.get(key);
+
+        if (!chunk) {
+            chunk = {
+                minX: cx * BUILDING_LIGHT_CHUNK_SIZE,
+                minY: cy * BUILDING_LIGHT_CHUNK_SIZE,
+                maxX: (cx + 1) * BUILDING_LIGHT_CHUNK_SIZE,
+                maxY: (cy + 1) * BUILDING_LIGHT_CHUNK_SIZE,
+                lights: []
+            };
+
+            chunks.set(key, chunk);
+        }
+
+        chunk.lights.push(light);
+    }
+
+    window.buildingLightChunks = chunks;
+}
 
 const BUILDING_LIGHT_MIN_PIXELS = 12;
 
@@ -1141,7 +1174,7 @@ if (!isStrictCardinal) {
             lightCount++;
         }
     }
-
+    rebuildBuildingLightChunks();
     console.log(
         `Building lights: detected ${buildingCount} buildings, ` +
         `created ${lightCount} valid lights.`

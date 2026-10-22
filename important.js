@@ -1,7 +1,7 @@
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-console.log("ooana");
+console.log("grape");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
@@ -1370,28 +1370,82 @@ function drawNightOverlay() {
     }
 }
 
-
     /*
-     * ---------------------------------------------------------
-     * DRAW LIGHTS
-     * ---------------------------------------------------------
+     * DRAW LIGHTS — visit only chunks near the visible viewport.
      */
-    for (let i = 0; i < lights.length; i++) {
 
-    const light = lights[i];
+    const viewportCorners = [
+        [0, 0],
+        [canvas.width, 0],
+        [0, canvas.height],
+        [canvas.width, canvas.height]
+    ];
 
-    // Do not draw lights that have not been switched on yet.
-    if (!light.enabled) {
-        continue;
+    let worldMinX = Infinity;
+    let worldMinY = Infinity;
+    let worldMaxX = -Infinity;
+    let worldMaxY = -Infinity;
+
+    // Convert the four screen corners into world coordinates.
+    for (let i = 0; i < viewportCorners.length; i++) {
+        const sx = viewportCorners[i][0] - screenCenterX;
+        const sy = viewportCorners[i][1] - screenCenterY;
+
+        const worldX = cameraX + sx * cosA - sy * sinA;
+        const worldY = cameraY + sx * sinA + sy * cosA;
+
+        worldMinX = Math.min(worldMinX, worldX);
+        worldMinY = Math.min(worldMinY, worldY);
+        worldMaxX = Math.max(worldMaxX, worldX);
+        worldMaxY = Math.max(worldMaxY, worldY);
     }
 
-    if (!isLightInViewport(light)) {
-        continue;
-    }
+    // Include room for beams and glow extending in from off-screen.
+    const padding = 180;
 
-    drawLightBeam(light);
-    }
+    worldMinX -= padding;
+    worldMinY -= padding;
+    worldMaxX += padding;
+    worldMaxY += padding;
 
+    const chunks = window.buildingLightChunks;
+
+    if (chunks && chunks.size) {
+        for (const chunk of chunks.values()) {
+            // Skip entire chunks outside the expanded viewport.
+            if (
+                chunk.maxX < worldMinX ||
+                chunk.minX > worldMaxX ||
+                chunk.maxY < worldMinY ||
+                chunk.minY > worldMaxY
+            ) {
+                continue;
+            }
+
+            for (let i = 0; i < chunk.lights.length; i++) {
+                const light = chunk.lights[i];
+
+                if (!light.enabled) continue;
+                if (!isLightInViewport(light)) continue;
+
+                drawLightBeam(light);
+            }
+        }
+        } else {
+        // Fallback if chunks haven't been generated yet.
+        console.log(
+            "[Building Lights] Chunk data unavailable; using full light scan."
+        );
+
+        for (let i = 0; i < lights.length; i++) {
+            const light = lights[i];
+
+            if (!light.enabled) continue;
+            if (!isLightInViewport(light)) continue;
+
+            drawLightBeam(light);
+        }
+    }
     ctx.restore();
 }
                      
@@ -4228,30 +4282,3 @@ function updateRiverAmbience(dt) {
         }
     }
 }
-// --- MOBILE TRACKING TOOL: Temporarily copy to the bottom of script.js ---
-canvas.addEventListener('touchstart', (e) => {
-  if (!gameActive || showFullMap) return;
-
-  // Track the first finger touch point
-  const touch = e.touches[0];
-  const rect = canvas.getBoundingClientRect();
-  const touchX = touch.clientX - rect.left;
-  const touchY = touch.clientY - rect.top;
-
-  // 1. Reverse the screen center translation matrix
-  let dx = touchX - canvas.width / 2;
-  let dy = touchY - canvas.height / 2;
-
-  // 2. Reverse the camera angle rotation matrix
-  let cos = Math.cos(camera.angle);
-  let sin = Math.sin(camera.angle);
-  let rotatedX = dx * cos - dy * sin;
-  let rotatedY = dx * sin + dy * cos;
-
-  // 3. Reverse the player tracking camera offsets to get precise image coordinates
-  let finalMapX = Math.floor(rotatedX + player.x + player.size / 2);
-  let finalMapY = Math.floor(rotatedY + player.y + player.size / 2);
-
-  // 4. Send an alert popup to your phone screen so you can see it without dev-tools
-  alert(`Door Coordinates:\nX: ${finalMapX}\nY: ${finalMapY}`);
-});
