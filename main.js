@@ -3493,9 +3493,17 @@ function gameLoop(timestamp) {
   lastTime = timestamp;
 
   let dt = frameTime / 16.666;
-  if (dt > 4) dt = 4;
+if (dt > 4) dt = 4;
 
-  updateGame(dt);
+// Arrest cinematic slow motion affects world simulation, not rendering.
+const timeScale =
+    typeof window.streetBoundTimeScale === "number"
+        ? window.streetBoundTimeScale
+        : 1;
+
+dt *= Math.max(0.1, Math.min(1, timeScale));
+
+updateGame(dt);
   drawGame();
   requestAnimationFrame(gameLoop);
 }
