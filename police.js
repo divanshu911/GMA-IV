@@ -1,4 +1,4 @@
-console.log("good3");
+console.log("good9");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -2155,13 +2155,8 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
         }
     }
 }
-
 function dispatchRoadblockFallback() {
-    if (
-        typeof player === "undefined" ||
-        !player ||
-        !player.beingChased
-    ) {
+    if (typeof player === "undefined" || !player) {
         return null;
     }
 
@@ -2174,27 +2169,36 @@ function dispatchRoadblockFallback() {
     );
 
     if (!spawnPos) {
-        // Retry later if the map has no valid spawn point right now.
         policeResponseState.reinforceTimer =
             POLICE_REINFORCE_RETRY;
         return null;
     }
 
-    const reinforcement =
-        spawnPoliceReinforcementCar(spawnPos);
+    const reinforcement = spawnPoliceReinforcementCar(spawnPos);
+
+    if (!reinforcement) {
+        policeResponseState.reinforceTimer =
+            POLICE_REINFORCE_RETRY;
+        return null;
+    }
 
     reinforcement.angle = Math.atan2(
         player.y - reinforcement.y,
         player.x - reinforcement.x
     ) + Math.PI / 2;
 
-    policeResponseState.roadblockResponder = null;
+    // It must approach first; it is not yet an active chaser.
+    reinforcement.policeState = "RESPONDING";
+    reinforcement.isParked = false;
+    reinforcement.hasDriver = true;
+    reinforcement.roadblockResponseTimer = 720;
+    reinforcement.roadblockResponseRepathTimer = 0;
+
+    policeResponseState.roadblockResponder = reinforcement;
     policeResponseState.reinforceFails = 0;
     policeResponseState.reinforceWasAtCap = false;
-    policeResponseState.reinforceCooldown =
-        policeReinforceCooldown();
-    policeResponseState.reinforceTimer =
-        policeResponseState.reinforceCooldown;
+    policeResponseState.reinforceCooldown = 0;
+    policeResponseState.reinforceTimer = 720;
 
     if (
         typeof taxiManager !== "undefined" &&
@@ -2208,9 +2212,7 @@ function dispatchRoadblockFallback() {
 
     return reinforcement;
 }
-
-
-function updateRoadblockPatrolResponse(dt, player, cars) {
+    function updateRoadblockPatrolResponse(dt, player, cars) {
     const S = policeResponseState;
     const patrol = S.roadblockResponder;
 
@@ -2259,20 +2261,22 @@ function updateRoadblockPatrolResponse(dt, player, cars) {
         player.y - patrol.y
     );
 
-    // Once close enough, the normal chase AI takes over.
     if (distance <= 240) {
-        patrol.policeState = "CHASE";
-        patrol.isParked = false;
+    patrol.policeState = "CHASE";
+    patrol.isParked = false;
 
-        patrol.roadblockResponseTimer = 0;
-        patrol.roadblockResponseRepathTimer = 0;
+    player.beingChased = true;
+    S.chaseActive = true;
 
-        S.roadblockResponder = null;
-        S.reinforceTimer = POLICE_REINFORCE_FIRST_DELAY;
-        S.reinforceCooldown = 0;
-        S.reinforceFails = 0;
-        S.reinforceWasAtCap = false;
-        return;
+    patrol.roadblockResponseTimer = 0;
+    patrol.roadblockResponseRepathTimer = 0;
+
+    S.roadblockResponder = null;
+    S.reinforceTimer = POLICE_REINFORCE_FIRST_DELAY;
+    S.reinforceCooldown = 0;
+    S.reinforceFails = 0;
+    S.reinforceWasAtCap = false;
+    return;
     }
 
     patrol.roadblockResponseTimer -= dt;
@@ -2727,24 +2731,19 @@ if (warningOrArrestingUnit.isRoadblockUnit) {
         (playerCar
             ? Math.abs(playerCar.speed || 0)
             : Math.abs(player.speed || 0)) > 2.5;
-
-    if (
+if (
     actuallyEscaped &&
     !warningOrArrestingUnit.roadblockEscapeAwarded
 ) {
-    // One response per successful escape encounter.
+    // Handle this escape encounter once. Roadblock escapes do not
+    // award wanted points or activate the chase by themselves.
     warningOrArrestingUnit.roadblockEscapeAwarded = true;
 
-    // Only dispatch a special reinforcement if no chase is active.
+    if (!player.beingChased) {
+        let nearestPatrol = null;
+        let nearestDistance = 1100;
+        const MAX_PATROL_DISTANCE = 1100;
     
-if (!player.beingChased) {
-    // Award the successful roadblock escape.
-    chaseWantedScore = Math.min(100, chaseWantedScore + 5);
-    refreshWantedScore();
-
-    let nearestPatrol = null;
-    let nearestDistance = 1100;
-    const MAX_PATROL_DISTANCE = 1100;
 
     // Search ALL police cars, including ordinary city police.
     for (let i = 0; i < cars.length; i++) {
@@ -2781,14 +2780,11 @@ if (!player.beingChased) {
         }
     }
 
-    // The chase flag activates immediately, but the responding
-    // patrol does not become an active chaser until it gets close.
-    player.beingChased = true;
-
-    policeResponseState.chaseActive = true;
-    policeResponseState.reinforceFails = 0;
-    policeResponseState.reinforceWasAtCap = false;
-    policeResponseState.reinforceCooldown = 0;
+    // The responder is approaching; the chase has not started yet.
+policeResponseState.chaseActive = false;
+policeResponseState.reinforceFails = 0;
+policeResponseState.reinforceWasAtCap = false;
+policeResponseState.reinforceCooldown = 0;
 
     if (nearestPatrol) {
         // Reserve this unit so the normal scheduler won't dispatch
@@ -2847,6 +2843,7 @@ if (!player.beingChased) {
 
     // Prevent this same roadblock from immediately warning again.
     warningOrArrestingUnit.roadblockWarningResolved = true;
+    warningOrArrestingUnit.roadblockEscapeAwarded = false;
 } else {
     // Preserve normal police behavior.
     player.beingChased = true;
