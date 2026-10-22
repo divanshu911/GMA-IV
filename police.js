@@ -1,4 +1,4 @@
-console.log("good3");
+console.log("good98");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -488,9 +488,9 @@ function playArrestCinematicEffect() {
             pointerEvents: "none",
             zIndex: "99998",
             opacity: "0",
-            backgroundColor: "rgba(80, 165, 255, 0.42)",
+            backgroundColor: "rgba(80, 165, 255, 0.65)",
             transition:
-                "opacity 0.65s ease, background-color 0.65s ease"
+                "opacity 0.65s ease"
         });
 
         const label = document.createElement("div");
@@ -553,19 +553,14 @@ if (ARREST_SOUND_URL) {
     overlay.style.opacity = "1";
     label.style.transform = "scale(1)";
 
-    // Ease into a subtler blue wash after the initial arrest flash.
-    setTimeout(() => {
-        if (!arrestCinematicOverlay) return;
-        overlay.style.backgroundColor = "rgba(80, 165, 255, 0.22)";
-    }, 650);
-
-    // Fade out at 2.85 seconds; finish at approximately 3.9 seconds.
+    
+    // Fade out at 3.9 seconds; finish at approximately 3.9 seconds.
     setTimeout(() => {
         if (!arrestCinematicOverlay) return;
 
         overlay.style.opacity = "0";
         label.style.transform = "scale(1.04)";
-    }, 2850);
+    }, 3900);
 
     setTimeout(() => {
         window.streetBoundTimeScale = 1;

@@ -1,4 +1,4 @@
-console.log("kop");
+console.log("kp");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -2252,15 +2252,13 @@ cars.forEach(car => car.updateAI(dt, player, npcs, cars));
 
                   if (dist < maxSirenDist) {
                       const targetVolume = Math.max(0, 1 - (dist / maxSirenDist)); 
-  car.sirenAudio.volume = targetVolume;
-
-// Slow siren playback during the arrest cinematic.
-const worldTimeScale =
+  // Lower siren volume during the arrest slow-motion effect.
+const arrestAudioScale =
     typeof window.streetBoundTimeScale === "number"
         ? Math.max(0.1, Math.min(1, window.streetBoundTimeScale))
         : 1;
 
-car.sirenAudio.playbackRate = worldTimeScale;
+car.sirenAudio.volume = targetVolume * arrestAudioScale;
 
 if (car.sirenAudio.paused) {                    
                           car.sirenAudio.play().catch(() => {}); 
