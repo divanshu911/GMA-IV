@@ -1,4 +1,4 @@
-console.log("good11");
+console.log("good13");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -490,7 +490,7 @@ function playArrestCinematicEffect() {
             opacity: "0",
             backgroundColor: "rgba(80, 165, 255, 0.42)",
             transition:
-                "opacity 0.35s ease, background-color 0.35s ease"
+                "opacity 0.65s ease, background-color 0.65s ease"
         });
 
         const label = document.createElement("div");
@@ -499,14 +499,14 @@ function playArrestCinematicEffect() {
         Object.assign(label.style, {
             color: "#ffffff",
             fontFamily: "Arial, sans-serif",
-            fontSize: "clamp(38px, 10vw, 76px)",
-            fontWeight: "900",
+            fontSize: "clamp(32px, 9vw, 66px)",
+            fontWeight: "800",
             letterSpacing: "0.12em",
             textAlign: "center",
             textShadow:
                 "0 3px 0 #254e7d, 0 0 18px rgba(0, 20, 60, 0.65)",
             transform: "scale(0.88)",
-            transition: "transform 0.35s ease"
+            transition: "transform 0.65s ease"
         });
 
         overlay.appendChild(label);
@@ -535,7 +535,7 @@ function playArrestCinematicEffect() {
         try {
             if (!arrestCinematicSound) {
                 arrestCinematicSound = new Audio(ARREST_SOUND_URL);
-                arrestCinematicSound.volume = 0.7;
+                arrestCinematicSound.volume = 1.0;
             }
 
             arrestCinematicSound.currentTime = 0;
@@ -549,8 +549,8 @@ function playArrestCinematicEffect() {
     void overlay.offsetWidth;
 
     overlay.style.transition =
-        "opacity 0.35s ease, background-color 0.35s ease";
-    label.style.transition = "transform 0.35s ease";
+        "opacity 0.65s ease, background-color 0.65s ease";
+    label.style.transition = "transform 0.65s ease";
 
     overlay.style.opacity = "1";
     label.style.transform = "scale(1)";
@@ -559,19 +559,19 @@ function playArrestCinematicEffect() {
     setTimeout(() => {
         if (!arrestCinematicOverlay) return;
         overlay.style.backgroundColor = "rgba(80, 165, 255, 0.22)";
-    }, 350);
+    }, 650);
 
-    // Fade out at 1.65 seconds; finish at approximately 2.2 seconds.
+    // Fade out at 2.85 seconds; finish at approximately 3.9 seconds.
     setTimeout(() => {
         if (!arrestCinematicOverlay) return;
 
         overlay.style.opacity = "0";
         label.style.transform = "scale(1.04)";
-    }, 1650);
+    }, 2850);
 
     setTimeout(() => {
         window.streetBoundTimeScale = 1;
-    }, 2200);
+    }, 3900);
 }
 
 function executeArrestProcess() {
