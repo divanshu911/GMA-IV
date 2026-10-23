@@ -2636,7 +2636,6 @@ camera.moveTimer = 0;
     }
   }
 
-  if (player.ispassenger) {
     // Lock the camera's current heading while an AI controls the vehicle.
     // The passenger state is general and is not tied to police transport.
     // Fixed-orientation camera (GTA 1 style).
