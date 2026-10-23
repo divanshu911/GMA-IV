@@ -1,4 +1,4 @@
-console.log("5w");
+console.log("5uw");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -2639,18 +2639,10 @@ camera.moveTimer = 0;
   if (player.ispassenger) {
     // Lock the camera's current heading while an AI controls the vehicle.
     // The passenger state is general and is not tied to police transport.
-    if (camera.passengerFollowAngle === null) {
-      camera.passengerFollowAngle = camera.angle;
-    }
-    camera.angle = camera.passengerFollowAngle;
-    camera.targetAngle = camera.passengerFollowAngle;
-} else {
-    camera.passengerFollowAngle = null;
-    let camDiff = camera.targetAngle - camera.angle;
-    while (camDiff < -Math.PI) camDiff += Math.PI * 2;
-    while (camDiff > Math.PI) camDiff -= Math.PI * 2;
-    camera.angle += camDiff * (0.025 * dt);
-  }
+    // Fixed-orientation camera (GTA 1 style).
+camera.angle = 0;
+camera.targetAngle = 0;
+camera.passengerFollowAngle = null;
 
   handlePhysicsAndCollisions(dt);
   handleFootstepSound(player, true, dt);
