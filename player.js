@@ -38,6 +38,15 @@ function checkPlayerDeath() {
           if (jackBtn) jackBtn.style.display = 'none';
       }
   }
+    
+      // Automatically arrest the player at the hospital if still wanted.
+      if (
+          player.wanted &&
+          !player.isBeingArrested &&
+          typeof executeArrestProcess === "function"
+      ) {
+          executeArrestProcess();
+      }
 }
 let playerDamageVignette = 0;
 
