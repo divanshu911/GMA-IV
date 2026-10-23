@@ -1,7 +1,7 @@
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-console.log("grape");
+console.log("grapess");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
@@ -4281,4 +4281,26 @@ function updateRiverAmbience(dt) {
             S.fallback.pause();
         }
     }
+}
+
+const LOCATION_CHECK_INTERVAL = 15;
+const locationProximityCache = Object.create(null);
+
+function isWithinLocationRadiusCached(key, x, y, centerX, centerY, radius) {
+    let cached = locationProximityCache[key];
+
+    if (
+        !cached ||
+        --cached.framesUntilCheck <= 0
+    ) {
+        const dx = x - centerX;
+        const dy = y - centerY;
+
+        cached = locationProximityCache[key] = {
+            inside: dx * dx + dy * dy < radius * radius,
+            framesUntilCheck: LOCATION_CHECK_INTERVAL
+        };
+    }
+
+    return cached.inside;
 }

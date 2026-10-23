@@ -1,4 +1,4 @@
-console.log("5iw");
+console.log("5ow");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -2445,60 +2445,126 @@ cars.forEach(car => {
       if (truckBtn) truckBtn.style.display = 'none';
   }
 
-  let distToRest = Math.sqrt(Math.pow(player.x - restaurantZone.x, 2) + Math.pow(player.y - restaurantZone.y, 2));
-  if (restaurantBtn) restaurantBtn.style.display = (!isInsideHouse && !isInsideDealership && distToRest < restaurantZone.radius) ? 'flex' : 'none';
 
-  if (!isInsideHouse && !isInsideDealership) {
-      let distToRepair = Math.hypot(player.x - repairGarageZone.x, player.y - repairGarageZone.y);
-      if (repairGarageBtn) {
-          repairGarageBtn.style.display = (!playerCar && distToRepair < repairGarageZone.radius) ? 'flex' : 'none';
+      const nearRestaurant = isWithinLocationRadiusCached(
+          "restaurant", player.x, player.y,
+          restaurantZone.x, restaurantZone.y, restaurantZone.radius
+      );
+
+      if (restaurantBtn) {
+          restaurantBtn.style.display =
+              (!isInsideHouse && !isInsideDealership && nearRestaurant)
+                  ? 'flex' : 'none';
       }
-      if (towTruckBtn) {
-          towTruckBtn.style.display = playerCar ? 'flex' : 'none';
+
+      if (!isInsideHouse && !isInsideDealership) {
+          const nearRepairGarage = isWithinLocationRadiusCached(
+              "repairGarage", player.x, player.y,
+              repairGarageZone.x, repairGarageZone.y,
+              repairGarageZone.radius
+          );
+
+          if (repairGarageBtn) {
+              repairGarageBtn.style.display =
+                  (!playerCar && nearRepairGarage) ? 'flex' : 'none';
+          }
+
+          if (towTruckBtn) {
+              towTruckBtn.style.display = playerCar ? 'flex' : 'none';
+          }
+      } else {
+          if (repairGarageBtn) repairGarageBtn.style.display = 'none';
+          if (towTruckBtn) towTruckBtn.style.display = 'none';
       }
-  } else {
-      if (repairGarageBtn) repairGarageBtn.style.display = 'none';
-      if (towTruckBtn) towTruckBtn.style.display = 'none';
-  }
 
-  let distToBM = Math.sqrt(Math.pow(player.x - blackMarketZone.x, 2) + Math.pow(player.y - blackMarketZone.y, 2));
-  if (blackMarketBtn) {
-    blackMarketBtn.style.display = (!isInsideHouse && !isInsideDealership && distToBM < blackMarketZone.radius && !playerCar) ? 'flex' : 'none';
-  }
+      const nearBlackMarket = isWithinLocationRadiusCached(
+          "blackMarket", player.x, player.y,
+          blackMarketZone.x, blackMarketZone.y, blackMarketZone.radius
+      );
 
-  if (!isInsideHouse && !isInsideDealership) {
-      let distToDealer = Math.sqrt(Math.pow(player.x - dealershipZone.x, 2) + Math.pow(player.y - dealershipZone.y, 2));
-      if (enterDealerBtn) enterDealerBtn.style.display = (distToDealer < dealershipZone.radius && !playerCar) ? 'flex' : 'none';
-  } else if (isInsideDealership) {
-      if (enterDealerBtn) enterDealerBtn.style.display = 'none';
-      let dWidth = dealershipMapWidth > 0 ? dealershipMapWidth : 800;
-      let dHeight = dealershipMapHeight > 0 ? dealershipMapHeight : 600;
-      let distToDoor = Math.sqrt(Math.pow(player.x - (dWidth / 2), 2) + Math.pow(player.y - (dHeight - 50), 2));
-      if (exitDealerBtn) exitDealerBtn.style.display = (distToDoor < 100) ? 'flex' : 'none';
-  }
+      if (blackMarketBtn) {
+          blackMarketBtn.style.display =
+              (!isInsideHouse && !isInsideDealership &&
+               nearBlackMarket && !playerCar)
+                  ? 'flex' : 'none';
+      }
 
-  if (!isInsideHouse) {
-      let distToHome = Math.sqrt(Math.pow(player.x - homeZone.x, 2) + Math.pow(player.y - homeZone.y, 2));
-      const canEnterOrRent = distToHome < homeZone.radius && !playerCar && !isInsideDealership &&
-          (!player.isEvicted || player.money >= 80);
-      if (enterHomeBtn) enterHomeBtn.style.display = canEnterOrRent ? 'flex' : 'none';
-      if (leaveHomeBtn) leaveHomeBtn.style.display = (distToHome < homeZone.radius && !playerCar && !isInsideDealership && !player.isEvicted) ? 'flex' : 'none';
+      if (!isInsideHouse && !isInsideDealership) {
+          const nearDealership = isWithinLocationRadiusCached(
+              "dealership", player.x, player.y,
+              dealershipZone.x, dealershipZone.y,
+              dealershipZone.radius
+          );
 
-      if (sleepBtn) sleepBtn.style.display = 'none';
-      if (exitHomeBtn) exitHomeBtn.style.display = 'none';
-  } else {
-      if (enterHomeBtn) enterHomeBtn.style.display = 'none';
-      if (leaveHomeBtn) leaveHomeBtn.style.display = 'none';
+          if (enterDealerBtn) {
+              enterDealerBtn.style.display =
+                  (nearDealership && !playerCar) ? 'flex' : 'none';
+          }
+      } else if (isInsideDealership) {
+          if (enterDealerBtn) enterDealerBtn.style.display = 'none';
 
-      let hWidth = houseMapWidth > 0 ? houseMapWidth : 800;
-      let hHeight = houseMapHeight > 0 ? houseMapHeight : 600;
+          const dWidth = dealershipMapWidth > 0 ? dealershipMapWidth : 800;
+          const dHeight = dealershipMapHeight > 0 ? dealershipMapHeight : 600;
 
-      let distToBed = Math.sqrt(Math.pow(player.x - (hWidth / 2), 2) + Math.pow(player.y - 200, 2));
-      if (sleepBtn) sleepBtn.style.display = (distToBed < 150) ? 'flex' : 'none';
+          const nearDealerDoor = isWithinLocationRadiusCached(
+              "dealershipExit", player.x, player.y,
+              dWidth / 2, dHeight - 50, 100
+          );
 
-      let distToDoor = Math.sqrt(Math.pow(player.x - (hWidth / 2), 2) + Math.pow(player.y - (hHeight - 120), 2));
-      if (exitHomeBtn) exitHomeBtn.style.display = (distToDoor < 150) ? 'flex' : 'none';
-  }
+          if (exitDealerBtn) {
+              exitDealerBtn.style.display = nearDealerDoor ? 'flex' : 'none';
+          }
+      }
+
+      if (!isInsideHouse) {
+          const nearHome = isWithinLocationRadiusCached(
+              "home", player.x, player.y,
+              homeZone.x, homeZone.y, homeZone.radius
+          );
+
+          const canEnterOrRent =
+              nearHome && !playerCar && !isInsideDealership &&
+              (!player.isEvicted || player.money >= 80);
+
+          if (enterHomeBtn) {
+              enterHomeBtn.style.display = canEnterOrRent ? 'flex' : 'none';
+          }
+
+          if (leaveHomeBtn) {
+              leaveHomeBtn.style.display =
+                  (nearHome && !playerCar &&
+                   !isInsideDealership && !player.isEvicted)
+                      ? 'flex' : 'none';
+          }
+
+          if (sleepBtn) sleepBtn.style.display = 'none';
+          if (exitHomeBtn) exitHomeBtn.style.display = 'none';
+      } else {
+          if (enterHomeBtn) enterHomeBtn.style.display = 'none';
+          if (leaveHomeBtn) leaveHomeBtn.style.display = 'none';
+
+          const hWidth = houseMapWidth > 0 ? houseMapWidth : 800;
+          const hHeight = houseMapHeight > 0 ? houseMapHeight : 600;
+
+          const nearBed = isWithinLocationRadiusCached(
+              "homeBed", player.x, player.y,
+              hWidth / 2, 200, 150
+          );
+
+          if (sleepBtn) {
+              sleepBtn.style.display = nearBed ? 'flex' : 'none';
+          }
+
+          const nearHomeDoor = isWithinLocationRadiusCached(
+              "homeExit", player.x, player.y,
+              hWidth / 2, hHeight - 120, 150
+          );
+
+          if (exitHomeBtn) {
+              exitHomeBtn.style.display = nearHomeDoor ? 'flex' : 'none';
+          }
+      }
+      
 
   let drainRate = 0.003; 
   if (isMoving) {

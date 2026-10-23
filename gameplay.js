@@ -1,4 +1,26 @@
-console.log("run");
+console.log("runinh");
+
+const JOB_LOCATION_CHECK_INTERVAL = 15;
+
+function isWithinJobLocationRadiusCached(owner, key, x, y, centerX, centerY, radius) {
+    if (!owner._locationProximityCache) {
+        owner._locationProximityCache = Object.create(null);
+    }
+
+    let cached = owner._locationProximityCache[key];
+
+    if (!cached || --cached.framesUntilCheck <= 0) {
+        const dx = x - centerX;
+        const dy = y - centerY;
+
+        cached = owner._locationProximityCache[key] = {
+            inside: dx * dx + dy * dy < radius * radius,
+            framesUntilCheck: JOB_LOCATION_CHECK_INTERVAL
+        };
+    }
+
+    return cached.inside;
+}
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -31,16 +53,22 @@ class TaxiJobManager {
 
   update(dt, player, cars, npcs) {
     if (this.messageTimer > 0) this.messageTimer -= 1 * dt;  
-    if (!this.isJobActive) {
-      let distToDepot = Math.sqrt(Math.pow(player.x - this.depotX, 2) + Math.pow(player.y - this.depotY, 2));
+    
+if (!this.isJobActive) {
+    const nearDepot = isWithinJobLocationRadiusCached(
+        this, "taxiDepot",
+        player.x, player.y,
+        this.depotX, this.depotY, 60
+    );
 
-      if (distToDepot < 60 && !playerCar) {
+    if (nearDepot && !playerCar) {
         taxiBtn.style.display = 'flex';
-      } else {
+    } else {
         taxiBtn.style.display = 'none';
-      }
-      return; 
     }
+
+    return;
+}
 
     this.rentTimer -= 1 * dt;
     if (this.rentTimer <= 0) {
@@ -415,17 +443,22 @@ class TruckJobManager {
   update(dt, player, cars) {
     if (this.messageTimer > 0) this.messageTimer -= 1 * dt;
 
-    let distToCompany = Math.sqrt(Math.pow(player.x - this.companyX, 2) + Math.pow(player.y - this.companyY, 2));
-    const btn = document.getElementById('truckBtn');
+    
+const nearCompany = isWithinJobLocationRadiusCached(
+    this, "truckCompany",
+    player.x, player.y,
+    this.companyX, this.companyY, this.companyRadius
+);
 
-    if (!this.isJobActive && distToCompany < this.companyRadius && !playerCar) {
-      if (btn) btn.style.display = 'flex';
-    } else {
-      if (btn) btn.style.display = 'none';
-    }
+const btn = document.getElementById('truckBtn');
 
-    if (!this.isJobActive) return;
+if (!this.isJobActive && nearCompany && !playerCar) {
+    if (btn) btn.style.display = 'flex';
+} else {
+    if (btn) btn.style.display = 'none';
+}
 
+if (!this.isJobActive) return;
     if (playerCar !== this.truck && this.truck) {
       let distToTruck = Math.sqrt(Math.pow(player.x - this.truck.x, 2) + Math.pow(player.y - this.truck.y, 2));
       if (distToTruck > 300) {
