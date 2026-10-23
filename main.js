@@ -1,4 +1,4 @@
-console.log("5ow");
+console.log("5pw");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1487,10 +1487,12 @@ function buildCollisionGrid() {
         });
     }
 
-    // Add NPCs
+    
+    // Add only active NPCs to the collision grid.
     for (let i = 0; i < npcs.length; i++) {
         const npc = npcs[i];
-        if (!npc) continue;
+
+        if (!npc || npc.isInjured) continue;
 
         const key = getCollisionCell(npc.x, npc.y);
 
@@ -1978,10 +1980,11 @@ nearbyCarEntities.forEach(entry => {
         }
     });
 });
-            // --- NPC VS NPC COLLISIONS ---
+     
       for (let i = 0; i < npcs.length; i++) {
         const npc1 = npcs[i];
-        if (!npc1) continue;
+
+        if (!npc1 || npc1.isInjured) continue;
 
         if (npc1.hitCooldown > 0) {
           npc1.hitCooldown--;
@@ -1992,10 +1995,11 @@ nearbyCarEntities.forEach(entry => {
         for (const entry of nearby) {
           if (entry.type !== "npc") continue;
 
-          // Only process each NPC pair once
           if (entry.index <= i) continue;
 
           const npc2 = entry.entity;
+
+          if (!npc2 || npc2.isInjured) continue;
 
           let dx = npc2.x - npc1.x;
           let dy = npc2.y - npc1.y;
@@ -2013,7 +2017,45 @@ nearbyCarEntities.forEach(entry => {
             }
           }
         }
-      }
+      }       
+     
+      for (let i = 0; i < npcs.length; i++) {
+        const npc1 = npcs[i];
+
+        if (!npc1 || npc1.isInjured) continue;
+
+        if (npc1.hitCooldown > 0) {
+          npc1.hitCooldown--;
+        }
+
+        const nearby = getNearbyCollisionEntities(npc1);
+
+        for (const entry of nearby) {
+          if (entry.type !== "npc") continue;
+
+          if (entry.index <= i) continue;
+
+          const npc2 = entry.entity;
+
+          if (!npc2 || npc2.isInjured) continue;
+
+          let dx = npc2.x - npc1.x;
+          let dy = npc2.y - npc1.y;
+
+          if (dx * dx + dy * dy < 22 * 22) {
+            if (!npc1.hitCooldown || npc1.hitCooldown <= 0) {
+              playSpatialSound(
+                npcHitPool,
+                npc1.x,
+                npc1.y,
+                0.6
+              );
+
+              npc1.hitCooldown = 60;
+            }
+          }
+        }
+      }     
   }
 }
 
@@ -2221,7 +2263,24 @@ if (playerDamageVignette > 0) {
   }
 
   if (!isInsideHouse && !isInsideDealership) {
-     npcs.forEach(npc => npc.update(dt));
+    
+     // Remove injured pedestrians once they leave the viewport.
+     
+     for (let i = npcs.length - 1; i >= 0; i--) {
+         const npc = npcs[i];
+
+         if (!npc) {
+             npcs.splice(i, 1);
+             continue;
+         }
+
+         if (npc.isInjured && !isEntityOnScreen(npc, 350)) {
+             npcs.splice(i, 1);
+             continue;
+         }
+
+         npc.update(dt);
+     } 
 
 snapshotCarPositions();
 
