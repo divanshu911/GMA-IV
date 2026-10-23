@@ -3942,14 +3942,27 @@ function policeResponseCandidateValid(pos, forCar, minDist, requireOffscreen) {
         return false;
     }
 
+    
     // Don't spawn on top of other vehicles / pedestrians.
+    // Squared-distance checks avoid computing square roots for every entity.
+    const carMinDistSq = 60 * 60;
     for (let i = 0; i < cars.length; i++) {
         const c = cars[i];
-        if (c && Math.hypot(c.x - pos.x, c.y - pos.y) < 60) return false;
+        if (!c) continue;
+
+        const dx = c.x - pos.x;
+        const dy = c.y - pos.y;
+        if (dx * dx + dy * dy < carMinDistSq) return false;
     }
+
+    const npcMinDistSq = 40 * 40;
     for (let i = 0; i < npcs.length; i++) {
         const n = npcs[i];
-        if (n && Math.hypot(n.x - pos.x, n.y - pos.y) < 40) return false;
+        if (!n) continue;
+
+        const dx = n.x - pos.x;
+        const dy = n.y - pos.y;
+        if (dx * dx + dy * dy < npcMinDistSq) return false;
     }
 
     return true;

@@ -1,4 +1,4 @@
-console.log("5uw");
+console.log("5iw");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1877,8 +1877,13 @@ car.isParked = true;
 
   if (!isInsideHouse && !isInsideDealership) {
       // NPC vs Player collision (On foot or in vehicle)
-      npcs.forEach(npc => {
-          let dx = npc.x - player.x, dy = npc.y - player.y, dist = Math.sqrt(dx * dx + dy * dy);
+   const nearbyPlayerEntities = getNearbyCollisionEntities(player);
+
+nearbyPlayerEntities.forEach(entry => {
+    if (entry.type !== "npc") return;
+
+    const npc = entry.entity;
+    let dx = npc.x - player.x, dy = npc.y - player.y, dist = Math.sqrt(dx * dx + dy * dy);   
           if (dist < 22) {
             if (dist === 0) { dx = 1; dy = 0; dist = 1; }
             let overlap = 22 - dist, nx = dx / dist, ny = dy / dist;
@@ -1897,12 +1902,17 @@ car.isParked = true;
       cars.forEach(car => {
           if (!playerCar || car.id !== playerCar.id) return;
 
-          npcs.forEach(npc => {
-              if (!npc) return;
+          const nearbyCarEntities = getNearbyCollisionEntities(car);
 
-              let dx = npc.x - car.x;
-              let dy = npc.y - car.y;
-              let dist = Math.hypot(dx, dy);
+nearbyCarEntities.forEach(entry => {
+    if (entry.type !== "npc") return;
+
+    const npc = entry.entity;
+    if (!npc) return;
+
+    let dx = npc.x - car.x;
+    let dy = npc.y - car.y;
+    let dist = Math.hypot(dx, dy);
 
               let carRadius = Math.max(car.width || 16, car.length || 28) * 0.5;
               let minDist = carRadius + (npc.size || 20) * 0.5 + 4;
@@ -2215,7 +2225,80 @@ if (playerDamageVignette > 0) {
 
 snapshotCarPositions();
 
-cars.forEach(car => car.updateAI(dt, player, npcs, cars)); 
+
+const lodPlayerX = player.x;
+const lodPlayerY = player.y;
+const lodNearSq = 1000 * 1000;
+const lodMidSq = 2500 * 2500;
+
+cars.forEach(car => {
+    if (!car) return;
+
+    // Never throttle the player's car.
+    if (playerCar && car.id === playerCar.id) return;
+
+    // Police, race vehicles, taxis and all other non-civilian
+    // owner types retain their normal update frequency.
+    if (car.ownerType !== "civilian") {
+        car.updateAI(dt, player, npcs, cars);
+        return;
+    }
+
+    // Visible cars always update every frame.
+    // isEntityOnScreen already uses squared-distance math.
+    let updateEvery = 1;
+
+    if (!isEntityOnScreen(car, 150)) {
+        const dx = car.x - lodPlayerX;
+        const dy = car.y - lodPlayerY;
+        const distanceSq = dx * dx + dy * dy;
+
+        if (distanceSq > lodMidSq) {
+            updateEvery = 8;
+        } else if (distanceSq > lodNearSq) {
+            updateEvery = 4;
+        } else {
+            updateEvery = 2;
+        }
+    }
+
+    if (updateEvery === 1) {
+        // Preserve elapsed time when a car returns on-screen.
+        const accumulatedDt = car._aiLodAccumulatedDt || 0;
+        car._aiLodAccumulatedDt = 0;
+        car._aiLodFrameCounter = 0;
+
+        car.updateAI(
+            dt + accumulatedDt,
+            player,
+            npcs,
+            cars
+        );
+        return;
+    }
+
+    // Accumulate elapsed game time so throttling doesn't
+    // simply slow down the car's movement and AI timers.
+    car._aiLodAccumulatedDt =
+        (car._aiLodAccumulatedDt || 0) + dt;
+
+    car._aiLodFrameCounter =
+        (car._aiLodFrameCounter || 0) + 1;
+
+    if (car._aiLodFrameCounter >= updateEvery) {
+        const accumulatedDt = car._aiLodAccumulatedDt;
+
+        car._aiLodAccumulatedDt = 0;
+        car._aiLodFrameCounter = 0;
+
+        car.updateAI(
+            accumulatedDt,
+            player,
+            npcs,
+            cars
+        );
+    }
+});
 
       // Update NPC-NPC Conversations
       updateNPCConversations(dt);

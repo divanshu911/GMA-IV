@@ -2362,14 +2362,20 @@ if (typeof playerCar !== 'undefined' && playerCar && this.id === playerCar.id) r
         checkObstacle(player.x, player.y, 16);
     }
 
-    if (npcs && npcs.length) {
+   
+    // NPC avoidance is only needed for vehicles currently visible to the player.
+    // Keep the original behavior if the viewport helper is unavailable.
+    const shouldCheckNpcObstacles =
+        typeof isEntityOnScreen !== 'function' || isEntityOnScreen(this);
+
+    if (shouldCheckNpcObstacles && npcs && npcs.length) {
         for (let i = 0; i < npcs.length; i++) {
             let npc = npcs[i];
             if (!npc.isPassenger) {
                 checkObstacle(npc.x, npc.y, 14);
             }
         }
-    }
+    } 
 
     if (cars && cars.length) {
         for (let i = 0; i < cars.length; i++) {
@@ -2777,7 +2783,9 @@ if (this.exploded) {
         );
 
         // Radial glow
-        if (isFlashing) {
+        if (isFlashing &&
+    typeof isEntityOnScreen === 'function' &&
+    isEntityOnScreen(this)) {
             ctx.save();
 
             const leftGlowColor = flashPhase
