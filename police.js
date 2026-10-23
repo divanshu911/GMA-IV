@@ -783,6 +783,7 @@ function spawnArrestTransportCar() {
     policeCar.isParked = false;
     policeCar.hasDriver = true;
     policeCar.policeState = "ARREST_TRANSPORT";
+    policeCar.isArrestTransport = true;
 
     policeCar.angle =
         Math.atan2(

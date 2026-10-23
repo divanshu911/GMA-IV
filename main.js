@@ -1,4 +1,4 @@
-console.log("kp");
+console.log("5");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1287,7 +1287,7 @@ collisionMapImage.addEventListener('load', () => {
                 repaired++;
             }
         }
-        console.log(`Collision speck repair: ${clusters} clusters, ${repaired} pixels repainted.`);
+        
         return repaired;
     }
     window.collisionData = collisionData;
@@ -1690,6 +1690,8 @@ function handlePhysicsAndCollisions(dt) {
         strikingCar.weightMultiplier >= 2.5 &&
         Math.random() < (speed * 0.12) &&
         !car.exploded
+        &&
+!car.isArrestTransport
     ) {
               playSpatialSound(
                 explosionPool,
@@ -2507,8 +2509,9 @@ if (playerCar.health <= 0) {
 }
       if (playerCar.health <= 0) playerCar.speed = 0; 
 
-      camera.moveTimer += 1 * dt; camera.lastAngle = worldMoveAngle;
-      if (camera.moveTimer > 60) camera.targetAngle = playerCar.angle;
+   // Keep camera orientation stable during normal driving.
+camera.moveTimer = 0;
+camera.lastAngle = worldMoveAngle;   
     } else {
       playerCar.speed *= 0.92; camera.moveTimer = 0;
     }
@@ -2566,11 +2569,9 @@ if (playerCar.health <= 0) {
       while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
       while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
 
-      if (Math.abs(angleDiff) < 0.1) camera.moveTimer += 1 * dt;
-      else camera.moveTimer = 0;
-
-      camera.lastAngle = targetAngle;
-      if (camera.moveTimer > 60) camera.targetAngle = targetAngle;
+      // Keep camera orientation stable during on-foot movement.
+camera.moveTimer = 0;
+camera.lastAngle = targetAngle;
     } else {
       camera.moveTimer = 0;
     }
@@ -3471,26 +3472,6 @@ for (
     ctx.restore();
     }
 
-    // DEBUG: wanted score breakdown.
-    if (typeof wantedScore !== "undefined") {
-        ctx.save();
-
-        ctx.textAlign = "left";
-        ctx.textBaseline = "top";
-        ctx.font = "bold 12px Arial";
-
-        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-        ctx.fillRect(8, 54, 190, 23);
-
-        ctx.fillStyle = "#ffffff";
-        ctx.fillText(
-            `WANTED ${Math.round(wantedScore)}/100 | C:${Math.round(crimeWantedScore)} P:${Math.round(chaseWantedScore)}`,
-            13,
-            59
-        );
-
-        ctx.restore();
-    }
 }
 
 let lastTime = 0;
