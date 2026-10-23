@@ -1,4 +1,4 @@
-console.log("5");
+console.log("5w");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1315,9 +1315,11 @@ let camera = {
     targetAngle: 0,
     moveTimer: 0,
     lastAngle: 0,
-    passengerFollowAngle: null
+    passengerFollowAngle: null,
+    lastInputX: 0,
+    lastInputY: 0,
+    wasMoving: false
 };
-
 const jackBtn = document.getElementById('jackBtn');
 const exitBtn = document.getElementById('exitBtn');
 
@@ -2481,11 +2483,27 @@ if (player.isBeingArrested) {
     player.speed = 0;
 } else if (playerCar) {
     if (isMoving) {
-      let screenAngle = Math.atan2(inputY, inputX) + Math.PI / 2;
-      let worldMoveAngle = screenAngle + camera.angle;
-      let angleDiff = worldMoveAngle - playerCar.angle;
-      while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-      while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+     let screenAngle = Math.atan2(inputY, inputX) + Math.PI / 2;
+let worldMoveAngle = screenAngle + camera.angle;
+
+let inputChanged =
+    !camera.wasMoving ||
+    inputX !== camera.lastInputX ||
+    inputY !== camera.lastInputY;
+
+if (inputChanged) {
+    camera.targetAngle = worldMoveAngle;
+}
+
+camera.lastInputX = inputX;
+camera.lastInputY = inputY;
+camera.wasMoving = true;
+camera.lastAngle = worldMoveAngle;
+camera.moveTimer = 0;
+
+let angleDiff = worldMoveAngle - playerCar.angle;
+while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+while (angleDiff > Math.PI) angleDiff -= Math.PI * 2; 
 
       let hFactor = (playerCar.health > 0) ? Math.max(0.2, playerCar.health / playerCar.maxHealth) : 0;
 
@@ -2514,6 +2532,10 @@ camera.moveTimer = 0;
 camera.lastAngle = worldMoveAngle;   
     } else {
       playerCar.speed *= 0.92; camera.moveTimer = 0;
+        camera.wasMoving = false;
+camera.lastInputX = 0;
+camera.lastInputY = 0;
+camera.moveTimer = 0;
     }
 
     let nextX = playerCar.x + Math.cos(playerCar.angle - Math.PI / 2) * (playerCar.speed * dt);
@@ -2564,16 +2586,32 @@ camera.lastAngle = worldMoveAngle;
     let targetAngle = player.angle;
     if (isMoving) {
       let screenAngle = Math.atan2(inputY, inputX) + Math.PI / 2;
-      targetAngle = screenAngle + camera.angle;
-      let angleDiff = targetAngle - camera.lastAngle;
-      while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-      while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+targetAngle = screenAngle + camera.angle;
+
+let inputChanged =
+    !camera.wasMoving ||
+    inputX !== camera.lastInputX ||
+    inputY !== camera.lastInputY;
+
+if (inputChanged) {
+    camera.targetAngle = targetAngle;
+}
+
+camera.lastInputX = inputX;
+camera.lastInputY = inputY;
+camera.wasMoving = true;
+camera.lastAngle = targetAngle;
+camera.moveTimer = 0;
 
       // Keep camera orientation stable during on-foot movement.
 camera.moveTimer = 0;
 camera.lastAngle = targetAngle;
     } else {
       camera.moveTimer = 0;
+        camera.wasMoving = false;
+camera.lastInputX = 0;
+camera.lastInputY = 0;
+camera.moveTimer = 0;
     }
 
         if (isInsideDealership) {
