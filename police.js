@@ -1,4 +1,4 @@
-console.log("kood98");
+console.log("lood98");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -3342,14 +3342,21 @@ function roadblockAnalyzeGeometry(loc) {
     return loc.geometry;
 }
 
+
 function roadblockCreateBarricade(x, y, angle, length, thickness) {
+    const finalLength = length || 22;
+    const finalThickness = thickness || 10;
+
     return {
         id: roadblockState.nextBarricadeId++,
         x,
         y,
         angle,
-        length: length || 22,
-        thickness: thickness || 10,
+        length: finalLength,
+        thickness: finalThickness,
+        cosAngle: Math.cos(angle),
+        sinAngle: Math.sin(angle),
+        broadRadius: Math.hypot(finalLength * 0.5, finalThickness * 0.5),
         intact: true,
         locationId: null
     };
@@ -3357,12 +3364,23 @@ function roadblockCreateBarricade(x, y, angle, length, thickness) {
 
 function roadblockPointInBarricade(px, py, b) {
     if (!b || !b.intact) return false;
-    const cos = Math.cos(b.angle);
-    const sin = Math.sin(b.angle);
+
     const dx = px - b.x;
     const dy = py - b.y;
+    const broadRadius = (b.broadRadius || Math.hypot(
+        b.length * 0.5,
+        b.thickness * 0.5
+    )) + 2;
+
+    // Cheap rejection before rotated-rectangle calculations.
+    if (dx * dx + dy * dy > broadRadius * broadRadius) return false;
+
+    const cos = Number.isFinite(b.cosAngle) ? b.cosAngle : Math.cos(b.angle);
+    const sin = Number.isFinite(b.sinAngle) ? b.sinAngle : Math.sin(b.angle);
+
     const localX = dx * cos + dy * sin;
     const localY = -dx * sin + dy * cos;
+
     return (
         Math.abs(localX) <= b.length * 0.5 + 2 &&
         Math.abs(localY) <= b.thickness * 0.5 + 2
@@ -3381,16 +3399,35 @@ function roadblockBlocksPoint(px, py) {
 
 function roadblockCircleHitsBarricade(cx, cy, radius, b) {
     if (!b || !b.intact) return false;
-    const cos = Math.cos(b.angle);
-    const sin = Math.sin(b.angle);
+
     const dx = cx - b.x;
     const dy = cy - b.y;
+    const broadRadius =
+        (b.broadRadius || Math.hypot(
+            b.length * 0.5,
+            b.thickness * 0.5
+        )) + radius;
+
+    // Most vehicles can be rejected without rotating their coordinates.
+    if (dx * dx + dy * dy > broadRadius * broadRadius) return false;
+
+    const cos = Number.isFinite(b.cosAngle) ? b.cosAngle : Math.cos(b.angle);
+    const sin = Number.isFinite(b.sinAngle) ? b.sinAngle : Math.sin(b.angle);
     const localX = dx * cos + dy * sin;
     const localY = -dx * sin + dy * cos;
-    const closestX = Math.max(-b.length * 0.5, Math.min(b.length * 0.5, localX));
-    const closestY = Math.max(-b.thickness * 0.5, Math.min(b.thickness * 0.5, localY));
+
+    const closestX = Math.max(
+        -b.length * 0.5,
+        Math.min(b.length * 0.5, localX)
+    );
+    const closestY = Math.max(
+        -b.thickness * 0.5,
+        Math.min(b.thickness * 0.5, localY)
+    );
+
     const ex = localX - closestX;
     const ey = localY - closestY;
+
     return ex * ex + ey * ey <= radius * radius;
 }
 
@@ -3422,29 +3459,42 @@ function roadblockCanVehicleBreak(car) {
     return false;
 }
 
+
 function roadblockHandleVehicleCollision(car) {
     if (!car || car.exploded || car.health <= 0) return;
     if (car.isRoadblockUnit) return;
 
     const radius = Math.max(car.width || 16, car.length || 28) * 0.35;
+    const barricades = roadblockState.barricades;
 
-    for (let i = 0; i < roadblockState.barricades.length; i++) {
-        const b = roadblockState.barricades[i];
+    for (let i = 0; i < barricades.length; i++) {
+        const b = barricades[i];
         if (!b.intact) continue;
-        if (!roadblockCircleHitsBarricade(car.x, car.y, radius, b)) continue;
+
+        // Broad-phase rejection: skip barricades too far from this vehicle.
+        const dx = car.x - b.x;
+        const dy = car.y - b.y;
+        const reach = (b.broadRadius || Math.hypot(
+            b.length * 0.5,
+            b.thickness * 0.5
+        )) + radius;
+
+        if (dx * dx + dy * dy > reach * reach) continue;
+
+        if (!roadblockCircleHitsBarricade(car.x, car.y, radius, b)) {
+            continue;
+        }
 
         if (roadblockCanVehicleBreak(car)) {
             roadblockDestroyBarricade(b);
         } else {
-            const dx = car.x - b.x;
-            const dy = car.y - b.y;
             const d = Math.hypot(dx, dy) || 1;
             car.x += (dx / d) * 2;
             car.y += (dy / d) * 2;
             car.speed = Math.min(car.speed, 0.4);
         }
     }
-}
+}   
 
 function roadblockSpawnAt(loc) {
     const geo = roadblockAnalyzeGeometry(loc);
