@@ -1,4 +1,4 @@
-console.log("mood98");
+console.log("kood98");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -3944,8 +3944,8 @@ function policeResponseWorldReady() {
         mapWidth > 0
     );
 }
-
-function policeResponseCandidateValid(pos, forCar, minDist, requireOffscreen) {
+ 
+function policeResponseCandidateValid(pos, forCar, minDist, requireOffscreen, occupancy) {
     if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return false;
 
     if (
@@ -3955,7 +3955,6 @@ function policeResponseCandidateValid(pos, forCar, minDist, requireOffscreen) {
         return false;
     }
 
-    // getRandomRoadPosition has unvalidated fallbacks; re-check here.
     if (!isRoadColor(pos.x, pos.y)) return false;
 
     if (forCar) {
@@ -3971,7 +3970,11 @@ function policeResponseCandidateValid(pos, forCar, minDist, requireOffscreen) {
         }
     }
 
-    if (Math.hypot(player.x - pos.x, player.y - pos.y) < minDist) return false;
+    const playerDx = player.x - pos.x;
+    const playerDy = player.y - pos.y;
+    if (playerDx * playerDx + playerDy * playerDy < minDist * minDist) {
+        return false;
+    }
 
     if (
         requireOffscreen &&
@@ -3988,22 +3991,23 @@ function policeResponseCandidateValid(pos, forCar, minDist, requireOffscreen) {
         return false;
     }
 
-    
-    // Don't spawn on top of other vehicles / pedestrians.
-    // Squared-distance checks avoid computing square roots for every entity.
+    // Use the prebuilt position snapshot when supplied.
+    const carPositions = occupancy ? occupancy.cars : cars;
+    const npcPositions = occupancy ? occupancy.npcs : npcs;
+
     const carMinDistSq = 60 * 60;
-    for (let i = 0; i < cars.length; i++) {
-        const c = cars[i];
+    for (let i = 0; i < carPositions.length; i++) {
+        const c = carPositions[i];
         if (!c) continue;
 
         const dx = c.x - pos.x;
-        const dy = c.y - pos.y;
+const dy = c.y - pos.y;
         if (dx * dx + dy * dy < carMinDistSq) return false;
     }
 
     const npcMinDistSq = 40 * 40;
-    for (let i = 0; i < npcs.length; i++) {
-        const n = npcs[i];
+    for (let i = 0; i < npcPositions.length; i++) {
+        const n = npcPositions[i];
         if (!n) continue;
 
         const dx = n.x - pos.x;
@@ -4014,28 +4018,58 @@ function policeResponseCandidateValid(pos, forCar, minDist, requireOffscreen) {
     return true;
 }
 
-// Bounded: samples at most `attempts` road positions. Returns a point or null.
+
 function findPoliceResponseSpawnPoint(forCar, minDist, requireOffscreen, attempts, preferNearest) {
     if (!policeResponseWorldReady()) return null;
 
+    // Snapshot positions once for this bounded search.
+    const carPositions = new Array(cars.length);
+    for (let i = 0; i < cars.length; i++) {
+        const c = cars[i];
+        carPositions[i] = c ? { x: c.x, y: c.y } : null;
+    }
+
+    const npcPositions = new Array(npcs.length);
+    for (let i = 0; i < npcs.length; i++) {
+        const n = npcs[i];
+        npcPositions[i] = n ? { x: n.x, y: n.y } : null;
+    }
+
+    const occupancy = {
+        cars: carPositions,
+        npcs: npcPositions
+    };
+
     let best = null;
-    let bestDist = Infinity;
+    let bestDistSq = Infinity;
 
     for (let i = 0; i < attempts; i++) {
         const pos = getRandomRoadPosition();
-        if (!policeResponseCandidateValid(pos, forCar, minDist, requireOffscreen)) continue;
+
+        if (!policeResponseCandidateValid(
+            pos,
+            forCar,
+            minDist,
+            requireOffscreen,
+            occupancy
+        )) {
+            continue;
+        }
 
         if (!preferNearest) return { x: pos.x, y: pos.y };
 
-        const d = Math.hypot(player.x - pos.x, player.y - pos.y);
-        if (d < bestDist) {
-            bestDist = d;
+        const dx = player.x - pos.x;
+        const dy = player.y - pos.y;
+        const distanceSq = dx * dx + dy * dy;
+
+        if (distanceSq < bestDistSq) {
+            bestDistSq = distanceSq;
             best = { x: pos.x, y: pos.y };
         }
     }
 
     return best;
-}
+}    
 
 // ---------- unit creation (normal Car / NPC, normal arrays) ----------
 
@@ -4169,9 +4203,22 @@ function policeResponsePrune() {
     prune(S.patrolOfficers, npcs);
 }
 
+
 function policeResponseIsHidden(u) {
-    if (typeof isEntityOnScreen === "function" && isEntityOnScreen(u, 150)) return false;
-    return Math.hypot(player.x - u.x, player.y - u.y) >= POLICE_RETIRE_MIN_DISTANCE;
+    if (
+        typeof isEntityOnScreen === "function" &&
+        isEntityOnScreen(u, 150)
+    ) {
+        return false;
+    }
+
+    const dx = player.x - u.x;
+    const dy = player.y - u.y;
+
+    return (
+        dx * dx + dy * dy >=
+        POLICE_RETIRE_MIN_DISTANCE * POLICE_RETIRE_MIN_DISTANCE
+    );
 }
 
 function policeResponseCountLive(list) {
@@ -4312,7 +4359,6 @@ function policeReinforceCooldown() {
         Math.random() * POLICE_REINFORCE_COOLDOWN_RANGE
     );
 }
-
 function updatePoliceReinforcements(dt) {
     const S = policeResponseState;
 
@@ -4371,13 +4417,14 @@ if (S.roadblockResponder) {
         return;
     }
 
-    
     // At most ONE responder per reinforcement decision.
     // Prefer recruiting a nearby patrol over creating a new car.
     let nearestPatrol = null;
-    let nearestDistance = 1100;
+    let nearestDistanceSq = 1100 * 1100;
 
-    for (const car of cars) {
+    for (let i = 0; i < cars.length; i++) {
+        const car = cars[i];
+
         if (
             !car ||
             !car.isPolice ||
@@ -4396,16 +4443,16 @@ if (S.roadblockResponder) {
             continue;
         }
 
-        const distance = Math.hypot(
-            player.x - car.x,
-            player.y - car.y
-        );
+        const dx = player.x - car.x;
+        const dy = player.y - car.y;
+        const distanceSq = dx * dx + dy * dy;
 
-        if (distance <= nearestDistance) {
-            nearestDistance = distance;
+        if (distanceSq <= nearestDistanceSq) {
+            nearestDistanceSq = distanceSq;
             nearestPatrol = car;
         }
     }
+
 
     if (nearestPatrol) {
         // Recruit this patrol. The shared responder update will
