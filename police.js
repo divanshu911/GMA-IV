@@ -1,4 +1,4 @@
-console.log("jood98");
+console.log("mood98");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -2446,9 +2446,9 @@ function dispatchRoadblockFallback() {
     );
 }
 
-const POLICE_STATIONARY_ARREST_RADIUS = 100;
-const POLICE_STATIONARY_ARREST_TIME = 300; // 5 seconds at 60 FPS
-const POLICE_STATIONARY_DISPLACEMENT = 80;  // Meaningful movement in pixels
+const POLICE_STATIONARY_ARREST_RADIUS = 150;
+const POLICE_STATIONARY_ARREST_TIME = 270; // 4.5 seconds at 60 FPS
+const POLICE_STATIONARY_DISPLACEMENT = 100;  // Meaningful movement in pixels
 
 let policeStationaryArrest = {
     x: null,
@@ -2473,44 +2473,69 @@ function updatePoliceStationaryArrest(dt, player, cars, npcs) {
         return false;
         }
 
-    // A living police officer or police car must remain within 100 px.
-    const validPoliceUnit = unit =>
-        unit &&
-        unit.isPolice &&
-        unit !== playerCar &&
-        !unit.isStolen &&
-        !unit.exploded &&
-        !(unit.health <= 0) &&
-        !unit.isInjured &&
-        !unit.isPassenger &&
-        (
-            unit.length === undefined ||
-            unit.hasDriver !== false
-        ) &&
-        (
-            !unit.policeState ||
-            unit.policeState === "PATROL" ||
-            unit.policeState === "WARNING" ||
-            unit.policeState === "CHASE" ||
-            unit.policeState === "ARRESTING" ||
-            unit.policeState === "RESPONDING"
-        );
+    // A living police officer or police car must remain within 150 px.
+    const validPoliceUnit = unit => {
+    if (
+        !unit ||
+        !unit.isPolice ||
+        unit === playerCar ||
+        unit.isStolen ||
+        unit.exploded ||
+        (unit.health !== undefined && unit.health <= 0) ||
+        unit.isInjured ||
+        unit.isPassenger ||
+        unit.isArrestPassenger
+    ) {
+        return false;
+    }
 
+    // Only explicitly recognized police states qualify.
+    // Entities with a missing or unrelated state are rejected.
+    const validStates = [
+        "PATROL",
+        "WARNING",
+        "CHASE",
+        "ARRESTING",
+        "RESPONDING"
+    ];
+
+    if (!validStates.includes(unit.policeState)) {
+        return false;
+    }
+
+    // A police car must have a driver.
+    if (
+        unit.length !== undefined &&
+        unit.hasDriver !== true
+    ) {
+        return false;
+    }
+
+    // Exclude angry drivers explicitly, if one ever enters these arrays.
+    if (
+        typeof AngryDriver !== "undefined" &&
+        unit instanceof AngryDriver
+    ) {
+        return false;
+    }
+
+    return true;
+};
+    const arrestRadiusSq =
+    POLICE_STATIONARY_ARREST_RADIUS *
+    POLICE_STATIONARY_ARREST_RADIUS;
+
+const isNearbyValidPolice = unit => {
+    if (!validPoliceUnit(unit)) return false;
+
+    const dx = player.x - unit.x;
+    const dy = player.y - unit.y;
+
+    return dx * dx + dy * dy <= arrestRadiusSq;
+};
     const nearbyPolice =
-        cars.some(unit =>
-            validPoliceUnit(unit) &&
-            Math.hypot(
-                player.x - unit.x,
-                player.y - unit.y
-            ) <= POLICE_STATIONARY_ARREST_RADIUS
-        ) ||
-        npcs.some(unit =>
-            validPoliceUnit(unit) &&
-            Math.hypot(
-                player.x - unit.x,
-                player.y - unit.y
-            ) <= POLICE_STATIONARY_ARREST_RADIUS
-        );
+    cars.some(isNearbyValidPolice) ||
+    npcs.some(isNearbyValidPolice);
 
     if (!nearbyPolice) {
         reset();
@@ -2547,9 +2572,6 @@ function updatePoliceStationaryArrest(dt, player, cars, npcs) {
 
     reset();
 
-    console.log(
-        "Police arrest: player remained stationary near police for 5 seconds."
-    );
 
     executeArrestProcess();
     return true;
