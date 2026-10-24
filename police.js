@@ -1,4 +1,4 @@
-console.log("good98");
+console.log("jood98");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -1037,49 +1037,81 @@ function moveArrestPoliceCar(
 
     car.arrestObstacleProbeTimer -= dt;
 
-    if (car.arrestObstacleProbeTimer <= 0) {
-        const frontCheckX =
-            car.x +
-            Math.cos(forwardAngle) * checkSensorDist;
+if (car.arrestObstacleProbeTimer <= 0) {
+    const frontCheckX =
+        car.x +
+        Math.cos(forwardAngle) * checkSensorDist;
 
-        const frontCheckY =
-            car.y +
-            Math.sin(forwardAngle) * checkSensorDist;
+    const frontCheckY =
+        car.y +
+        Math.sin(forwardAngle) * checkSensorDist;
 
-        let pathBlockedByCar = false;
+    let pathBlockedByCar = false;
+    let avoidX = 0;
+    let avoidY = 0;
 
-        if (typeof cars !== 'undefined') {
-            const BLOCK_DISTANCE_SQ = 400; // 20 * 20
+    const BLOCK_DISTANCE_SQ = 400; // 20 * 20
+    const AVOIDANCE_RADIUS = 43;
+    const AVOIDANCE_RADIUS_SQ = AVOIDANCE_RADIUS * AVOIDANCE_RADIUS;
 
-            for (let i = 0; i < cars.length; i++) {
-                const otherCar = cars[i];
+    if (typeof cars !== 'undefined') {
+        for (let i = 0; i < cars.length; i++) {
+            const otherCar = cars[i];
+
+            if (
+                !otherCar ||
+                otherCar === car ||
+                otherCar === playerCar ||
+                otherCar.exploded
+            ) {
+                continue;
+            }
+
+            // Check whether another car blocks the transport's path.
+            const blockDx = otherCar.x - frontCheckX;
+            const blockDy = otherCar.y - frontCheckY;
+
+            if (blockDx * blockDx + blockDy * blockDy < BLOCK_DISTANCE_SQ) {
+                pathBlockedByCar = true;
+            }
+
+            // Cache separation from nearby police cars.
+            if (otherCar.isPolice) {
+                const dx = otherCar.x - car.x;
+                const dy = otherCar.y - car.y;
+                const distanceSq = dx * dx + dy * dy;
 
                 if (
-                    otherCar !== car &&
-                    otherCar !== playerCar &&
-                    !otherCar.exploded
+                    distanceSq < AVOIDANCE_RADIUS_SQ &&
+                    distanceSq > 0.0001
                 ) {
-                    const dx = otherCar.x - frontCheckX;
-                    const dy = otherCar.y - frontCheckY;
+                    const distance = Math.sqrt(distanceSq);
+                    const strength =
+                        (AVOIDANCE_RADIUS - distance) / AVOIDANCE_RADIUS;
 
-                    if (dx * dx + dy * dy < BLOCK_DISTANCE_SQ) {
-                        pathBlockedByCar = true;
-                        break;
-                    }
+                    avoidX -= (dx / distance) * strength;
+                    avoidY -= (dy / distance) * strength;
                 }
             }
         }
-
-        car.arrestPathBlockedByCar = pathBlockedByCar;
-
-        // Recheck roughly 8 times per second.
-        car.arrestObstacleProbeTimer = 0.12;
     }
+
+    car.arrestPathBlockedByCar = pathBlockedByCar;
+    car.arrestAvoidX = avoidX;
+    car.arrestAvoidY = avoidY;
+
+    // Recheck roughly 8 times per second.
+    car.arrestObstacleProbeTimer = 0.12;
+}
+
 
     const pathBlockedByCar =
         car.arrestPathBlockedByCar;
 
- if (!car.arrestTransportPath || (pathBlockedByCar && car.arrestTransportRepathTimer <= 0)) {
+ 
+    // Recalculate only when the cooldown expires.
+    // Failed searches are also cached, preventing A* from running every frame.
+    if (car.arrestTransportRepathTimer <= 0) {
         const newPath = navigationSystem.findPath(
             car.x,
             car.y,
@@ -1092,29 +1124,31 @@ function moveArrestPoliceCar(
             car.arrestTransportPath = newPath;
 
             let closestIndex = 1;
-            let closestDistance = Infinity;
+            let closestDistanceSq = Infinity;
 
             for (let i = 1; i < newPath.length; i++) {
                 const waypoint = newPath[i];
                 if (!waypoint) continue;
 
-                const distance = Math.hypot(
-                    waypoint.x - car.x,
-                    waypoint.y - car.y
-                );
+                const dx = waypoint.x - car.x;
+                const dy = waypoint.y - car.y;
+                const distanceSq = dx * dx + dy * dy;
 
-                if (distance < closestDistance) {
-                    closestDistance = distance;
+                if (distanceSq < closestDistanceSq) {
+                    closestDistanceSq = distanceSq;
                     closestIndex = i;
                 }
             }
 
             car.arrestTransportPathIndex = closestIndex;
+        } else {
+            // Remember that the previous search failed.
+            car.arrestTransportPath = null;
+            car.arrestTransportPathIndex = 1;
         }
 
         car.arrestTransportRepathTimer = 0.33;
     }
-
     const path = car.arrestTransportPath;
     let moveAngle = Math.atan2(
         targetY - car.y,
@@ -1144,25 +1178,9 @@ function moveArrestPoliceCar(
         }
     }
 
-    let avoidX = 0;
-    let avoidY = 0;
-    const avoidanceRadius = 43;
-
-    if (typeof cars !== 'undefined') {
-        cars.forEach(otherCar => {
-            if (otherCar !== car && otherCar !== playerCar && otherCar.isPolice) {
-                const dx = otherCar.x - car.x;
-                const dy = otherCar.y - car.y;
-                const d = Math.hypot(dx, dy);
-
-                if (d < avoidanceRadius && d > 0.01) {
-                    const strength = (avoidanceRadius - d) / avoidanceRadius;
-                    avoidX -= (dx / d) * strength;
-                    avoidY -= (dy / d) * strength;
-                }
-            }
-        });
-    }
+    const avoidX = car.arrestAvoidX || 0;
+const avoidY = car.arrestAvoidY || 0;
+    
 
     if (avoidX !== 0 || avoidY !== 0) {
         const avoidAngle = Math.atan2(avoidY, avoidX);
@@ -1180,13 +1198,7 @@ function moveArrestPoliceCar(
             moveAngle = Math.atan2(finalY, finalX);
         }
     }
-
-    // --- SMALL NON-ROAD AVOIDANCE (keeps transport near road center) ---
-    // Samples a small ring around the car and nudges it away from
-    // non-road pixels (buildings, river, trees, grass). Grass is only
-    // avoided while the A* route is still on road; if the car or its
-    // current waypoint is already on grass, grass is ignored (solid
-    // obstacles like buildings/river/trees are still avoided).
+    // --- SMALL NON-ROAD AVOIDANCE ---
     if (
         typeof collisionData !== "undefined" &&
         collisionData &&
@@ -1197,21 +1209,40 @@ function moveArrestPoliceCar(
         const terrainAt = (x, y) => {
             const px = Math.floor(x);
             const py = Math.floor(y);
-            if (px < 0 || py < 0 || px >= mapWidth || py >= mapHeight) return "BLOCKED";
+
+            if (
+                px < 0 ||
+                py < 0 ||
+                px >= mapWidth ||
+                py >= mapHeight
+            ) {
+                return "BLOCKED";
+            }
+
             const i = (py * mapWidth + px) * 4;
-            return getTerrainType(collisionData[i], collisionData[i + 1], collisionData[i + 2]);
+
+            return getTerrainType(
+                collisionData[i],
+                collisionData[i + 1],
+                collisionData[i + 2]
+            );
         };
 
-        const pathWaypoint =
-            car.arrestTransportPath &&
-            car.arrestTransportPath[car.arrestTransportPathIndex];
-
-        const routeOnGrass =
-            terrainAt(car.x, car.y) === "GRASS" ||
-            (pathWaypoint && terrainAt(pathWaypoint.x, pathWaypoint.y) === "GRASS");
         car.arrestTerrainProbeTimer -= dt;
 
         if (car.arrestTerrainProbeTimer <= 0) {
+            const pathWaypoint =
+                car.arrestTransportPath &&
+                car.arrestTransportPath[car.arrestTransportPathIndex];
+
+            // Check grass status only when refreshing the edge probe.
+            const routeOnGrass =
+                terrainAt(car.x, car.y) === "GRASS" ||
+                (
+                    pathWaypoint &&
+                    terrainAt(pathWaypoint.x, pathWaypoint.y) === "GRASS"
+                );
+
             const edgeRadius = 15;
             const edgeSamples = 8;
 
@@ -1219,22 +1250,18 @@ function moveArrestPoliceCar(
             let edgePushY = 0;
 
             for (let i = 0; i < edgeSamples; i++) {
-                const a =
-                    (i / edgeSamples) *
-                    Math.PI *
-                    2;
-
+                const a = (i / edgeSamples) * Math.PI * 2;
                 const dirX = Math.cos(a);
                 const dirY = Math.sin(a);
 
-                const t = terrainAt(
+                const terrain = terrainAt(
                     car.x + dirX * edgeRadius,
                     car.y + dirY * edgeRadius
                 );
 
                 const isBad =
-                    t === "BLOCKED" ||
-                    (t === "GRASS" && !routeOnGrass);
+                    terrain === "BLOCKED" ||
+                    (terrain === "GRASS" && !routeOnGrass);
 
                 if (isBad) {
                     edgePushX -= dirX;
@@ -1251,36 +1278,28 @@ function moveArrestPoliceCar(
         const edgePushX = car.arrestEdgePushX;
         const edgePushY = car.arrestEdgePushY;
 
-        const edgePushLen =
-            Math.sqrt(
-                edgePushX * edgePushX +
-                edgePushY * edgePushY
-            );
+        const edgePushLen = Math.sqrt(
+            edgePushX * edgePushX +
+            edgePushY * edgePushY
+        );
 
         if (edgePushLen > 0.001) {
-            const edgeStrength =
-                Math.min(
-                    0.3,
-                    edgePushLen * 0.1
-                );
+            const edgeStrength = Math.min(0.3, edgePushLen * 0.1);
 
             const fx =
-                Math.cos(moveAngle) *
-                    (1 - edgeStrength) +
-                (edgePushX / edgePushLen) *
-                    edgeStrength;
+                Math.cos(moveAngle) * (1 - edgeStrength) +
+                (edgePushX / edgePushLen) * edgeStrength;
 
             const fy =
-                Math.sin(moveAngle) *
-                    (1 - edgeStrength) +
-                (edgePushY / edgePushLen) *
-                    edgeStrength;
+                Math.sin(moveAngle) * (1 - edgeStrength) +
+                (edgePushY / edgePushLen) * edgeStrength;
 
             if (Math.sqrt(fx * fx + fy * fy) > 0.001) {
                 moveAngle = Math.atan2(fy, fx);
             }
         }
     }
+                      
 
     const localAvoidance = getPoliceObstacleAvoidance(
         car,
@@ -1702,7 +1721,11 @@ function updateArrestTransport(dt) {
                 arrestTransportCar.y -
                 Math.sin(forwardAngle) * (65 + row * 45) +
                 Math.sin(forwardAngle + Math.PI / 2) * side * 45;
-
+// Stagger escort route calculations to avoid all escorts
+// running A* on the same frame.
+if (escort.arrestTransportRepathTimer === undefined) {
+    escort.arrestTransportRepathTimer = index * 0.1;
+}
             moveArrestPoliceCar(
                 escort,
                 targetX,
@@ -2440,14 +2463,15 @@ function updatePoliceStationaryArrest(dt, player, cars, npcs) {
         policeStationaryArrest.timer = 0;
     };
 
-    if (
+        if (
         !player ||
+        !player.wanted ||
         player.isBeingArrested ||
         player.isArrestPassenger
     ) {
         reset();
         return false;
-    }
+        }
 
     // A living police officer or police car must remain within 100 px.
     const validPoliceUnit = unit =>
