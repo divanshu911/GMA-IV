@@ -2940,8 +2940,8 @@ function drawMapSettingsUI(ctx, mapProgress) {
     ctx.fillText("Applies to walking and driving, keyboard and joystick", p.x + p.w / 2, L.optScreen.y - 18);
 
     const options = [
-      { rect: L.optScreen, mode: CONTROL_MODE_SCREEN, title: "Screen-relative", desc: "Push a screen direction to move that way. Pushing opposite your facing reverses." },
-      { rect: L.optObject, mode: CONTROL_MODE_OBJECT, title: "Object-relative", desc: "Up = forward, Down = reverse, Left/Right = turn, relative to where you face." }
+      { rect: L.optScreen, mode: CONTROL_MODE_SCREEN, title: "Screen-relative", desc: "Push to a direction to move. Pushing opposite direction reverses.[recommended for mobile]" },
+      { rect: L.optObject, mode: CONTROL_MODE_OBJECT, title: "Object-relative", desc: "🔝= forward, ⬇️ = reverse, ↔️= turn, relative to your direction.[recommended for desktop]" }
     ];
 
     options.forEach(o => {
