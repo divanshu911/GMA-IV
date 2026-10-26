@@ -1,4 +1,4 @@
-console.log("5pw");
+console.log("kpw");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1597,11 +1597,10 @@ function handlePhysicsAndCollisions(dt) {
           }
         }
 
-        // moveDir is -1 only for a player car that is reversing (undefined = forward).
-        let vx1 = Math.cos(c1.angle - Math.PI / 2) * (c1.speed || 0) * (c1.moveDir === -1 ? -1 : 1);
-        let vy1 = Math.sin(c1.angle - Math.PI / 2) * (c1.speed || 0) * (c1.moveDir === -1 ? -1 : 1);
-        let vx2 = Math.cos(c2.angle - Math.PI / 2) * (c2.speed || 0) * (c2.moveDir === -1 ? -1 : 1);
-        let vy2 = Math.sin(c2.angle - Math.PI / 2) * (c2.speed || 0) * (c2.moveDir === -1 ? -1 : 1);
+        let vx1 = Math.cos(c1.angle - Math.PI / 2) * (c1.speed || 0);
+        let vy1 = Math.sin(c1.angle - Math.PI / 2) * (c1.speed || 0);
+        let vx2 = Math.cos(c2.angle - Math.PI / 2) * (c2.speed || 0);
+        let vy2 = Math.sin(c2.angle - Math.PI / 2) * (c2.speed || 0);
 
         let relSpeed = Math.sqrt(
           Math.pow(vx1 - vx2, 2) +
@@ -2710,11 +2709,14 @@ camera.wasMoving = true;
 camera.lastAngle = worldMoveAngle;
 camera.moveTimer = 0;
 
+let angleDiff = worldMoveAngle - playerCar.angle;
+while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+while (angleDiff > Math.PI) angleDiff -= Math.PI * 2; 
+
       let hFactor = (playerCar.health > 0) ? Math.max(0.2, playerCar.health / playerCar.maxHealth) : 0;
 
-      // Steering / throttle / reverse for the active control mode
-      // (screen-relative or object-relative). See sbApplyDriveInput.
-      sbApplyDriveInput(playerCar, dt, inputX, inputY, worldMoveAngle, hFactor);
+      playerCar.angle += angleDiff * (0.06 * hFactor * dt);
+      playerCar.speed += (0.08 * hFactor) * dt;
 
 // Police bullet tire puncture.
 // A punctured tire greatly reduces the car's maximum speed,
@@ -2723,8 +2725,7 @@ const punctureSpeedMultiplier =
     playerCar.tirePunctured ? 0.38 : 3.0;
 
 const maxPlayerCarSpeed =
-    playerCar.baseSpeed * punctureSpeedMultiplier * hFactor *
-    (playerCar.moveDir === -1 ? SB_REVERSE_SPEED_FRACTION : 1);
+    playerCar.baseSpeed * punctureSpeedMultiplier * hFactor;
 
 if (playerCar.speed > maxPlayerCarSpeed) {
     playerCar.speed = maxPlayerCarSpeed;
@@ -2745,9 +2746,8 @@ camera.lastInputY = 0;
 camera.moveTimer = 0;
     }
 
-    const sbTravelDir = (playerCar.moveDir === -1) ? -1 : 1;
-    let nextX = playerCar.x + Math.cos(playerCar.angle - Math.PI / 2) * (playerCar.speed * dt * sbTravelDir);
-    let nextY = playerCar.y + Math.sin(playerCar.angle - Math.PI / 2) * (playerCar.speed * dt * sbTravelDir);
+    let nextX = playerCar.x + Math.cos(playerCar.angle - Math.PI / 2) * (playerCar.speed * dt);
+    let nextY = playerCar.y + Math.sin(playerCar.angle - Math.PI / 2) * (playerCar.speed * dt);
     if (typeof isPlayerCarWalkable === 'function') {
         let hitWall = false;
 
@@ -2791,10 +2791,7 @@ camera.moveTimer = 0;
     player.x = playerCar.x; player.y = playerCar.y;
     player.angle = playerCar.angle; player.speed = playerCar.speed;
   } else {
-    sbReleaseControlCar();
     let targetAngle = player.angle;
-    // Direction of travel is separate from facing (see sbResolveFootMotion).
-    let footMoving = false, footMoveAngle = null, footSpeedScale = 1;
     if (isMoving) {
       let screenAngle = Math.atan2(inputY, inputX) + Math.PI / 2;
 targetAngle = screenAngle + camera.angle;
@@ -2817,15 +2814,7 @@ camera.moveTimer = 0;
       // Keep camera orientation stable during on-foot movement.
 camera.moveTimer = 0;
 camera.lastAngle = targetAngle;
-
-      const footMotion = sbResolveFootMotion(inputX, inputY, dt, player.angle, targetAngle);
-      footMoving = footMotion.moving;
-      footMoveAngle = footMotion.moveAngle;
-      footSpeedScale = footMotion.speedScale;
-      targetAngle = footMotion.faceAngle;
-      player.angle = footMotion.faceAngle;   // facing (turning / preserved while reversing)
     } else {
-      sbClearFootLatch();
       camera.moveTimer = 0;
         camera.wasMoving = false;
 camera.lastInputX = 0;
@@ -2838,21 +2827,20 @@ camera.moveTimer = 0;
         let dMaxY = dealershipMapHeight > 0 ? dealershipMapHeight - 40 : 560;
         let moveSpeed = 3.5 * dt;
 
-        if (footMoving) {
-            const dMoveSpeed = moveSpeed * footSpeedScale;
-            let nextX = player.x + Math.cos(footMoveAngle - Math.PI / 2) * dMoveSpeed;
-            let nextY = player.y + Math.sin(footMoveAngle - Math.PI / 2) * dMoveSpeed;
+        if (isMoving) {
+            let nextX = player.x + Math.cos(targetAngle - Math.PI / 2) * moveSpeed;
+            let nextY = player.y + Math.sin(targetAngle - Math.PI / 2) * moveSpeed;
             player.x = Math.max(40, Math.min(nextX, dMaxX));
             player.y = Math.max(40, Math.min(nextY, dMaxY));
             player.angle = targetAngle;
-            player.speed = 2.0 * footSpeedScale;
+            player.speed = 2.0;
             player.walkTimer += player.speed * dt * 0.12;
         } else {
             player.speed = 0;
         }
     } else {
             
-        player.update(dt, footMoving, targetAngle, footMoveAngle, footSpeedScale);
+        player.update(dt, isMoving, targetAngle);
     }
   }
 
@@ -2876,124 +2864,46 @@ camera.passengerFollowAngle = null;
   }
 }
 
-// ============================================================
-// FULL-MAP SETTINGS UI (gear icon + control-mode panel)
-// Drawn inside the existing full-map screen. Layout comes from
-// sbGetMapLayout() so drawing and hit-testing always agree.
-// ============================================================
-function drawMapSettingsUI(ctx, mapProgress) {
-  const L = sbGetMapLayout();
+function syncGameplayButtonsWithFullMap() {
+    const mapOpen =
+        (typeof showFullMap !== 'undefined' && showFullMap) ||
+        (typeof fullMapAnimating !== 'undefined' && fullMapAnimating);
 
-  ctx.save();
-  ctx.globalAlpha = mapProgress;
-
-  if (!mapSettingsOpen) {
-    // --- Gear icon, bottom-left ---
-    const g = L.gear;
-    const cx = g.x + g.w / 2, cy = g.y + g.h / 2;
-
-    ctx.fillStyle = "rgba(0, 0, 0, 0.78)";
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(cx, cy, g.w / 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    const teeth = 8, rOut = 17, rIn = 12.5;
-    ctx.beginPath();
-    for (let i = 0; i < teeth; i++) {
-      const base = (i / teeth) * Math.PI * 2;
-      const pts = [[base - 0.20, rIn], [base - 0.11, rOut], [base + 0.11, rOut], [base + 0.20, rIn]];
-      for (let k = 0; k < 4; k++) {
-        const px = cx + Math.cos(pts[k][0]) * pts[k][1];
-        const py = cy + Math.sin(pts[k][0]) * pts[k][1];
-        if (i === 0 && k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-      }
-    }
-    ctx.closePath();
-    ctx.fillStyle = "#f1c40f";
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.arc(cx, cy, 5.5, 0, Math.PI * 2);
-    ctx.fillStyle = "#1a1a1a";
-    ctx.fill();
-  } else {
-    // --- Settings panel: covers the map, leaves the top strip (Back etc.) clear ---
-    const p = L.panel;
-    ctx.fillStyle = "rgba(20, 20, 20, 0.97)";
-    ctx.fillRect(p.x, p.y, p.w, p.h);
-    ctx.strokeStyle = "rgba(255,255,255,0.25)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y + 0.5);
-    ctx.lineTo(p.x + p.w, p.y + 0.5);
-    ctx.stroke();
-
-    ctx.fillStyle = "#ffffff";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.font = "bold 24px Arial";
-    ctx.fillText("CONTROL SETTINGS", p.x + p.w / 2, L.optScreen.y - 44);
-    ctx.fillStyle = "#bbbbbb";
-    ctx.font = "13px Arial";
-    ctx.fillText("Applies to walking and driving, keyboard and joystick", p.x + p.w / 2, L.optScreen.y - 18);
-
-    const options = [
-      { rect: L.optScreen, mode: CONTROL_MODE_SCREEN, title: "Screen-relative", desc: "Push a screen direction to move that way. Pushing opposite your facing reverses." },
-      { rect: L.optObject, mode: CONTROL_MODE_OBJECT, title: "Object-relative", desc: "Up = forward, Down = reverse, Left/Right = turn, relative to where you face." }
+    const gameplayButtonIds = [
+        'jackBtn',
+        'exitBtn',
+        'sirenBtn',
+        'towTruckBtn',
+        'taxiBtn',
+        'truckBtn',
+        'blackMarketBtn',
+        'restaurantBtn',
+        'repairGarageBtn',
+        'enterDealerBtn',
+        'exitDealerBtn',
+        'enterHomeBtn',
+        'leaveHomeBtn',
+        'sleepBtn',
+        'exitHomeBtn',
+        'surrenderBtn',
+        'punchBtn'
     ];
 
-    options.forEach(o => {
-      const r = o.rect;
-      const selected = controlMode === o.mode;
+    for (const id of gameplayButtonIds) {
+        const button = document.getElementById(id);
+        if (!button) continue;
 
-      ctx.fillStyle = selected ? "#f1c40f" : "rgba(255,255,255,0.08)";
-      ctx.strokeStyle = selected ? "#ffffff" : "rgba(255,255,255,0.45)";
-      ctx.lineWidth = selected ? 3 : 2;
-      ctx.fillRect(r.x, r.y, r.w, r.h);
-      ctx.strokeRect(r.x, r.y, r.w, r.h);
-
-      // radio mark (shape + label, so selection is not colour-only)
-      const rx = r.x + 34, ry = r.y + r.h / 2;
-      ctx.beginPath();
-      ctx.arc(rx, ry, 13, 0, Math.PI * 2);
-      ctx.strokeStyle = selected ? "#000000" : "#ffffff";
-      ctx.lineWidth = 2.5;
-      ctx.stroke();
-      if (selected) {
-        ctx.beginPath();
-        ctx.arc(rx, ry, 7, 0, Math.PI * 2);
-        ctx.fillStyle = "#000000";
-        ctx.fill();
-      }
-
-      ctx.textAlign = "left";
-      ctx.textBaseline = "middle";
-      ctx.fillStyle = selected ? "#000000" : "#ffffff";
-      ctx.font = "bold 20px Arial";
-      ctx.fillText(o.title, r.x + 64, r.y + 25);
-      ctx.fillStyle = selected ? "rgba(0,0,0,0.78)" : "#bbbbbb";
-      ctx.font = "12px Arial";
-      ctx.fillText(o.desc, r.x + 64, r.y + 50, r.w - 150);
-
-      if (selected) {
-        ctx.textAlign = "right";
-        ctx.fillStyle = "#000000";
-        ctx.font = "bold 13px Arial";
-        ctx.fillText("SELECTED", r.x + r.w - 16, r.y + 25);
-      }
-    });
-  }
-
-  ctx.restore();
+        button.style.visibility = mapOpen ? 'hidden' : '';
+        button.style.pointerEvents = mapOpen ? 'none' : '';
+    }
 }
 
 function drawGame() {
   applyViewportTransform();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.imageSmoothingEnabled = true;
+
+  syncGameplayButtonsWithFullMap();
 
   if (
     (typeof showFullMap !== 'undefined' && showFullMap) ||
@@ -3348,9 +3258,6 @@ ctx.fillStyle = "rgba(0, 0, 0, 0.72)";
       });
       ctx.restore();
     }
-
-    // Settings gear / panel: below, so the BACK button below stays on top.
-    drawMapSettingsUI(ctx, mapProgress);
 
     ctx.save();
 
