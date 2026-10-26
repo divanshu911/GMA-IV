@@ -1,7 +1,7 @@
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-console.log("grapess");
+console.log("grapesskk");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
@@ -2088,18 +2088,43 @@ const sbMapLayout = {
     optScreen: { x: 0, y: 0, w: 0, h: 70 },
     optObject: { x: 0, y: 0, w: 0, h: 70 }
 };
+
 function sbGetMapLayout() {
-    const L = sbMapLayout, W = canvas.width, H = canvas.height;
+    const L = sbMapLayout;
+    const W = canvas.width;
+    const H = canvas.height;
+
+    const margin = Math.max(12, Math.min(24, W * 0.025));
+    const topMargin = Math.max(84, margin);
+
     L.gear.x = 20;
     L.gear.y = H - 20 - L.gear.h;
-    // Panel starts below the top strip so Back (and anything else up
-    // there, e.g. Respawn) stays uncovered and clickable.
-    L.panel.x = 0; L.panel.y = 90; L.panel.w = W; L.panel.h = H - 90;
-    const bw = Math.min(560, W - 80), bh = 70, gap = 22;
-    const top = L.panel.y + Math.max(70, (L.panel.h - (bh * 2 + gap)) / 2 + 20);
-    const bx = (W - bw) / 2;
-    L.optScreen.x = bx; L.optScreen.y = top; L.optScreen.w = bw; L.optScreen.h = bh;
-    L.optObject.x = bx; L.optObject.y = top + bh + gap; L.optObject.w = bw; L.optObject.h = bh;
+
+    // Center the settings panel over the map with margins on all sides.
+    // Preserve the top strip for Back and Respawn.
+    L.panel.x = margin;
+    L.panel.y = topMargin;
+    L.panel.w = Math.max(0, W - margin * 2);
+    L.panel.h = Math.max(0, H - topMargin - margin);
+
+    const bw = Math.min(560, L.panel.w - 32);
+    const bh = 70;
+    const gap = 22;
+    const totalHeight = bh * 2 + gap;
+
+    const bx = L.panel.x + (L.panel.w - bw) / 2;
+    const top = L.panel.y + (L.panel.h - totalHeight) / 2;
+
+    L.optScreen.x = bx;
+    L.optScreen.y = top;
+    L.optScreen.w = bw;
+    L.optScreen.h = bh;
+
+    L.optObject.x = bx;
+    L.optObject.y = top + bh + gap;
+    L.optObject.w = bw;
+    L.optObject.h = bh;
+
     return L;
 }
 function sbHit(r, x, y) {

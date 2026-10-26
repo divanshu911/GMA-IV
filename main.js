@@ -1,4 +1,4 @@
-console.log("6pw");
+console.log("67w");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -2922,14 +2922,13 @@ function drawMapSettingsUI(ctx, mapProgress) {
   } else {
     // --- Settings panel: covers the map, leaves the top strip (Back etc.) clear ---
     const p = L.panel;
+
     ctx.fillStyle = "rgba(20, 20, 20, 0.97)";
     ctx.fillRect(p.x, p.y, p.w, p.h);
-    ctx.strokeStyle = "rgba(255,255,255,0.25)";
+
+    ctx.strokeStyle = "rgba(255,255,255,0.3)";
     ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y + 0.5);
-    ctx.lineTo(p.x + p.w, p.y + 0.5);
-    ctx.stroke();
+    ctx.strokeRect(p.x, p.y, p.w, p.h);
 
     ctx.fillStyle = "#ffffff";
     ctx.textAlign = "center";
