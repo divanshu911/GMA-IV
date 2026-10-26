@@ -217,7 +217,10 @@ this.punchCooldown = 0;
     this.isEvicted = false;
   }
 
-  update(dt, isMoving, targetAngle) {
+  // moveAngle (optional): direction of travel, independent of facing.
+  // When given, facing (this.angle) is left alone. speedScale (optional)
+  // scales walking speed (e.g. back-pedalling). Omitted = original behaviour.
+  update(dt, isMoving, targetAngle, moveAngle, speedScale) {
         if (this.punchTimer > 0) {
       this.punchTimer -= dt;
       if (this.punchTimer < 0) this.punchTimer = 0;
@@ -228,8 +231,9 @@ this.punchCooldown = 0;
       if (this.punchCooldown < 0) this.punchCooldown = 0;
     }
     this.speed = 0;
+    const hasMoveAngle = typeof moveAngle === 'number';
     if (isMoving) {
-      this.angle = targetAngle;
+      if (!hasMoveAngle) this.angle = targetAngle;
 
       let hungerModifier = 1.0;
       if (this.hunger <= 0) {
@@ -238,12 +242,13 @@ this.punchCooldown = 0;
         hungerModifier = 0.4 + (this.hunger / 20) * 0.6;
       }
 
-      this.speed = this.maxSpeed * hungerModifier;   
+      this.speed = this.maxSpeed * hungerModifier * (speedScale || 1);   
       this.walkTimer += this.speed * dt * 0.12; 
     }
 
-    let nextX = this.x + Math.cos(this.angle - Math.PI / 2) * (this.speed * dt);
-    let nextY = this.y + Math.sin(this.angle - Math.PI / 2) * (this.speed * dt);
+    const travelAngle = (isMoving && hasMoveAngle) ? moveAngle : this.angle;
+    let nextX = this.x + Math.cos(travelAngle - Math.PI / 2) * (this.speed * dt);
+    let nextY = this.y + Math.sin(travelAngle - Math.PI / 2) * (this.speed * dt);
 
     if (isWalkableColor(nextX, this.y, this.size)) this.x = nextX;
     if (isWalkableColor(this.x, nextY, this.size)) this.y = nextY;

@@ -111,6 +111,8 @@ updateViewport();
 
 let gameActive = false;
 let showFullMap = false;
+// Settings panel shown on top of the full-screen map (not a separate screen).
+let mapSettingsOpen = false;
 let desktopControlsOpen = false;
 let playerPhoneOpen = false;
 // Full-map animation state
@@ -420,6 +422,8 @@ function openFullMap() {
 
     showFullMap = true;
     gameActive = false;
+    mapSettingsOpen = false;
+    sbSetJoystickZoneInteractive(false);
 
     beginFullMapAnimation(1, 350);
 }
@@ -428,6 +432,8 @@ function closeFullMap() {
     if (!showFullMap && !fullMapAnimating) return;
 
     gameActive = false;
+    mapSettingsOpen = false;
+    sbSetJoystickZoneInteractive(true);
 
     beginFullMapAnimation(0, 280);
 }
@@ -1891,6 +1897,216 @@ const keyboardKeyMap = {
     ArrowRight: "ArrowRight"
 };
 
+// >>> SB CONTROL MODE START
+// ============================================================
+// CONTROL MODE: screen-relative (default) / object-relative
+// Keyboard (WASD / arrows) and the joystick both collapse into one
+// (inputX, inputY) vector in main.js, and everything below works from
+// that vector, so both input methods follow identical rules.
+// ============================================================
+const CONTROL_MODE_STORAGE_KEY = "streetbound.controlMode";
+const CONTROL_MODE_SCREEN = "screen-relative";
+const CONTROL_MODE_OBJECT = "object-relative";
+
+function loadControlMode() {
+    try {
+        const saved = localStorage.getItem(CONTROL_MODE_STORAGE_KEY);
+        if (saved === CONTROL_MODE_SCREEN || saved === CONTROL_MODE_OBJECT) {
+            return saved;
+        }
+    } catch (e) { /* storage unavailable: fall through to default */ }
+    return CONTROL_MODE_SCREEN;
+}
+
+let controlMode = loadControlMode();
+
+function setControlMode(mode) {
+    if (mode !== CONTROL_MODE_SCREEN && mode !== CONTROL_MODE_OBJECT) return false;
+    controlMode = mode;
+    try { localStorage.setItem(CONTROL_MODE_STORAGE_KEY, mode); } catch (e) {}
+    sbFootReverseLatch = false;
+    sbCarReverseLatch = false;
+    return true;
+}
+
+// Tuning
+const SB_REVERSE_ENTER_ANGLE = 2.2;   // ~126 deg off the facing: start reversing
+const SB_REVERSE_EXIT_ANGLE = 1.9;    // ~109 deg: stop reversing (hysteresis, no flicker)
+const SB_INTENT_THRESHOLD = 0.38;     // sin(22.5 deg): turns analog stick into 8-way intent
+const SB_WALK_TURN_RATE = 0.075;      // rad/frame, object-relative walking turn
+const SB_WALK_REVERSE_SCALE = 0.75;   // walking backwards is a little slower
+const SB_CAR_STEER_RATE = 0.05;       // rad/frame, object-relative steering
+const SB_CAR_BRAKE_BEFORE_FLIP = 0.88;// per-frame speed factor while switching fwd<->reverse
+const SB_REVERSE_SPEED_FRACTION = 0.5;// reverse top speed vs forward top speed
+
+let sbFootReverseLatch = false;
+let sbCarReverseLatch = false;
+let sbControlCar = null;
+
+function sbNormalizeAngle(a) {
+    while (a < -Math.PI) a += Math.PI * 2;
+    while (a > Math.PI) a -= Math.PI * 2;
+    return a;
+}
+
+function sbUpdateReverseLatch(latched, diff) {
+    const a = Math.abs(diff);
+    return latched ? a > SB_REVERSE_EXIT_ANGLE : a > SB_REVERSE_ENTER_ANGLE;
+}
+
+// Object-relative intent: throttle +1 forward / -1 back, steer -1 left / +1 right.
+// The vector is normalised first so a half-pushed stick and a key press agree.
+const sbObjectIntent = { throttle: 0, steer: 0 };
+function sbGetObjectIntent(inputX, inputY) {
+    const out = sbObjectIntent;
+    out.throttle = 0;
+    out.steer = 0;
+    const len = Math.sqrt(inputX * inputX + inputY * inputY);
+    if (len > 0.0001) {
+        const nx = inputX / len, ny = inputY / len;
+        if (ny < -SB_INTENT_THRESHOLD) out.throttle = 1;
+        else if (ny > SB_INTENT_THRESHOLD) out.throttle = -1;
+        if (nx < -SB_INTENT_THRESHOLD) out.steer = -1;
+        else if (nx > SB_INTENT_THRESHOLD) out.steer = 1;
+    }
+    return out;
+}
+
+// On-foot motion. Separates the way the player FACES from the way the
+// player MOVES. Reused result object: no per-frame allocation.
+const sbFootMotion = { moving: false, faceAngle: 0, moveAngle: 0, speedScale: 1 };
+function sbResolveFootMotion(inputX, inputY, dt, currentAngle, worldMoveAngle) {
+    const m = sbFootMotion;
+    m.speedScale = 1;
+
+    if (controlMode === CONTROL_MODE_OBJECT) {
+        const intent = sbGetObjectIntent(inputX, inputY);
+        const face = currentAngle + intent.steer * SB_WALK_TURN_RATE * dt;
+        const back = intent.throttle < 0;
+        m.faceAngle = face;
+        m.moving = intent.throttle !== 0;
+        m.moveAngle = back ? face + Math.PI : face;
+        if (back) m.speedScale = SB_WALK_REVERSE_SCALE;
+        return m;
+    }
+
+    // Screen-relative: move toward the pushed screen direction. If that is
+    // behind the player, keep facing and back-pedal toward it instead of
+    // spinning around.
+    const diff = sbNormalizeAngle(worldMoveAngle - currentAngle);
+    sbFootReverseLatch = sbUpdateReverseLatch(sbFootReverseLatch, diff);
+    m.moving = true;
+    m.moveAngle = worldMoveAngle;
+    if (sbFootReverseLatch) {
+        m.faceAngle = currentAngle;
+        m.speedScale = SB_WALK_REVERSE_SCALE;
+    } else {
+        m.faceAngle = worldMoveAngle;
+    }
+    return m;
+}
+
+function sbClearFootLatch() { sbFootReverseLatch = false; }
+
+// Player-car input. Uses the existing model (heading `angle`, scalar `speed`,
+// 0.06 angle-lerp steering, 0.08 acceleration, 0.92 coasting) and adds only
+// `moveDir` (+1 forward / -1 reverse) so travel direction is independent of
+// facing. `speed` stays a magnitude, so every existing "speed > x" check
+// (crash damage, tyre marks, HUD) is untouched.
+function sbApplyDriveInput(car, dt, inputX, inputY, worldMoveAngle, hFactor) {
+    if (car !== sbControlCar) {
+        sbControlCar = car;
+        car.moveDir = 1;
+        sbCarReverseLatch = false;
+    }
+
+    let wantDir = 1;
+    let throttle = true;
+    let steerTurn = 0;      // radians per frame, before hFactor * dt
+
+    if (controlMode === CONTROL_MODE_OBJECT) {
+        const intent = sbGetObjectIntent(inputX, inputY);
+        throttle = intent.throttle !== 0;
+        wantDir = intent.throttle < 0 ? -1 : 1;
+        if (intent.steer !== 0) {
+            // Real-car feel: while rolling backwards the nose swings the other way.
+            const sign = (car.moveDir === -1 && car.speed > 0.15) ? -1 : 1;
+            const speedScale = Math.min(1, 0.3 + car.speed * 0.5);
+            steerTurn = intent.steer * sign * SB_CAR_STEER_RATE * speedScale;
+        }
+    } else {
+        const diff = sbNormalizeAngle(worldMoveAngle - car.angle);
+        sbCarReverseLatch = sbUpdateReverseLatch(sbCarReverseLatch, diff);
+        wantDir = sbCarReverseLatch ? -1 : 1;
+        // Forward: the existing lerp toward the pushed direction.
+        // Reversing: swing the REAR toward it (0 for a straight-back push),
+        // so the car never U-turns to face the opposite way.
+        steerTurn = (sbCarReverseLatch ? sbNormalizeAngle(diff - Math.PI) : diff) * 0.06;
+    }
+
+    if (throttle) {
+        if (car.moveDir !== wantDir) {
+            // Direction change: brake to a stop first, then travel the other way.
+            car.speed *= Math.pow(SB_CAR_BRAKE_BEFORE_FLIP, dt);
+            if (controlMode !== CONTROL_MODE_OBJECT) steerTurn = 0;
+            if (car.speed < 0.15) car.moveDir = wantDir;
+        } else {
+            car.speed += (0.08 * hFactor) * dt;
+        }
+    } else {
+        car.speed *= 0.92;  // existing coasting
+    }
+
+    car.angle += steerTurn * hFactor * dt;
+}
+
+// Called every on-foot frame: forget the last driven car's reverse state.
+function sbReleaseControlCar() {
+    if (sbControlCar) {
+        sbControlCar.moveDir = 1;
+        sbControlCar = null;
+    }
+    sbCarReverseLatch = false;
+}
+
+// While the full map is up the joystick overlay must not swallow taps
+// meant for the canvas (gear icon, options, Back).
+function sbSetJoystickZoneInteractive(enabled) {
+    try {
+        if (typeof joystickZone !== 'undefined' && joystickZone) {
+            joystickZone.style.pointerEvents = enabled ? '' : 'none';
+        }
+    } catch (e) { /* joystickZone not initialised yet */ }
+}
+
+// Full-map screen layout, shared by drawing (main.js) and hit-testing so
+// the two can never disagree. Logical (viewport) coordinates.
+const sbMapLayout = {
+    back:   { x: 30, y: 30, w: 130, h: 45 },
+    gear:   { x: 0, y: 0, w: 56, h: 56 },
+    panel:  { x: 0, y: 90, w: 0, h: 0 },
+    optScreen: { x: 0, y: 0, w: 0, h: 70 },
+    optObject: { x: 0, y: 0, w: 0, h: 70 }
+};
+function sbGetMapLayout() {
+    const L = sbMapLayout, W = canvas.width, H = canvas.height;
+    L.gear.x = 20;
+    L.gear.y = H - 20 - L.gear.h;
+    // Panel starts below the top strip so Back (and anything else up
+    // there, e.g. Respawn) stays uncovered and clickable.
+    L.panel.x = 0; L.panel.y = 90; L.panel.w = W; L.panel.h = H - 90;
+    const bw = Math.min(560, W - 80), bh = 70, gap = 22;
+    const top = L.panel.y + Math.max(70, (L.panel.h - (bh * 2 + gap)) / 2 + 20);
+    const bx = (W - bw) / 2;
+    L.optScreen.x = bx; L.optScreen.y = top; L.optScreen.w = bw; L.optScreen.h = bh;
+    L.optObject.x = bx; L.optObject.y = top + bh + gap; L.optObject.w = bw; L.optObject.h = bh;
+    return L;
+}
+function sbHit(r, x, y) {
+    return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+}
+// <<< SB CONTROL MODE END
+
 window.addEventListener('keydown', e => {
 
     // SPACE = Open / close desktop controls
@@ -1918,6 +2134,10 @@ window.addEventListener('keydown', e => {
     // H = Open / close full map
 if (e.key === 'h' || e.key === 'H') {
     e.preventDefault();
+    if (showFullMap && !fullMapAnimating && mapSettingsOpen) {
+        mapSettingsOpen = false;
+        return;
+    }
     toggleFullMap();
     return;
 }
@@ -2070,15 +2290,28 @@ canvas.addEventListener('pointerdown', (e) => {
   const { x: mouseX, y: mouseY } = clientToLogical(e.clientX, e.clientY);
 
 if (showFullMap || fullMapAnimating) {
-    if (
-        showFullMap &&
-        !fullMapAnimating &&
-        mouseX >= 30 &&
-        mouseX <= 160 &&
-        mouseY >= 30 &&
-        mouseY <= 75
-    ) {
-        closeFullMap();
+    if (showFullMap && !fullMapAnimating) {
+        const mapUI = sbGetMapLayout();
+        const onBack = sbHit(mapUI.back, mouseX, mouseY);
+
+        if (mapSettingsOpen) {
+            // Panel open: Back closes ONLY the panel. Option taps change the
+            // mode. Every other tap is swallowed so nothing underneath fires.
+            if (onBack) {
+                mapSettingsOpen = false;
+            } else if (sbHit(mapUI.optScreen, mouseX, mouseY)) {
+                setControlMode(CONTROL_MODE_SCREEN);
+            } else if (sbHit(mapUI.optObject, mouseX, mouseY)) {
+                setControlMode(CONTROL_MODE_OBJECT);
+            }
+            return;
+        }
+
+        if (sbHit(mapUI.gear, mouseX, mouseY)) {
+            mapSettingsOpen = true;
+        } else if (onBack) {
+            closeFullMap();
+        }
     }
 
     return;
