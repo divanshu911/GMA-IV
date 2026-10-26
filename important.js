@@ -1,7 +1,7 @@
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-console.log("grapesskk");
+console.log("grapsskk");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
