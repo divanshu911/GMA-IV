@@ -1,7 +1,7 @@
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-console.log("grapsskk");
+console.log("watermelon");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
@@ -115,6 +115,8 @@ let showFullMap = false;
 let mapSettingsOpen = false;
 let desktopControlsOpen = false;
 let playerPhoneOpen = false;
+// First-play control-mode chooser (shown once after the opening cutscene).
+let firstTimeControlsOpen = false;
 // Full-map animation state
 let fullMapAnimating = false;
 let fullMapAnimationProgress = 0;
@@ -282,7 +284,10 @@ function finishOpeningCutscene() {
     }
 
     openingCutsceneActive = false;
-    gameActive = true;
+    // Keep the world frozen until the first-time control panel is dismissed.
+    // Returning players never reach this function (gma_has_played path skips
+    // the cutscene), so this panel only appears on the true first play.
+    gameActive = false;
 
     const gameContainer = document.getElementById("gameContainer");
 
@@ -301,6 +306,14 @@ function finishOpeningCutscene() {
         if (openingCutscene) {
             openingCutscene.classList.remove("active");
             openingCutscene.setAttribute("aria-hidden", "true");
+        }
+
+        // Show the screen/object-relative control chooser on top of the
+        // blurred game view. Gameplay resumes only when the panel is closed.
+        if (typeof openFirstTimeControlsPanel === "function") {
+            openFirstTimeControlsPanel();
+        } else {
+            gameActive = true;
         }
 
     }, 800);
@@ -2079,6 +2092,231 @@ function sbSetJoystickZoneInteractive(enabled) {
     } catch (e) { /* joystickZone not initialised yet */ }
 }
 
+// ============================================================
+// FIRST-PLAY CONTROL MODE PANEL
+// Shown once after the opening cutscene finishes (first play only;
+// returning players skip the cutscene via gma_has_played). Does NOT
+// open the minimap. Canvas is CSS-blurred; the panel + X stay sharp.
+// ============================================================
+function openFirstTimeControlsPanel() {
+    if (firstTimeControlsOpen) return;
+    if (document.getElementById("firstTimeControlsOverlay")) return;
+
+    firstTimeControlsOpen = true;
+    gameActive = false;
+    sbSetJoystickZoneInteractive(false);
+
+    // Blur the game canvas only; the overlay is a sibling so it stays sharp.
+    if (canvas) {
+        canvas.style.filter = "blur(5px)";
+        canvas.style.transition = "filter 0.25s ease";
+    }
+
+    const host = document.getElementById("gameContainer") || document.body;
+
+    const overlay = document.createElement("div");
+    overlay.id = "firstTimeControlsOverlay";
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("role", "dialog");
+    overlay.style.cssText = [
+        "position:absolute",
+        "inset:0",
+        "z-index:40",
+        "display:flex",
+        "align-items:center",
+        "justify-content:center",
+        "pointer-events:auto",
+        "background:rgba(0,0,0,0.35)",
+        "font-family:Arial,sans-serif"
+    ].join(";");
+
+    const panel = document.createElement("div");
+    panel.style.cssText = [
+        "position:relative",
+        "width:min(92%, 420px)",
+        "background:rgba(20,20,20,0.97)",
+        "border:1px solid rgba(255,255,255,0.3)",
+        "border-radius:10px",
+        "padding:22px 20px 18px",
+        "box-shadow:0 12px 40px rgba(0,0,0,0.55)",
+        "color:#fff",
+        "text-align:center"
+    ].join(";");
+
+    // Small X — only used to dismiss this first-play panel.
+    // Minimap settings still use the existing Back button.
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.setAttribute("aria-label", "Close");
+    closeBtn.textContent = "\u00d7";
+    closeBtn.style.cssText = [
+        "position:absolute",
+        "top:8px",
+        "right:10px",
+        "width:28px",
+        "height:28px",
+        "padding:0",
+        "border:1px solid rgba(255,255,255,0.45)",
+        "border-radius:50%",
+        "background:rgba(0,0,0,0.55)",
+        "color:#fff",
+        "font-size:20px",
+        "line-height:26px",
+        "cursor:pointer",
+        "filter:none"
+    ].join(";");
+    closeBtn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeFirstTimeControlsPanel();
+    });
+
+    const title = document.createElement("div");
+    title.textContent = "CONTROL SETTINGS";
+    title.style.cssText =
+        "font-weight:bold;font-size:20px;margin:4px 28px 6px 0;letter-spacing:0.5px;";
+
+    const subtitle = document.createElement("div");
+    subtitle.textContent =
+        "Applies to walking and driving, keyboard and joystick";
+    subtitle.style.cssText =
+        "font-size:12px;color:#bbbbbb;margin-bottom:14px;";
+
+    function makeOption(mode, label, desc) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.dataset.mode = mode;
+        btn.style.cssText = [
+            "display:block",
+            "width:100%",
+            "text-align:left",
+            "margin:0 0 10px",
+            "padding:12px 14px 12px 44px",
+            "border-radius:6px",
+            "border:2px solid rgba(255,255,255,0.45)",
+            "background:rgba(255,255,255,0.08)",
+            "color:#fff",
+            "cursor:pointer",
+            "position:relative"
+        ].join(";");
+
+        const radio = document.createElement("span");
+        radio.style.cssText = [
+            "position:absolute",
+            "left:14px",
+            "top:50%",
+            "transform:translateY(-50%)",
+            "width:18px",
+            "height:18px",
+            "border-radius:50%",
+            "border:2.5px solid #fff",
+            "box-sizing:border-box"
+        ].join(";");
+
+        const nameEl = document.createElement("div");
+        nameEl.textContent = label;
+        nameEl.style.cssText = "font-weight:bold;font-size:15px;";
+
+        const descEl = document.createElement("div");
+        descEl.textContent = desc;
+        descEl.style.cssText =
+            "font-size:11px;color:#bbbbbb;margin-top:3px;line-height:1.35;";
+
+        btn.appendChild(radio);
+        btn.appendChild(nameEl);
+        btn.appendChild(descEl);
+
+        btn.addEventListener("pointerdown", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setControlMode(mode);
+            refreshFirstTimeControlsSelection(overlay);
+        });
+
+        return btn;
+    }
+
+    const optScreen = makeOption(
+        CONTROL_MODE_SCREEN,
+        "Screen-relative",
+        "Push to a direction to move. Pushing opposite direction reverses. [recommended for mobile]"
+    );
+    const optObject = makeOption(
+        CONTROL_MODE_OBJECT,
+        "Object-relative",
+        "\u2191 = forward, \u2193 = reverse, \u2194 = turn, relative to your direction. [recommended for desktop]"
+    );
+
+    const hint = document.createElement("div");
+    hint.textContent =
+        "You can change this later in the minimap (gear icon \u2192 Control Settings).";
+    hint.style.cssText =
+        "font-size:11px;color:#f1c40f;margin-top:6px;line-height:1.4;";
+
+    panel.appendChild(closeBtn);
+    panel.appendChild(title);
+    panel.appendChild(subtitle);
+    panel.appendChild(optScreen);
+    panel.appendChild(optObject);
+    panel.appendChild(hint);
+    overlay.appendChild(panel);
+    host.appendChild(overlay);
+
+    refreshFirstTimeControlsSelection(overlay);
+
+    if (typeof drawGame === "function") {
+        drawGame();
+    }
+}
+
+function refreshFirstTimeControlsSelection(overlay) {
+    if (!overlay) {
+        overlay = document.getElementById("firstTimeControlsOverlay");
+    }
+    if (!overlay) return;
+
+    const buttons = overlay.querySelectorAll("button[data-mode]");
+    buttons.forEach((btn) => {
+        const selected = btn.dataset.mode === controlMode;
+        btn.style.background = selected ? "#f1c40f" : "rgba(255,255,255,0.08)";
+        btn.style.borderColor = selected ? "#ffffff" : "rgba(255,255,255,0.45)";
+        btn.style.color = selected ? "#000000" : "#ffffff";
+
+        const radio = btn.querySelector("span");
+        if (radio) {
+            radio.style.borderColor = selected ? "#000000" : "#ffffff";
+            radio.style.background = selected ? "#000000" : "transparent";
+        }
+
+        const nameEl = btn.children[1];
+        const descEl = btn.children[2];
+        if (nameEl) nameEl.style.color = selected ? "#000000" : "#ffffff";
+        if (descEl) {
+            descEl.style.color = selected ? "rgba(0,0,0,0.78)" : "#bbbbbb";
+        }
+    });
+}
+
+function closeFirstTimeControlsPanel() {
+    const overlay = document.getElementById("firstTimeControlsOverlay");
+    if (overlay && overlay.parentNode) {
+        overlay.parentNode.removeChild(overlay);
+    }
+
+    firstTimeControlsOpen = false;
+
+    if (canvas) {
+        canvas.style.filter = "";
+    }
+
+    sbSetJoystickZoneInteractive(true);
+    gameActive = true;
+
+    if (typeof drawGame === "function") {
+        drawGame();
+    }
+}
+
 // Full-map screen layout, shared by drawing (main.js) and hit-testing so
 // the two can never disagree. Logical (viewport) coordinates.
 const sbMapLayout = {
@@ -2138,6 +2376,9 @@ window.addEventListener('keydown', e => {
     if (e.code === 'Space') {
         e.preventDefault();
 
+        // Don't interrupt the first-play control chooser.
+        if (firstTimeControlsOpen || openingCutsceneActive) return;
+
         const desktopControlsModal =
             document.getElementById('desktopControlsModal');
 
@@ -2159,6 +2400,7 @@ window.addEventListener('keydown', e => {
     // H = Open / close full map
 if (e.key === 'h' || e.key === 'H') {
     e.preventDefault();
+    if (firstTimeControlsOpen || openingCutsceneActive) return;
     if (showFullMap && !fullMapAnimating && mapSettingsOpen) {
         mapSettingsOpen = false;
         return;
