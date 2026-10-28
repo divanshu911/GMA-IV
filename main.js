@@ -2365,6 +2365,7 @@ cars.forEach(car => {
 
       taxiManager.update(dt, player, cars, npcs);
       truckManager.update(dt, player, cars);
+      if (typeof navigationManager !== "undefined") navigationManager.update(dt);
 
       // --- POLICE SIREN SPATIAL AUDIO LOGIC ---
       cars.forEach(car => {
@@ -3642,12 +3643,8 @@ if (!isInsideHouse && !isInsideDealership) {
                                }
 
   taxiManager.drawUI(ctx);
-  if (
-      typeof raceEventManager !== "undefined" &&
-      raceEventManager &&
-      raceEventManager.drawRaceArrow
-  ) {
-      raceEventManager.drawRaceArrow(ctx);
+  if (typeof navigationManager !== "undefined" && navigationManager) {
+      navigationManager.draw(ctx);
   }
   truckManager.drawUI(ctx); 
   if (typeof drawClock === 'function') drawClock();

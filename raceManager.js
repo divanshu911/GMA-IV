@@ -1063,6 +1063,303 @@ const RACE_ARROW = {
     checkpointColor: "#9b59b6"
 };
 
+// ============================================================
+// SHARED NAVIGATION ARROW
+// One arrow shared by the race, taxi and truck systems.
+// Sources register when their activity starts, unregister when it
+// ends (detected by polling isActive() once per frame, so every
+// completion / failure / cancel / reset path is covered). A newly
+// started activity takes the arrow; tapping the arrow cycles
+// RACE -> TAXI -> CARGO. Marker colours mirror the map markers in
+// main.js (full map + minimap).
+// ============================================================
+const NAV_MARKER_COLORS = {
+    raceStart: "#e74c3c",      // race start / finish
+    raceCheckpoint: "#9b59b6",
+    taxiPickup: "#f1c40f",
+    taxiDropoff: "#2ecc71",
+    truckPickup: "#e67e22",
+    truckDropoff: "#2ecc71",
+    truckReturn: "#e67e22"
+};
+
+// Label timing, in game-delta units (1 = 1/60 s, same as dt).
+const NAV_LABEL_HOLD = 180;   // fully visible
+const NAV_LABEL_FADE = 60;    // then fades to 0
+
+class NavigationManager {
+    constructor() {
+        this.ids = ["race", "taxi", "truck"];        // cycle order
+        this.labels = ["RACE", "TAXI", "CARGO"];
+        this.registered = [false, false, false];
+        this.selected = -1;
+
+        // Reused every frame (no per-frame allocations).
+        this.target = { x: 0, y: 0, color: "#ffffff" };
+        this.hasTarget = false;
+
+        this.angle = -Math.PI / 2;
+        this.labelTime = 0;
+        this.visible = false;     // true only if drawn last frame
+    }
+
+    // ---- source adapters ----------------------------------
+
+    isActive(i) {
+        if (i === 0) {
+            const rm = window.raceEventManager;
+            return !!(rm && rm.raceArrowActive);
+        }
+        if (i === 1) {
+            return typeof taxiManager !== "undefined" &&
+                !!taxiManager && taxiManager.isJobActive;
+        }
+        return typeof truckManager !== "undefined" &&
+            !!truckManager && truckManager.isJobActive;
+    }
+
+    // Writes the source's current target into `out` and returns
+    // true, or returns false (leaving `out` untouched) if it has no
+    // valid target right now.
+    fillTarget(i, out) {
+        if (i === 0) {
+            const rm = window.raceEventManager;
+            const t = rm ? rm.getRaceArrowTarget() : null;
+            if (!t) return false;
+            out.x = t.x; out.y = t.y; out.color = t.color;
+            return true;
+        }
+
+        if (i === 1) {
+            if (typeof taxiManager === "undefined" || !taxiManager ||
+                !taxiManager.isJobActive) return false;
+            const tm = taxiManager;
+
+            if (tm.hasPassenger) {
+                if (tm.destinationX === 0 && tm.destinationY === 0) {
+                    return false;
+                }
+                out.x = tm.destinationX; out.y = tm.destinationY;
+                out.color = NAV_MARKER_COLORS.taxiDropoff;
+                return true;
+            }
+            if (tm.pickupX !== 0) {
+                out.x = tm.pickupX; out.y = tm.pickupY;
+                out.color = NAV_MARKER_COLORS.taxiPickup;
+                return true;
+            }
+            return false;   // between customers
+        }
+
+        if (typeof truckManager === "undefined" || !truckManager ||
+            !truckManager.isJobActive) return false;
+        const tk = truckManager;
+
+        if (tk.stage === 1) {
+            out.x = tk.pickupX; out.y = tk.pickupY;
+            out.color = NAV_MARKER_COLORS.truckPickup;
+        } else if (tk.stage === 2) {
+            out.x = tk.destinationX; out.y = tk.destinationY;
+            out.color = NAV_MARKER_COLORS.truckDropoff;
+        } else if (tk.stage === 3) {
+            out.x = tk.companyX; out.y = tk.companyY;
+            out.color = NAV_MARKER_COLORS.truckReturn;
+        } else {
+            return false;
+        }
+        return true;
+    }
+
+    // ---- ownership ----------------------------------------
+
+    select(i) {
+        if (i === this.selected) return;     // timer only on change
+        this.selected = i;
+        this.labelTime = NAV_LABEL_HOLD + NAV_LABEL_FADE;
+    }
+
+    // Call when an activity successfully starts. Already-registered
+    // sources are ignored so stage changes never steal priority.
+    register(id) {
+        const i = this.ids.indexOf(id);
+        if (i < 0 || this.registered[i]) return;
+
+        this.registered[i] = true;
+        this.select(i);                       // new activity wins
+        this.hasTarget = this.fillTarget(i, this.target);
+    }
+
+    unregister(id) {
+        const i = typeof id === "number" ? id : this.ids.indexOf(id);
+        if (i < 0 || !this.registered[i]) return;
+
+        this.registered[i] = false;
+        if (this.selected === i) this.pickFallback(i);
+    }
+
+    // Next registered source (cyclic, after `from`) that has a valid
+    // target becomes the owner. If none, hide when `from` is gone.
+    pickFallback(from) {
+        const n = this.ids.length;
+        const count = from < 0 ? n : n - 1;
+
+        for (let k = 1; k <= count; k++) {
+            const j = (from + k) % n;
+            if (this.registered[j] && this.fillTarget(j, this.target)) {
+                this.select(j);
+                this.hasTarget = true;
+                return true;
+            }
+        }
+
+        this.hasTarget = false;
+        if (from >= 0 && !this.registered[from]) this.selected = -1;
+        return false;
+    }
+
+    // Player tapped the arrow: RACE -> TAXI -> CARGO -> RACE.
+    cycle() {
+        if (this.selected < 0) return false;
+        const n = this.ids.length;
+
+        for (let k = 1; k < n; k++) {
+            const j = (this.selected + k) % n;
+            if (this.registered[j] && this.fillTarget(j, this.target)) {
+                this.select(j);
+                this.hasTarget = true;
+                return true;
+            }
+        }
+        return false;     // only one valid source: nothing changes
+    }
+
+    // Once per frame (from updateGame).
+    update(dt) {
+        for (let i = 0; i < 3; i++) {
+            if (this.registered[i] && !this.isActive(i)) {
+                this.unregister(i);
+            }
+        }
+
+        const sel = this.selected;
+        if (sel >= 0 && this.registered[sel] &&
+            this.fillTarget(sel, this.target)) {
+            this.hasTarget = true;
+        } else {
+            this.pickFallback(sel);
+        }
+
+        if (this.labelTime > 0) this.labelTime -= dt;
+    }
+
+    // ---- input / drawing ----------------------------------
+
+    // Returns true when the tap hit the arrow (and was consumed).
+    handleTap(x, y) {
+        if (!this.visible) return false;
+        if (typeof playerPhoneOpen !== "undefined" && playerPhoneOpen) {
+            return false;
+        }
+
+        const dx = x - canvas.width / 2;
+        const dy = y - RACE_ARROW.y;
+        const r = RACE_ARROW.size + 20;       // finger-friendly
+
+        if (dx * dx + dy * dy > r * r) return false;
+
+        this.cycle();
+        return true;
+    }
+
+    // Screen-space arrow (HUD transform active). The world is drawn
+    // rotated by -camera.angle, so the arrow uses
+    // (world bearing - camera.angle).
+    draw(ctx) {
+        this.visible = false;
+
+        if (
+            this.selected < 0 ||
+            !this.hasTarget ||
+            typeof player === "undefined" ||
+            !player ||
+            typeof camera === "undefined" ||
+            !camera ||
+            (typeof isInsideHouse !== "undefined" && isInsideHouse) ||
+            (typeof isInsideDealership !== "undefined" && isInsideDealership)
+        ) {
+            return;
+        }
+
+        const target = this.target;
+
+        const camTarget =
+            player.isArrestPassenger &&
+            typeof arrestTransportCar !== "undefined" &&
+            arrestTransportCar
+                ? arrestTransportCar
+                : player;
+
+        const half = (camTarget.size || player.size || 0) / 2;
+
+        const dx = target.x - (camTarget.x + half);
+        const dy = target.y - (camTarget.y + half);
+
+        if (dx * dx + dy * dy > 0.25) {
+            this.angle = Math.atan2(dy, dx) - camera.angle;
+        }
+
+        const cx = ctx.canvas.width / 2;
+        const cy = RACE_ARROW.y;
+        const s = RACE_ARROW.size;
+
+        this.visible = true;
+
+        ctx.save();
+        ctx.translate(cx, cy);
+
+        // Backing disc so the arrow reads on any terrain.
+        ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+        ctx.beginPath();
+        ctx.arc(0, 0, s + 8, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Arrow drawn pointing up, then rotated.
+        ctx.rotate(this.angle + Math.PI / 2);
+
+        ctx.fillStyle = target.color;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2.5;
+        ctx.lineJoin = "round";
+
+        ctx.beginPath();
+        ctx.moveTo(0, -s);
+        ctx.lineTo(s * 0.8, s * 0.7);
+        ctx.lineTo(0, s * 0.3);
+        ctx.lineTo(-s * 0.8, s * 0.7);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.restore();
+
+        // Temporary owner label under the arrow.
+        if (this.labelTime > 0) {
+            ctx.save();
+            ctx.globalAlpha = this.labelTime >= NAV_LABEL_FADE
+                ? 1
+                : this.labelTime / NAV_LABEL_FADE;
+            ctx.font = "bold 14px Arial";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "top";
+            ctx.fillStyle = "#ffffff";
+            ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
+            ctx.shadowBlur = 3;
+            ctx.fillText(this.labels[this.selected], cx, cy + s + 12);
+            ctx.restore();
+        }
+    }
+}
+
 class RaceEventsManager {
     constructor() {
         this.state = "WAITING";
@@ -1093,7 +1390,7 @@ class RaceEventsManager {
 
         // On-screen navigation arrow (shown after ACCEPT is tapped).
         this.raceArrowActive = false;
-        this.raceArrowAngle = -Math.PI / 2;
+        this._arrowTarget = { x: 0, y: 0, color: "#ffffff" };
 
         this.raceStarted = false;
         this.raceClockStarted = false;
@@ -2095,6 +2392,10 @@ class RaceEventsManager {
     acceptRaceInfo() {
         this.startMarkerEnabled = true;
         this.raceArrowActive = true;
+
+        if (typeof navigationManager !== "undefined") {
+            navigationManager.register("race");
+        }
 
         // Back to the previous message, or CAUGHT UP.
         if (
@@ -3197,6 +3498,8 @@ class RaceEventsManager {
             return null;
         }
 
+        const out = this._arrowTarget;
+
         // Accepted, not joined yet: point at the start.
         if (
             this.state === "SCHEDULED" &&
@@ -3204,9 +3507,12 @@ class RaceEventsManager {
         ) {
             const start = this.getStartMarker();
 
-            return start
-                ? { x: start.x, y: start.y, color: RACE_ARROW.startColor }
-                : null;
+            if (!start) return null;
+
+            out.x = start.x;
+            out.y = start.y;
+            out.color = RACE_ARROW.startColor;
+            return out;
         }
 
         // Player is racing: checkpoints in order, then the finish.
@@ -3219,96 +3525,26 @@ class RaceEventsManager {
                 if (!this.checkpointsDone[i]) {
                     const cp = this.checkpoints[i];
 
-                    return {
-                        x: cp.x,
-                        y: cp.y,
-                        color: RACE_ARROW.checkpointColor
-                    };
+                    out.x = cp.x;
+                    out.y = cp.y;
+                    out.color = RACE_ARROW.checkpointColor;
+                    return out;
                 }
             }
 
-            return this.finish
-                ? {
-                    x: this.finish.x,
-                    y: this.finish.y,
-                    color: RACE_ARROW.startColor
-                }
-                : null;
+            if (!this.finish) return null;
+
+            out.x = this.finish.x;
+            out.y = this.finish.y;
+            out.color = RACE_ARROW.startColor;
+            return out;
         }
 
         return null;
     }
 
-    // Draws the arrow in screen space (call with the HUD transform
-    // active). The world is drawn rotated by -camera.angle, so the
-    // arrow uses (world bearing - camera.angle): it is relative to
-    // the viewport, not to the player's heading, and follows the
-    // camera's delayed rotation exactly.
-    drawRaceArrow(ctx) {
-        const target = this.getRaceArrowTarget();
-
-        if (
-            !target ||
-            typeof player === "undefined" ||
-            !player ||
-            typeof camera === "undefined" ||
-            !camera ||
-            (typeof isInsideHouse !== "undefined" && isInsideHouse) ||
-            (typeof isInsideDealership !== "undefined" && isInsideDealership)
-        ) {
-            return;
-        }
-
-        // Same point the camera is centred on.
-        const camTarget =
-            player.isArrestPassenger &&
-            typeof arrestTransportCar !== "undefined" &&
-            arrestTransportCar
-                ? arrestTransportCar
-                : player;
-
-        const half = (camTarget.size || player.size || 0) / 2;
-
-        const dx = target.x - (camTarget.x + half);
-        const dy = target.y - (camTarget.y + half);
-
-        if (Math.hypot(dx, dy) > 0.5) {
-            this.raceArrowAngle =
-                Math.atan2(dy, dx) - camera.angle;
-        }
-
-        const cx = ctx.canvas.width / 2;
-        const cy = RACE_ARROW.y;
-        const s = RACE_ARROW.size;
-
-        ctx.save();
-        ctx.translate(cx, cy);
-
-        // Backing disc so the arrow reads on any terrain.
-        ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
-        ctx.beginPath();
-        ctx.arc(0, 0, s + 8, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Arrow drawn pointing up, then rotated.
-        ctx.rotate(this.raceArrowAngle + Math.PI / 2);
-
-        ctx.fillStyle = target.color;
-        ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = 2.5;
-        ctx.lineJoin = "round";
-
-        ctx.beginPath();
-        ctx.moveTo(0, -s);
-        ctx.lineTo(s * 0.8, s * 0.7);
-        ctx.lineTo(0, s * 0.3);
-        ctx.lineTo(-s * 0.8, s * 0.7);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.restore();
-    }
+    // Drawing / input for the arrow now lives in the shared
+    // NavigationManager (navigationManager.draw / handleTap).
 
     // --------------------------------------------------------
     // CLEANUP
@@ -3400,3 +3636,6 @@ class RaceEventsManager {
 
 window.raceEventManager =
     new RaceEventsManager();
+
+window.navigationManager =
+    new NavigationManager();

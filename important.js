@@ -2585,6 +2585,12 @@ if (showFullMap || fullMapAnimating) {
 }
 
 if (gameActive) {
+    // Shared navigation arrow: a tap on it cycles the owner.
+    if (typeof navigationManager !== "undefined" &&
+        navigationManager.handleTap(mouseX, mouseY)) {
+        return;
+    }
+
     const radarRadius = 80, padding = 20;
     const mmX = canvas.width - radarRadius - padding;
     const mmY = radarRadius + padding;

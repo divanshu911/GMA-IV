@@ -525,6 +525,7 @@ if (taxiBtn) {
     taxiBtn.addEventListener('click', () => {
       if (player.money >= taxiManager.rentCost) {
         taxiManager.startJob(player, cars, npcs);
+        if (typeof navigationManager !== "undefined") navigationManager.register("taxi");
         taxiBtn.style.display = 'none'; 
       } else {
         taxiManager.setMessage("Not enough money to rent a Taxi! Need $" + taxiManager.rentCost, 60);
@@ -644,15 +645,10 @@ class TruckJobManager {
     this.destinationX = 0;
     this.destinationY = 0;
 
-    this.messageText = "";
-    this.messageTimer = 0;
+    
     this.warnedOutOfTruck = false;
   }
 
-  setMessage(text, duration = 180) {
-    this.messageText = text;
-    this.messageTimer = duration;
-  }
 
   startJob(player, cars) {
     this.isJobActive = true;
@@ -712,8 +708,6 @@ class TruckJobManager {
   }
 
   update(dt, player, cars) {
-    if (this.messageTimer > 0) this.messageTimer -= 1 * dt;
-
     
 const nearCompany = isWithinJobLocationRadiusCached(
     this, "truckCompany",
@@ -736,7 +730,7 @@ if (!this.isJobActive) return;
         this.failJob(player, cars);
         return;
       } else if (!this.warnedOutOfTruck) {
-        this.setMessage("Get back in the truck! Don't leave it to avoid penalty.", 180);
+        taxiManager.setMessage("Get back in the truck! Don't leave it to avoid penalty.", 180);
         this.warnedOutOfTruck = true;
       }
     }
@@ -750,7 +744,7 @@ if (!this.isJobActive) return;
           this.pickupX = 0;
           this.pickupY = 0;
           this.generateDropoffPoint();
-          truckManager.setMessage("Goods Loaded! Deliver them safely to the green waypoint.", 240);
+          taxiManager.setMessage("Goods Loaded! Deliver them safely to the green waypoint.", 240);
         }
       } else if (this.stage === 2) {
         let dist = Math.sqrt(Math.pow(this.truck.x - this.destinationX, 2) + Math.pow(this.truck.y - this.destinationY, 2));
@@ -758,7 +752,7 @@ if (!this.isJobActive) return;
           this.stage = 3;
           this.destinationX = 0;
           this.destinationY = 0;
-          truckManager.setMessage("Goods Delivered! Return the truck to the Truck Company zone.", 240);
+          taxiManager.setMessage("Goods Delivered! Return the truck to the Truck Company zone.", 240);
         }
       } else if (this.stage === 3) {
         let dist = Math.sqrt(Math.pow(this.truck.x - this.companyX, 2) + Math.pow(this.truck.y - this.companyY, 2));
@@ -766,23 +760,13 @@ if (!this.isJobActive) return;
           let reward = 150 + Math.floor(Math.random() * 71); 
           player.money += reward;
           localStorage.setItem("gma_player_money", player.money);
-          truckManager.setMessage(`Cargo Completed! Job Pay: +$${reward}`, 240);
+          taxiManager.setMessage(`Cargo Completed! Job Pay: +$${reward}`, 240);
           this.cleanup(cars);
         }
       }
     }
   }
 
-  drawUI(ctx) {
-    if (this.messageTimer > 0 && this.messageText) {
-      ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
-      ctx.fillRect(canvas.width / 2 - 250, 95, 500, 45);
-      ctx.fillStyle = "#e67e22";
-      ctx.font = "bold 15px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText(this.messageText, canvas.width / 2, 123);
-    }
-  }
 
   drawWorldMarkers(ctx) {}
 }
@@ -799,10 +783,11 @@ if (truckBtn) {
 
       if (completedTaxi >= 15) {
         truckManager.startJob(player, cars);
+        if (typeof navigationManager !== "undefined") navigationManager.register("truck");
         truckBtn.style.display = 'none';
       } else {
         let missingMissions = 15 - completedTaxi;
-        truckManager.setMessage(`Locked: Complete ${missingMissions} more Taxi jobs to unlock Cargo Missions!`, 180);
+        taxiManager.setMessage(`Locked: Complete ${missingMissions} more Taxi jobs to unlock Cargo Missions!`, 180);
       }
     });
 }
