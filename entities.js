@@ -1,4 +1,4 @@
-console.log("6am")
+console.log("8am")
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -805,8 +805,7 @@ this.recoveryPath = null;
 this.recoveryPathIndex = 0;
   }
 update(dt) {
-    if (this.isPassenger) return;
-
+if (this.isPassenger && !this.isTaxiWaiting) return;
     // ------------------------------------------------------------
     // Injured pedestrians stay exactly where they were hit.
     // ------------------------------------------------------------
@@ -1502,8 +1501,7 @@ this.walkTimer +=
                   
         
   draw(ctx) {
-    if (this.isPassenger) return;
-
+    if (this.isPassenger && !this.isTaxiWaiting) return;
     ctx.save();
     ctx.translate(this.x, this.y);
 

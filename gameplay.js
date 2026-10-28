@@ -1,4 +1,4 @@
-console.log("runinh");
+console.log("ruoph");
 
 const JOB_LOCATION_CHECK_INTERVAL = 15;
 
@@ -22,6 +22,7 @@ function isWithinJobLocationRadiusCached(owner, key, x, y, centerX, centerY, rad
     return cached.inside;
 }
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
+
 class TaxiJobManager {
   constructor(depotX, depotY) {
     this.depotX = depotX;
@@ -30,8 +31,8 @@ class TaxiJobManager {
     this.rentCost = 100;
 
     this.isJobActive = false;
-    this.rentTimer = 0;        
-    this.maxRentTime = 8000;   
+    this.rentTimer = 0;
+    this.maxRentTime = 8000;
 
     this.currentPassenger = null;
     this.pickupX = 0;
@@ -44,6 +45,12 @@ class TaxiJobManager {
     this.messageTimer = 0;
     this.pickupCooldown = 0;
     this.warnedOutOfTaxi = false;
+
+    this.passengerState = "none";
+    this.passengerWalkSpeed = 0.75;
+    this.stationaryTimer = 0;
+    this.lastTaxiX = 0;
+    this.lastTaxiY = 0;
   }
 
   setMessage(text, duration = 180) {
@@ -51,174 +58,419 @@ class TaxiJobManager {
     this.messageTimer = duration;
   }
 
+  // Search a limited area once per pickup. Prefer walkable grass
+  // beside the road and close to an unwalkable boundary.
+  findRoadsidePassengerPosition(roadX, roadY) {
+    const isWalkable = (x, y) =>
+      typeof isWalkableColor === "function" &&
+      isWalkableColor(x, y, 12);
+
+    const isRoad = (x, y) =>
+      typeof isRoadColor === "function" &&
+      isRoadColor(x, y);
+
+    let best = null;
+    let bestScore = Infinity;
+
+    // Fixed, bounded search; never runs every frame.
+    for (let radius = 18; radius <= 90; radius += 12) {
+      for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 8) {
+        const x = Math.round(roadX + Math.cos(angle) * radius);
+        const y = Math.round(roadY + Math.sin(angle) * radius);
+
+        if (!isWalkable(x, y) || isRoad(x, y)) continue;
+
+        // Keep the NPC on the walkable side of a building,
+        // river, or other unwalkable boundary when possible.
+        let nearBlockedEdge = false;
+        for (let a = 0; a < 8; a++) {
+          const edgeAngle = a * Math.PI / 4;
+          const ex = x + Math.cos(edgeAngle) * 16;
+          const ey = y + Math.sin(edgeAngle) * 16;
+
+          if (!isWalkable(ex, ey)) {
+            nearBlockedEdge = true;
+            break;
+          }
+        }
+
+        // Prefer grass adjacent to an obstacle, but still
+        // close enough to the road for the taxi to reach.
+        const score =
+          radius + (nearBlockedEdge ? -10 : 12);
+
+        if (score < bestScore) {
+          bestScore = score;
+          best = { x, y };
+        }
+      }
+
+      // A good nearby roadside point has been found.
+      if (best && bestScore <= radius) break;
+    }
+
+    // Fallback: try nearby walkable positions if the roadside
+    // scan found no suitable point.
+    if (!best) {
+      for (let radius = 12; radius <= 72; radius += 12) {
+        for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
+          const x = Math.round(roadX + Math.cos(angle) * radius);
+          const y = Math.round(roadY + Math.sin(angle) * radius);
+
+          if (isWalkable(x, y) && !isRoad(x, y)) {
+            best = { x, y };
+            break;
+          }
+        }
+        if (best) break;
+      }
+    }
+
+    // Last resort: use the road pickup point itself, but only
+    // when no walkable roadside point exists nearby.
+    return best || { x: roadX, y: roadY };
+  }
+
+  spawnWaitingPassenger(npcs) {
+    const pos = this.findRoadsidePassengerPosition(
+      this.pickupX,
+      this.pickupY
+    );
+
+    const shirtColors = [
+      "#3498db", "#e74c3c", "#2ecc71", "#f1c40f", "#9b59b6"
+    ];
+    const hairColors = ["#2d3436", "#4a3728", "#d35400"];
+    const skinColors = ["#ffdbac", "#f1c27d", "#e0ac69"];
+
+    this.currentPassenger = new NPC(
+      Date.now(),
+      pos.x,
+      pos.y,
+      shirtColors[Math.floor(Math.random() * shirtColors.length)],
+      hairColors[Math.floor(Math.random() * hairColors.length)],
+      skinColors[Math.floor(Math.random() * skinColors.length)]
+    );
+
+    this.currentPassenger.isTaxiWaiting = true;
+    this.currentPassenger.isPassenger = false;
+    this.passengerState = "waiting";
+    this.stationaryTimer = 0;
+
+    // Keep the waiting pedestrian in the normal NPC array so
+    // collisions and injury detection can affect them.
+    if (!npcs.includes(this.currentPassenger)) {
+      npcs.push(this.currentPassenger);
+    }
+  }
+
+  removeWaitingPassenger(npcs) {
+    if (!this.currentPassenger) return;
+
+    const index = npcs.indexOf(this.currentPassenger);
+    if (index !== -1) npcs.splice(index, 1);
+
+    this.currentPassenger.isTaxiWaiting = false;
+    this.currentPassenger = null;
+    this.passengerState = "none";
+  }
+
   update(dt, player, cars, npcs) {
-    if (this.messageTimer > 0) this.messageTimer -= 1 * dt;  
-    
-if (!this.isJobActive) {
-    const nearDepot = isWithinJobLocationRadiusCached(
+    if (this.messageTimer > 0) {
+      this.messageTimer -= dt;
+    }
+
+    if (!this.isJobActive) {
+      const nearDepot = isWithinJobLocationRadiusCached(
         this, "taxiDepot",
         player.x, player.y,
         this.depotX, this.depotY, 60
-    );
+      );
 
-    if (nearDepot && !playerCar) {
-        taxiBtn.style.display = 'flex';
-    } else {
-        taxiBtn.style.display = 'none';
+      if (nearDepot && !playerCar) {
+        taxiBtn.style.display = "flex";
+      } else {
+        taxiBtn.style.display = "none";
+      }
+      return;
     }
 
-    return;
-}
-
-    this.rentTimer -= 1 * dt;
+    this.rentTimer -= dt;
     if (this.rentTimer <= 0) {
       this.endJobExpired(player, cars, npcs);
       return;
     }
 
     if (!playerCar || !playerCar.isTaxi) {
-      let taxi = cars.find(c => c.isTaxi);
+      const taxi = cars.find(c => c.isTaxi);
       if (taxi) {
-        let distToTaxi = Math.sqrt(Math.pow(player.x - taxi.x, 2) + Math.pow(player.y - taxi.y, 2));
-        if (distToTaxi > 300) {
+        const dx = player.x - taxi.x;
+        const dy = player.y - taxi.y;
+
+        if (dx * dx + dy * dy > 300 * 300) {
           this.failJob(player, cars, npcs);
           return;
         }
       }
+
       if (!this.warnedOutOfTaxi) {
-        this.setMessage("Get back into your Taxi! Don't stray too far.", 180);
+        this.setMessage(
+          "Get back into your Taxi! Don't stray too far.", 180
+        );
         this.warnedOutOfTaxi = true;
       }
       return;
     }
+
     this.warnedOutOfTaxi = false;
 
     if (this.pickupCooldown > 0) {
-      this.pickupCooldown -= 1 * dt;
+      this.pickupCooldown -= dt;
     }
 
     if (!this.hasPassenger) {
-      if (this.pickupX === 0 && this.pickupY === 0 && this.pickupCooldown <= 0) {
-        this.generateNewPickupPoint();
+      if (
+        this.pickupX === 0 &&
+        this.pickupY === 0 &&
+        this.pickupCooldown <= 0
+      ) {
+        this.generateNewPickupPoint(npcs);
+      }
+
+      if (this.currentPassenger && this.currentPassenger.isInjured) {
+        this.removeWaitingPassenger(npcs);
+        this.pickupX = 0;
+        this.pickupY = 0;
+        this.pickupCooldown = 30;
+        this.setMessage(
+          "Passenger injured! Find another customer.", 210
+        );
+        return;
       }
 
       if (this.pickupX !== 0 && this.pickupY !== 0) {
-        let distToPickup = Math.sqrt(Math.pow(playerCar.x - this.pickupX, 2) + Math.pow(playerCar.y - this.pickupY, 2));
-        if (distToPickup < 50) {
-          this.pickUpPassengerAtPoint();
+        const dx = playerCar.x - this.pickupX;
+        const dy = playerCar.y - this.pickupY;
+        const distanceSq = dx * dx + dy * dy;
+
+        if (distanceSq < 55 * 55 && this.currentPassenger) {
+          // The taxi must be almost stationary near the pickup
+          // before the passenger starts walking over.
+          if (Math.abs(playerCar.speed || 0) < 0.12) {
+            this.stationaryTimer += dt;
+          } else {
+            this.stationaryTimer = 0;
+          }
+
+          if (this.stationaryTimer >= 12) {
+            this.passengerState = "approaching";
+          }
+        } else {
+          this.stationaryTimer = 0;
+        }
+
+        if (
+          this.passengerState === "approaching" &&
+          this.currentPassenger &&
+          !this.currentPassenger.isInjured
+        ) {
+          const p = this.currentPassenger;
+          const tx = playerCar.x;
+          const ty = playerCar.y;
+          const pdx = tx - p.x;
+          const pdy = ty - p.y;
+          const distance = Math.sqrt(pdx * pdx + pdy * pdy);
+
+          if (distance <= 27) {
+            this.pickUpPassengerAtPoint(npcs);
+            return;
+          }
+
+          // Direct movement only: no A*, no path creation.
+          const step = Math.min(
+            distance,
+            this.passengerWalkSpeed * dt
+          );
+          const nextX = p.x + (pdx / distance) * step;
+          const nextY = p.y + (pdy / distance) * step;
+
+          // Walk around only if the next position is walkable.
+          // No expensive searches or repeated pathfinding.
+          if (
+            typeof isWalkableColor !== "function" ||
+            isWalkableColor(nextX, nextY, p.size || 12)
+          ) {
+            p.x = nextX;
+            p.y = nextY;
+            p.angle = Math.atan2(pdy, pdx);
+          }
         }
       }
     } else {
-      let distToDest = Math.sqrt(Math.pow(playerCar.x - this.destinationX, 2) + Math.pow(playerCar.y - this.destinationY, 2));
-      if (distToDest < 60) {
+      const dx = playerCar.x - this.destinationX;
+      const dy = playerCar.y - this.destinationY;
+
+      if (dx * dx + dy * dy < 60 * 60) {
         this.dropOffPassenger(player, npcs);
       }
     }
   }
 
-  startJob(player, cars) {
+  startJob(player, cars, npcs) {
     player.money -= this.rentCost;
-    localStorage.setItem("gma_player_money", player.money); 
+    localStorage.setItem("gma_player_money", player.money);
 
     this.isJobActive = true;
     this.rentTimer = this.maxRentTime;
     this.hasPassenger = false;
     this.currentPassenger = null;
-    this.pickupCooldown = 0; 
+    this.passengerState = "none";
+    this.pickupCooldown = 0;
+    this.warnedOutOfTaxi = false;
 
-    let taxiId = cars.length + 999;
-    let taxi = new Car(taxiId, this.depotX, this.depotY, "#f1c40f");
+    const taxiId = cars.length + 999;
+    const taxi = new Car(taxiId, this.depotX, this.depotY, "#f1c40f");
 
-    taxi.type = "sedan"; taxi.ownerType = "taxiDepot";
-    taxi.width = 16; taxi.length = 28;
+    taxi.type = "sedan";
+    taxi.ownerType = "taxiDepot";
+    taxi.width = 16;
+    taxi.length = 28;
     taxi.baseSpeed = 1.2 + Math.random() * 0.5;
-    taxi.turnSpeed = 0.05; taxi.sensorLength = 35;
+    taxi.turnSpeed = 0.05;
+    taxi.sensorLength = 35;
     taxi.isTaxi = true;
     taxi.hasDriver = false;
-    taxi.isParked = true; 
+    taxi.isParked = true;
     cars.push(taxi);
 
     playerCar = taxi;
-    playerCar.isParked = false; 
-    this.generateNewPickupPoint();
+    playerCar.isParked = false;
+
+    this.generateNewPickupPoint(npcs);
   }
 
-  generateNewPickupPoint() {
-    let pickPos = getRandomStrictRoadPosition();
+  generateNewPickupPoint(npcs = []) {
+    this.removeWaitingPassenger(npcs);
+
+    const pickPos = getRandomStrictRoadPosition();
     this.pickupX = pickPos.x;
     this.pickupY = pickPos.y;
     this.hasPassenger = false;
-    this.setMessage("New customer waiting! Follow yellow marker to the pickup zone.", 240);
+    this.passengerState = "none";
+    this.stationaryTimer = 0;
+
+    this.spawnWaitingPassenger(npcs);
+
+    this.setMessage(
+      "New customer waiting! Stop near the yellow marker for pickup.", 240
+    );
   }
 
-  pickUpPassengerAtPoint() {
+  pickUpPassengerAtPoint(npcs) {
+    if (!this.currentPassenger || this.currentPassenger.isInjured) {
+      this.removeWaitingPassenger(npcs);
+      this.pickupX = 0;
+      this.pickupY = 0;
+      this.pickupCooldown = 30;
+      this.setMessage("Customer unavailable. Finding another pickup.", 180);
+      return;
+    }
+
+    const passenger = this.currentPassenger;
+
+    // Remove the pedestrian from the world NPC list while inside
+    // the taxi, avoiding duplicate NPC references on drop-off.
+    const index = npcs.indexOf(passenger);
+    if (index !== -1) npcs.splice(index, 1);
+
+    passenger.isTaxiWaiting = false;
+    passenger.isPassenger = true;
+
     this.hasPassenger = true;
-    const shirtColors = ["#3498db", "#e74c3c", "#2ecc71", "#f1c40f", "#9b59b6"];
-    const hairColors = ["#2d3436", "#4a3728", "#d35400"];
-    const skinColors = ["#ffdbac", "#f1c27d", "#e0ac69"];
-
-    this.currentPassenger = new NPC(
-      Date.now(), this.pickupX, this.pickupY,
-      shirtColors[Math.floor(Math.random() * shirtColors.length)],
-      hairColors[Math.floor(Math.random() * hairColors.length)],
-      skinColors[Math.floor(Math.random() * skinColors.length)]
-    );
-    this.currentPassenger.isPassenger = true;
-
+    this.passengerState = "boarded";
     this.pickupX = 0;
     this.pickupY = 0;
+    this.stationaryTimer = 0;
 
-    let dest = getRandomStrictRoadPosition();
+    const dest = getRandomStrictRoadPosition();
     this.destinationX = dest.x;
     this.destinationY = dest.y;
 
-    this.setMessage("Passenger picked up! Head to the green dropoff zone.", 180);
+    this.setMessage(
+      "Passenger picked up! Head to the green dropoff zone.", 180
+    );
   }
 
   dropOffPassenger(player, npcs) {
-    let fare = 100 + Math.floor(Math.random() * 60);
+    const fare = 100 + Math.floor(Math.random() * 60);
     player.money += fare;
     localStorage.setItem("gma_player_money", player.money);
 
-    player.taxiMissionsCompleted = (player.taxiMissionsCompleted || 0) + 1;
-    localStorage.setItem("gma_taxi_missions_completed", player.taxiMissionsCompleted);
+    player.taxiMissionsCompleted =
+      (player.taxiMissionsCompleted || 0) + 1;
+    localStorage.setItem(
+      "gma_taxi_missions_completed",
+      player.taxiMissionsCompleted
+    );
 
     if (this.currentPassenger) {
       this.currentPassenger.isPassenger = false;
+      this.currentPassenger.isTaxiWaiting = false;
       this.currentPassenger.x = playerCar.x + 35;
       this.currentPassenger.y = playerCar.y;
-      npcs.push(this.currentPassenger); 
+
+      if (!npcs.includes(this.currentPassenger)) {
+        npcs.push(this.currentPassenger);
+      }
     }
 
     this.hasPassenger = false;
     this.currentPassenger = null;
-    this.pickupCooldown = 180; 
+    this.passengerState = "none";
+    this.pickupCooldown = 180;
+    this.pickupX = 0;
+    this.pickupY = 0;
 
-    this.setMessage("Passenger arrived safely! Earned $" + fare, 180);
+    this.setMessage(
+      "Passenger arrived safely! Earned $" + fare, 180
+    );
   }
 
   failJob(player, cars, npcs) {
     player.money -= 80;
     localStorage.setItem("gma_player_money", player.money);
     this.endJobExpired(player, cars, npcs);
-    this.setMessage("Abandoned taxi! Penalty: -$80. Taxi despawned.", 300);
+    this.setMessage(
+      "Abandoned taxi! Penalty: -$80. Taxi despawned.", 300
+    );
   }
 
   endJobExpired(player, cars, npcs) {
     this.isJobActive = false;
 
-    if (this.hasPassenger && this.currentPassenger) {
-      this.currentPassenger.isPassenger = false;
-      npcs.push(this.currentPassenger);
+    if (this.currentPassenger) {
+      if (this.hasPassenger) {
+        this.currentPassenger.isPassenger = false;
+        this.currentPassenger.isTaxiWaiting = false;
+        if (!npcs.includes(this.currentPassenger)) {
+          npcs.push(this.currentPassenger);
+        }
+      } else {
+        this.removeWaitingPassenger(npcs);
+      }
     }
 
     this.hasPassenger = false;
     this.currentPassenger = null;
+    this.passengerState = "none";
     this.pickupX = 0;
     this.pickupY = 0;
+    this.destinationX = 0;
+    this.destinationY = 0;
+
     this.setMessage("Rental time expired! Taxi despawned.", 300);
 
-    let taxiIndex = cars.findIndex(c => c.isTaxi);
+    const taxiIndex = cars.findIndex(c => c.isTaxi);
     if (taxiIndex > -1) cars.splice(taxiIndex, 1);
     if (playerCar && playerCar.isTaxi) playerCar = null;
   }
@@ -240,20 +492,24 @@ if (!this.isJobActive) {
       ctx.font = "14px Arial";
       ctx.textAlign = "left";
 
-      let secondsLeft = Math.max(0, Math.floor(this.rentTimer / 60));
+      const secondsLeft = Math.max(0, Math.floor(this.rentTimer / 60));
       ctx.fillText(` TIME LEFT: ${secondsLeft}s`, 35, 105);
-      ctx.fillText(`STATUS: ${this.hasPassenger ? "Ferrying..." : "Searching..."}`, 35, 130);
+
+      let status = "Searching...";
+      if (this.passengerState === "approaching") status = "Pickup...";
+      if (this.hasPassenger) status = "Ferrying...";
+
+      ctx.fillText(`STATUS: ${status}`, 35, 130);
     }
   }
 
   drawWorldMarkers(ctx) {}
 }
-
 const taxiBtn = document.getElementById('taxiBtn');
 if (taxiBtn) {
     taxiBtn.addEventListener('click', () => {
       if (player.money >= taxiManager.rentCost) {
-        taxiManager.startJob(player, cars);
+        taxiManager.startJob(player, cars, npcs);
         taxiBtn.style.display = 'none'; 
       } else {
         taxiManager.setMessage("Not enough money to rent a Taxi! Need $" + taxiManager.rentCost, 60);
@@ -1319,10 +1575,18 @@ respawnBtn.addEventListener('click', () => {
 
         taxiManager.setMessage("Respawned successfully on nearby road!", 180);
 
-        if (typeof showFullMap !== 'undefined') {
-            showFullMap = false;
-            gameActive = true;
-        }
+       if (typeof showFullMap !== 'undefined') {
+    showFullMap = false;
+    fullMapAnimating = false;
+    mapSettingsOpen = false;
+
+    // Restore joystick touch input after respawning.
+    if (typeof sbSetJoystickZoneInteractive === 'function') {
+        sbSetJoystickZoneInteractive(true);
+    }
+
+    gameActive = true;
+       } 
     } else {
         taxiManager.setMessage(status.reason, 240);
     }
