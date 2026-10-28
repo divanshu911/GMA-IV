@@ -1,4 +1,4 @@
-console.log("ruoph");
+console.log("ruh");
 
 const JOB_LOCATION_CHECK_INTERVAL = 15;
 
@@ -238,14 +238,22 @@ class TaxiJobManager {
       }
 
       if (this.currentPassenger && this.currentPassenger.isInjured) {
-        this.removeWaitingPassenger(npcs);
-        this.pickupX = 0;
-        this.pickupY = 0;
-        this.pickupCooldown = 30;
-        this.setMessage(
-          "Passenger injured! Find another customer.", 210
-        );
-        return;
+    // Leave the injured pedestrian in the NPC array.
+    // Normal world cleanup can remove them later.
+    this.currentPassenger.isTaxiWaiting = false;
+    this.currentPassenger.inConversation = false;
+
+    this.currentPassenger = null;
+    this.passengerState = "none";
+    this.pickupX = 0;
+    this.pickupY = 0;
+    this.stationaryTimer = 0;
+    this.pickupCooldown = 30;
+
+    this.setMessage(
+        "Passenger injured! Finding another customer.", 210
+    );
+    return;
       }
 
       if (this.pickupX !== 0 && this.pickupY !== 0) {
@@ -287,23 +295,30 @@ class TaxiJobManager {
           }
 
           // Direct movement only: no A*, no path creation.
-          const step = Math.min(
-            distance,
-            this.passengerWalkSpeed * dt
-          );
-          const nextX = p.x + (pdx / distance) * step;
-          const nextY = p.y + (pdy / distance) * step;
+          
 
-          // Walk around only if the next position is walkable.
-          // No expensive searches or repeated pathfinding.
-          if (
-            typeof isWalkableColor !== "function" ||
-            isWalkableColor(nextX, nextY, p.size || 12)
-          ) {
-            p.x = nextX;
-            p.y = nextY;
-            p.angle = Math.atan2(pdy, pdx);
-          }
+          const step = Math.min(
+    distance,
+    this.passengerWalkSpeed * dt
+);
+
+const nextX = p.x + (pdx / distance) * step;
+const nextY = p.y + (pdy / distance) * step;
+
+// Always face the taxi while approaching it.
+p.angle = Math.atan2(pdy, pdx);
+
+// Advance the existing walking animation only while moving.
+if (
+    typeof isWalkableColor !== "function" ||
+    isWalkableColor(nextX, nextY, p.size || 12)
+) {
+    p.x = nextX;
+    p.y = nextY;
+
+    // Use the pedestrian's existing animation timer.
+    p.walkTimer += step * 0.12;
+}
         }
       }
     } else {
