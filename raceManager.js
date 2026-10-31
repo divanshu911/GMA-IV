@@ -1343,18 +1343,27 @@ class NavigationManager {
         ctx.restore();
 
         // Temporary owner label under the arrow.
+        
+        // Temporary owner label beside the arrow.
         if (this.labelTime > 0) {
             ctx.save();
             ctx.globalAlpha = this.labelTime >= NAV_LABEL_FADE
                 ? 1
                 : this.labelTime / NAV_LABEL_FADE;
+
             ctx.font = "bold 14px Arial";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "top";
+            ctx.textAlign = "left";
+            ctx.textBaseline = "middle";
             ctx.fillStyle = "#ffffff";
             ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
             ctx.shadowBlur = 3;
-            ctx.fillText(this.labels[this.selected], cx, cy + s + 12);
+
+            ctx.fillText(
+                this.labels[this.selected],
+                cx + s + 14,
+                cy
+            );
+
             ctx.restore();
         }
     }

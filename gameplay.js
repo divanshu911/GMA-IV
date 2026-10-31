@@ -1,4 +1,4 @@
-console.log("ruh");
+console.log("rukkh");
 
 const JOB_LOCATION_CHECK_INTERVAL = 15;
 
@@ -152,10 +152,17 @@ class TaxiJobManager {
       skinColors[Math.floor(Math.random() * skinColors.length)]
     );
 
+    
     this.currentPassenger.isTaxiWaiting = true;
     this.currentPassenger.isPassenger = false;
+
+    // Face the road pickup point while waiting for the taxi.
+    this.currentPassenger.angle = Math.atan2(
+      this.pickupY - pos.y,
+      this.pickupX - pos.x
+    );
+
     this.passengerState = "waiting";
-    this.stationaryTimer = 0;
 
     // Keep the waiting pedestrian in the normal NPC array so
     // collisions and injury detection can affect them.
@@ -305,20 +312,15 @@ class TaxiJobManager {
 const nextX = p.x + (pdx / distance) * step;
 const nextY = p.y + (pdy / distance) * step;
 
-// Always face the taxi while approaching it.
-p.angle = Math.atan2(pdy, pdx);
 
-// Advance the existing walking animation only while moving.
-if (
-    typeof isWalkableColor !== "function" ||
-    isWalkableColor(nextX, nextY, p.size || 12)
-) {
-    p.x = nextX;
-    p.y = nextY;
+          // Always face the taxi while approaching it.
+          p.angle = Math.atan2(pdy, pdx);
 
-    // Use the pedestrian's existing animation timer.
-    p.walkTimer += step * 0.12;
-}
+          // Taxi passengers can cross any surface to reach the taxi.
+          p.x = nextX;
+          p.y = nextY;
+
+                    p.walkTimer += step * 0.12;          
         }
       }
     } else {
@@ -686,9 +688,9 @@ class TruckJobManager {
   }
 
   failJob(player, cars) {
-    player.money -= 140; 
+    player.money -= 120; 
     localStorage.setItem("gma_player_money", player.money);
-    this.setMessage("Mission Failed! Left the truck behind. Penalty: -$140", 240);
+    taximanager.setMessage("Mission Failed! Left the truck behind. Penalty: -$120", 240);
     this.cleanup(cars);
   }
 

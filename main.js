@@ -149,31 +149,21 @@ mapImage.addEventListener('load', () => {
     mapWidth = mapImage.width;
     mapHeight = mapImage.height;
 
-    // Build the low-resolution static minimap copy once.
     buildMinimapMapCache();
 
-    // Tell the loading screen that the visual map is ready.
     mapAssetLoaded = true;
     tryEnableStartButton();
 
-    // Shadow lighting: analyse the map once, in the background, so entities can
-    // be shaded while they stand in a detected shadow.
     if (window.ShadowLighting) ShadowLighting.start();
 });
 mapImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/Map2.png";
 
 
 // ===== 2. COLLISION & A* NAVIGATION MAP =====
-// Paste your collision map image URL below:
 const COLLISION_MAP_URL = "YOUR_COLLISION_MAP_URL_HERE"; 
 
 const collisionMapImage = new Image();
 collisionMapImage.crossOrigin = "Anonymous";
-// ============================================================
-// PROCEDURAL BUILDING LIGHTS
-// Detected once from CollisionMap2 when it loads.
-// ============================================================
-
 window.buildingLightShapes = [];
 window.buildingLightChunks = new Map();
 window.detectedBuildings = [];
@@ -459,7 +449,6 @@ function generateLocationBoards() {
     );
 }
 
-
 // Draw the physical board BEFORE the night overlay.
 function drawLocationBoards(ctx) {
     const boards = window.locationBoards || [];
@@ -518,6 +507,7 @@ function drawLocationBoards(ctx) {
         ctx.restore();
     }
 }
+
 
 
 // Draw the lettering AFTER the night overlay.
