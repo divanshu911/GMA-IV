@@ -1,4 +1,4 @@
-console.log("rukkh");
+console.log("rkh");
 
 const JOB_LOCATION_CHECK_INTERVAL = 15;
 
@@ -419,7 +419,7 @@ const nextY = p.y + (pdy / distance) * step;
   }
 
   dropOffPassenger(player, npcs) {
-    const fare = 100 + Math.floor(Math.random() * 60);
+    const fare = 85 + Math.floor(Math.random() * 58);
     player.money += fare;
     localStorage.setItem("gma_player_money", player.money);
 
@@ -759,7 +759,7 @@ if (!this.isJobActive) return;
       } else if (this.stage === 3) {
         let dist = Math.sqrt(Math.pow(this.truck.x - this.companyX, 2) + Math.pow(this.truck.y - this.companyY, 2));
         if (dist < 60) {
-          let reward = 150 + Math.floor(Math.random() * 71); 
+          let reward = 150 + Math.floor(Math.random() * 85); 
           player.money += reward;
           localStorage.setItem("gma_player_money", player.money);
           taxiManager.setMessage(`Cargo Completed! Job Pay: +$${reward}`, 240);
