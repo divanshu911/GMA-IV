@@ -1127,16 +1127,20 @@ function drawNightOverlay() {
     const cosA = Math.cos(camera.angle);
     const sinA = Math.sin(camera.angle);
 
-    const screenCenterX = canvas.width * 0.5;
-    const screenCenterY = canvas.height * 0.5;
+    // Must match the world pass in main.js: translate(center + shake) -> scale(zoom).
+    const frameCam = window.sbFrameCamera || { zoom: 1, shakeX: 0, shakeY: 0 };
+    const camZoom = frameCam.zoom || 1;
+
+    const screenCenterX = canvas.width * 0.5 + frameCam.shakeX;
+    const screenCenterY = canvas.height * 0.5 + frameCam.shakeY;
 
     function worldToScreen(x, y) {
         const dx = x - cameraX;
         const dy = y - cameraY;
 
         return {
-            x: screenCenterX + dx * cosA + dy * sinA,
-            y: screenCenterY - dx * sinA + dy * cosA
+            x: screenCenterX + (dx * cosA + dy * sinA) * camZoom,
+            y: screenCenterY + (-dx * sinA + dy * cosA) * camZoom
         };
     }
 
@@ -1182,7 +1186,7 @@ function drawNightOverlay() {
             light.x + light.nx * light.length * 0.82,
             light.y + light.ny * light.length * 0.82
         );
-        const glowMargin = Math.max(35, light.baseWidth * 1.8) + 12;
+        const glowMargin = (Math.max(35, light.baseWidth * 1.8) + 12) * camZoom;
         const minX = Math.min(startScreen.x, endScreen.x) - glowMargin;
         const maxX = Math.max(startScreen.x, endScreen.x) + glowMargin;
         const minY = Math.min(startScreen.y, endScreen.y) - glowMargin;
@@ -1359,7 +1363,7 @@ function drawNightOverlay() {
     const endScreen = worldToScreen(endX, endY);
     
     // Increased blur radius and opacity for stronger end diffusion
-    const blurRadius = Math.max(35, light.baseWidth * 1.8);
+    const blurRadius = Math.max(35, light.baseWidth * 1.8) * camZoom;
 
     const endGlow = ctx.createRadialGradient(
         endScreen.x,
@@ -1407,8 +1411,9 @@ function drawNightOverlay() {
 
     // Convert the four screen corners into world coordinates.
     for (let i = 0; i < viewportCorners.length; i++) {
-        const sx = viewportCorners[i][0] - screenCenterX;
-        const sy = viewportCorners[i][1] - screenCenterY;
+        // Divide by zoom: a zoomed-out view shows MORE world than the canvas size.
+        const sx = (viewportCorners[i][0] - screenCenterX) / camZoom;
+        const sy = (viewportCorners[i][1] - screenCenterY) / camZoom;
 
         const worldX = cameraX + sx * cosA - sy * sinA;
         const worldY = cameraY + sx * sinA + sy * cosA;

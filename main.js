@@ -3422,6 +3422,9 @@ return;
 ctx.save();
 
 const cameraFeedback = sbUpdateCameraFeedback();
+// Share this frame's zoom/shake so every screen-space overlay pass
+// (night beams, headlights, light bars, signboards) uses the SAME transform.
+window.sbFrameCamera = cameraFeedback;
 
 ctx.translate(
     canvas.width / 2 + cameraFeedback.shakeX,
@@ -3526,7 +3529,11 @@ if (!isInsideHouse && !isInsideDealership && typeof drawNightOverlay === 'functi
  if (!isInsideHouse && !isInsideDealership) {
     ctx.save();
 
-    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.translate(
+        canvas.width / 2 + cameraFeedback.shakeX,
+        canvas.height / 2 + cameraFeedback.shakeY
+    );
+    ctx.scale(cameraFeedback.zoom, cameraFeedback.zoom);
     ctx.rotate(-camera.angle);
 
     const boardCameraTarget =
@@ -3549,7 +3556,11 @@ if (!isInsideHouse && !isInsideDealership && typeof drawNightOverlay === 'functi
     
 if (!isInsideHouse && !isInsideDealership) {
     ctx.save();
-    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.translate(
+        canvas.width / 2 + cameraFeedback.shakeX,
+        canvas.height / 2 + cameraFeedback.shakeY
+    );
+    ctx.scale(cameraFeedback.zoom, cameraFeedback.zoom);
     ctx.rotate(-camera.angle);
 
     const lightCameraTarget =
