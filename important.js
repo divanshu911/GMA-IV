@@ -1,7 +1,7 @@
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-console.log("watermelon");
+console.log("apple");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
@@ -4809,4 +4809,89 @@ function isWithinLocationRadiusCached(key, x, y, centerX, centerY, radius) {
     }
 
     return cached.inside;
+}
+
+// ============================================================
+// CAMERA FEEDBACK: SPEED ZOOM + COLLISION SHAKE
+// ============================================================
+
+let sbCameraZoom = 1;
+let sbCameraShakeUntil = 0;
+let sbCameraShakeStrength = 0;
+let sbCameraFeedbackTime = 0;
+
+// Triggered when the player's car is involved in a collision.
+function sbTriggerCameraShake(collisionSpeed) {
+    const severity = Math.max(
+        0,
+        Math.min(1, (collisionSpeed - 0.6) / 4.4)
+    );
+
+    if (severity <= 0) return;
+
+    // Stronger collisions produce stronger shake.
+    sbCameraShakeStrength = Math.max(
+        sbCameraShakeStrength,
+        1.2 + severity * 7.0
+    );
+
+    sbCameraShakeUntil = performance.now() + 260;
+}
+
+function sbUpdateCameraFeedback() {
+    const now = performance.now();
+
+    const dt = sbCameraFeedbackTime
+        ? Math.min(0.1, (now - sbCameraFeedbackTime) / 1000)
+        : 0;
+
+    sbCameraFeedbackTime = now;
+
+    // Speed-based zoom out.
+    const speed =
+        playerCar &&
+        !player.isArrestPassenger &&
+        !isInsideHouse &&
+        !isInsideDealership
+            ? Math.abs(playerCar.speed || 0)
+            : 0;
+
+    // Maximum zoom-out: 10%.
+    const targetZoom =
+        1 - 0.10 * Math.max(
+            0,
+            Math.min(1, (speed - 1.0) / 3.2)
+        );
+
+    const zoomBlend =
+        dt > 0 ? 1 - Math.exp(-dt / 0.24) : 1;
+
+    sbCameraZoom +=
+        (targetZoom - sbCameraZoom) * zoomBlend;
+
+    // Collision shake.
+    let shakeX = 0;
+    let shakeY = 0;
+
+    if (
+        now < sbCameraShakeUntil &&
+        sbCameraShakeStrength > 0.05
+    ) {
+        const remaining =
+            (sbCameraShakeUntil - now) / 260;
+
+        const amount =
+            sbCameraShakeStrength * remaining;
+
+        shakeX = (Math.random() * 2 - 1) * amount;
+        shakeY = (Math.random() * 2 - 1) * amount;
+    } else {
+        sbCameraShakeStrength = 0;
+    }
+
+    return {
+        zoom: sbCameraZoom,
+        shakeX,
+        shakeY
+    };
 }

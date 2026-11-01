@@ -1,4 +1,4 @@
-console.log("67ww");
+console.log("w");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1631,6 +1631,9 @@ function handlePhysicsAndCollisions(dt) {
             const isPlayerInvolved =
               playerCar &&
               (c1.id === playerCar.id || c2.id === playerCar.id);
+            if (isPlayerInvolved) {
+    sbTriggerCameraShake(relSpeed);
+            }
 
             const playerRaceCollisionDamageDisabled =
               isPlayerInvolved &&
@@ -3415,15 +3418,33 @@ ctx.restore();
 
 return;
   }
-  // Camera transform setup
-  ctx.save();
-  ctx.translate(canvas.width / 2, canvas.height / 2);
-  ctx.rotate(-camera.angle);
-  const cameraTarget =
+// Camera transform setup
+ctx.save();
+
+const cameraFeedback = sbUpdateCameraFeedback();
+
+ctx.translate(
+    canvas.width / 2 + cameraFeedback.shakeX,
+    canvas.height / 2 + cameraFeedback.shakeY
+);
+
+ctx.scale(
+    cameraFeedback.zoom,
+    cameraFeedback.zoom
+);
+
+ctx.rotate(-camera.angle);
+
+const cameraTarget =
     player.isArrestPassenger &&
     arrestTransportCar
         ? arrestTransportCar
         : player;
+
+ctx.translate(
+    -cameraTarget.x - (cameraTarget.size || player.size) / 2,
+    -cameraTarget.y - (cameraTarget.size || player.size) / 2
+);
 
 ctx.translate(
     -cameraTarget.x - (cameraTarget.size || player.size) / 2,
