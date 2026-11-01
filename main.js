@@ -1,4 +1,4 @@
-console.log("w");
+console.log("w211");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -3440,11 +3440,6 @@ const cameraTarget =
     arrestTransportCar
         ? arrestTransportCar
         : player;
-
-ctx.translate(
-    -cameraTarget.x - (cameraTarget.size || player.size) / 2,
-    -cameraTarget.y - (cameraTarget.size || player.size) / 2
-);
 
 ctx.translate(
     -cameraTarget.x - (cameraTarget.size || player.size) / 2,
