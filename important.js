@@ -1,7 +1,7 @@
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-console.log("apple");
+console.log("appless");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
@@ -4856,11 +4856,11 @@ function sbUpdateCameraFeedback() {
             ? Math.abs(playerCar.speed || 0)
             : 0;
 
-    // Maximum zoom-out: 10%.
+    // Maximum zoom-out: 18%.
     const targetZoom =
-        1 - 0.10 * Math.max(
+        1 - 0.18 * Math.max(
             0,
-            Math.min(1, (speed - 1.0) / 3.2)
+            Math.min(1, (speed - 1.0) / 3.8)
         );
 
     const zoomBlend =
@@ -4878,7 +4878,7 @@ function sbUpdateCameraFeedback() {
         sbCameraShakeStrength > 0.05
     ) {
         const remaining =
-            (sbCameraShakeUntil - now) / 260;
+            (sbCameraShakeUntil - now) / 620;
 
         const amount =
             sbCameraShakeStrength * remaining;
