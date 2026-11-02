@@ -1,4 +1,4 @@
-console.log("lood98");
+console.log("tttd98");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -3881,7 +3881,33 @@ roadblockInitLocations();
 // All timers are in the game's frame units (60 = 1 second).
 // ============================================================
 
-const POLICE_RESPONSE_DEBUG = false; // red = additional patrol, blue = reinforcement
+const POLICE_RADIO_SOUND_URL =
+    "https://raw.githubusercontent.com/divanshu911/My-game-assets/main/radio.mp3";
+
+let policeRadioCallSound = null;
+
+function playPoliceRadioCallSound() {
+    try {
+        if (!policeRadioCallSound) {
+            policeRadioCallSound = new Audio(POLICE_RADIO_SOUND_URL);
+            policeRadioCallSound.volume = 0.8;
+            policeRadioCallSound.preload = "auto";
+        }
+
+        policeRadioCallSound.pause();
+        policeRadioCallSound.currentTime = 0;
+
+        const playback = policeRadioCallSound.play();
+
+        if (playback && typeof playback.catch === "function") {
+            playback.catch(() => {});
+        }
+    } catch (error) {
+        // Audio failure must not interrupt police response logic.
+    }
+}
+
+const POLICE_RESPONSE_DEBUG = false;
 
 // cars/officers = max ACTIVELY CHASING; patrol* = [min, max] extra patrol targets.
 const POLICE_RESPONSE_TIERS = [
@@ -4155,8 +4181,15 @@ function spawnPolicePatrolCar(pos) {
 function spawnPoliceReinforcementCar(pos) {
     const car = policeResponseMakeCar(pos, "REINFORCEMENT");
     car.policeState = "CHASE";
-    car.angle = Math.atan2(player.y - pos.y, player.x - pos.x) + Math.PI / 2;
+    car.angle = Math.atan2(
+        player.y - pos.y,
+        player.x - pos.x
+    ) + Math.PI / 2;
+
     policeResponseState.reinforcements.push(car);
+
+    playPoliceRadioCallSound();
+
     return car;
 }
 
@@ -4508,6 +4541,7 @@ if (S.roadblockResponder) {
         // Recruit this patrol. The shared responder update will
         // steer it toward the player's live position.
         S.roadblockResponder = nearestPatrol;
+        playPoliceRadioCallSound();
 
         nearestPatrol.policeState = "RESPONDING";
         nearestPatrol.isParked = false;
