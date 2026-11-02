@@ -1,4 +1,4 @@
-console.log("w211j");
+console.log("i211j");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -39,16 +39,34 @@ const roadAudioPool = createAudioPool(roadWalkUrl, 1.0);
 
 // --- NEW VEHICLE & COLLISION AUDIO POOLS ---
 const npcHitUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/66f01202b08c57723436a17be8bbd267ea178cc0/punch.mp3";
-const carCrashUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/54c156cbfdbb75449f031cf44e5b16fbe0c3c475/CarCrash.wav";
+const carCrashUrls = [
+    "https://raw.githubusercontent.com/divanshu911/My-game-assets/54c156cbfdbb75449f031cf44e5b16fbe0c3c475/CarCrash.wav",
+    "https://raw.githubusercontent.com/divanshu911/My-game-assets/main/Carcrash2.mp3",
+    "https://raw.githubusercontent.com/divanshu911/My-game-assets/main/Carcrash3.mp3",
+    "https://raw.githubusercontent.com/divanshu911/My-game-assets/main/Carcrash4.mp3"
+];
 const engineDeadUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/54c156cbfdbb75449f031cf44e5b16fbe0c3c475/enginedying.wav";
 const explosionUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/54c156cbfdbb75449f031cf44e5b16fbe0c3c475/CarExplosion.mp3";
 const fireUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/defd10de381fc232acf76a7faed6a5bd5ae7b5d4/Fire3.mp3";
 const engineHumUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/defd10de381fc232acf76a7faed6a5bd5ae7b5d4/engine3-loop.mp3";
 
-const npcHitPool = createAudioPool(npcHitUrl, 1.0);
-const carCrashPool = createAudioPool(carCrashUrl, 0.4);
+const npcHitPool = createAudioPool(npcHitUrl, 0.8);
+const carCrashPools = carCrashUrls.map(url =>
+    createAudioPool(url, 0.4)
+);
+
+// Randomly select one of the four crash sounds.
+const carCrashPool = {
+    play(volume) {
+        const randomIndex = Math.floor(
+            Math.random() * carCrashPools.length
+        );
+
+        carCrashPools[randomIndex].play(volume);
+    }
+};
 const explosionPool = createAudioPool(explosionUrl, 1.0);
-const engineDeadPool = createAudioPool(engineDeadUrl, 0.4);
+const engineDeadPool = createAudioPool(engineDeadUrl, 0.3);
 
 // --- SPATIAL SOUND HELPER (another file)---
 
