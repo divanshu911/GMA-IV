@@ -1,4 +1,4 @@
-console.log("tttd98");
+console.log("bye");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -3899,14 +3899,19 @@ function playPoliceRadioCallSound() {
 
         const playback = policeRadioCallSound.play();
 
-        if (playback && typeof playback.catch === "function") {
-            playback.catch(() => {});
+        if (playback && typeof playback.then === "function") {
+            playback.then(() => {
+                console.log("[StreetBound] Police radio playback started.");
+            }).catch((error) => {
+                console.warn("[StreetBound] Police radio playback failed:", error);
+            });
+        } else {
+            console.log("[StreetBound] Police radio play() triggered.");
         }
     } catch (error) {
-        // Audio failure must not interrupt police response logic.
+        console.error("[StreetBound] Police radio error:", error);
     }
 }
-
 const POLICE_RESPONSE_DEBUG = false;
 
 // cars/officers = max ACTIVELY CHASING; patrol* = [min, max] extra patrol targets.
