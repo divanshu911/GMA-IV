@@ -1,4 +1,4 @@
-console.log("w211");
+console.log("w211j");
 // --- 1. AUDIO & STATE ---
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
@@ -1628,12 +1628,19 @@ function handlePhysicsAndCollisions(dt) {
             addTyreMarks(c2);
           }
 
-            const isPlayerInvolved =
-              playerCar &&
-              (c1.id === playerCar.id || c2.id === playerCar.id);
-            if (isPlayerInvolved) {
-    sbTriggerCameraShake(relSpeed);
-            }
+        
+const isPlayerInvolved =
+    playerCar &&
+    (c1.id === playerCar.id || c2.id === playerCar.id);
+
+if (isPlayerInvolved) {
+    sbTriggerCameraShake(
+        relSpeed,
+        c1.id === playerCar.id ? nx : -nx,
+        c1.id === playerCar.id ? ny : -ny
+    );
+}
+            
 
             const playerRaceCollisionDamageDisabled =
               isPlayerInvolved &&

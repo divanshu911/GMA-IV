@@ -1,7 +1,7 @@
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-console.log("appless");
+console.log("appljns");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
@@ -2103,6 +2103,7 @@ function sbSetJoystickZoneInteractive(enabled) {
 // returning players skip the cutscene via gma_has_played). Does NOT
 // open the minimap. Canvas is CSS-blurred; the panel + X stay sharp.
 // ============================================================
+
 function openFirstTimeControlsPanel() {
     if (firstTimeControlsOpen) return;
     if (document.getElementById("firstTimeControlsOverlay")) return;
@@ -2135,6 +2136,15 @@ function openFirstTimeControlsPanel() {
         "font-family:Arial,sans-serif"
     ].join(";");
 
+    // Close panel when clicking/tapping on the blurry background outside the panel
+    overlay.addEventListener("pointerdown", (e) => {
+        if (e.target === overlay) {
+            e.preventDefault();
+            e.stopPropagation();
+            closeFirstTimeControlsPanel();
+        }
+    });
+
     const panel = document.createElement("div");
     panel.style.cssText = [
         "position:relative",
@@ -2148,25 +2158,24 @@ function openFirstTimeControlsPanel() {
         "text-align:center"
     ].join(";");
 
-    // Small X — only used to dismiss this first-play panel.
-    // Minimap settings still use the existing Back button.
+    // Enlarged X close button for better usability
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
     closeBtn.setAttribute("aria-label", "Close");
     closeBtn.textContent = "\u00d7";
     closeBtn.style.cssText = [
         "position:absolute",
-        "top:8px",
-        "right:10px",
-        "width:28px",
-        "height:28px",
+        "top:10px",
+        "right:12px",
+        "width:36px",
+        "height:36px",
         "padding:0",
         "border:1px solid rgba(255,255,255,0.45)",
         "border-radius:50%",
         "background:rgba(0,0,0,0.55)",
         "color:#fff",
-        "font-size:20px",
-        "line-height:26px",
+        "font-size:24px",
+        "line-height:34px",
         "cursor:pointer",
         "filter:none"
     ].join(";");
@@ -2273,6 +2282,7 @@ function openFirstTimeControlsPanel() {
         drawGame();
     }
 }
+     
 
 function refreshFirstTimeControlsSelection(overlay) {
     if (!overlay) {
@@ -4816,17 +4826,20 @@ function isWithinLocationRadiusCached(key, x, y, centerX, centerY, radius) {
     return cached.inside;
 }
 
+
 // ============================================================
 // CAMERA FEEDBACK: SPEED ZOOM + COLLISION SHAKE
 // ============================================================
 
 let sbCameraZoom = 1;
-let sbCameraShakeUntil = 0;
+let sbCameraShakeStart = 0;
 let sbCameraShakeStrength = 0;
+let sbCameraShakeX = 0;
+let sbCameraShakeY = 0;
 let sbCameraFeedbackTime = 0;
 
-// Triggered when the player's car is involved in a collision.
-function sbTriggerCameraShake(collisionSpeed) {
+// Kick the camera away from the collision source, then let it settle.
+function sbTriggerCameraShake(collisionSpeed, impactX, impactY) {
     const severity = Math.max(
         0,
         Math.min(1, (collisionSpeed - 0.6) / 4.4)
@@ -4834,13 +4847,24 @@ function sbTriggerCameraShake(collisionSpeed) {
 
     if (severity <= 0) return;
 
-    // Stronger collisions produce stronger shake.
-    sbCameraShakeStrength = Math.max(
-        sbCameraShakeStrength,
-        1.2 + severity * 7.0
+    const length = Math.sqrt(
+        impactX * impactX + impactY * impactY
     );
 
-    sbCameraShakeUntil = performance.now() + 260;
+    if (length < 0.001) return;
+
+    // Stronger collisions produce a stronger camera kick.
+    const strength = 2.0 + severity * 6.0;
+
+    // Don't let weaker repeated contacts interrupt a stronger impact.
+    if (strength <= sbCameraShakeStrength * 0.65) return;
+
+    // Direction points away from the collision source.
+    sbCameraShakeX = -(impactX / length);
+    sbCameraShakeY = -(impactY / length);
+
+    sbCameraShakeStrength = strength;
+    sbCameraShakeStart = performance.now();
 }
 
 function sbUpdateCameraFeedback() {
@@ -4874,22 +4898,27 @@ function sbUpdateCameraFeedback() {
     sbCameraZoom +=
         (targetZoom - sbCameraZoom) * zoomBlend;
 
-    // Collision shake.
+    // Short directional damped oscillation.
+    // No random offsets or per-frame random movement.
     let shakeX = 0;
     let shakeY = 0;
 
+    const elapsed = (now - sbCameraShakeStart) / 1000;
+
     if (
-        now < sbCameraShakeUntil &&
-        sbCameraShakeStrength > 0.05
+        sbCameraShakeStrength > 0 &&
+        elapsed < 0.34
     ) {
-        const remaining =
-            (sbCameraShakeUntil - now) / 620;
+        const envelope = Math.exp(-elapsed * 13);
+        const oscillation = Math.cos(elapsed * 34);
 
         const amount =
-            sbCameraShakeStrength * remaining;
+            sbCameraShakeStrength *
+            envelope *
+            oscillation;
 
-        shakeX = (Math.random() * 2 - 1) * amount;
-        shakeY = (Math.random() * 2 - 1) * amount;
+        shakeX = sbCameraShakeX * amount;
+        shakeY = sbCameraShakeY * amount;
     } else {
         sbCameraShakeStrength = 0;
     }
