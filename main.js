@@ -1,5 +1,8 @@
-console.log("i211j");
+console.log("jjjj");
 // --- 1. AUDIO & STATE ---
+let lastMoneyCounterValue = null;
+let moneyCounterFlashColor = "#2ecc71";
+let moneyCounterFlashUntil = 0;
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
 bgMusic.loop = true;
@@ -3622,10 +3625,24 @@ if (!isInsideHouse && !isInsideDealership) {
 
  if (!openingCutsceneActive) { ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
   ctx.fillRect(20, 20, 150, 45);
-  ctx.fillStyle = "#2ecc71";
-  ctx.font = "bold 20px Arial";
-  ctx.textAlign = "left";
-  ctx.fillText(`$${player.money}`, 35, 50);
+  if (lastMoneyCounterValue === null) {
+    lastMoneyCounterValue = player.money;
+} else if (player.money !== lastMoneyCounterValue) {
+    moneyCounterFlashColor =
+        player.money > lastMoneyCounterValue ? "#ffffff" : "#e74c3c";
+
+    moneyCounterFlashUntil = Date.now() + 450;
+    lastMoneyCounterValue = player.money;
+}
+
+ctx.fillStyle =
+    Date.now() < moneyCounterFlashUntil
+        ? moneyCounterFlashColor
+        : "#2ecc71";
+
+ctx.font = "bold 20px Arial";
+ctx.textAlign = "left";
+ctx.fillText(`$${player.money}`, 35, 50);
 
   ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
   ctx.fillRect(20, 200, 180, 25); 
