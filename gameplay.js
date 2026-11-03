@@ -1,4 +1,4 @@
-console.log("rkh");
+console.log("rkhii");
 
 const JOB_LOCATION_CHECK_INTERVAL = 15;
 
@@ -42,7 +42,12 @@ class TaxiJobManager {
     this.hasPassenger = false;
 
     this.messageText = "";
-    this.messageTimer = 0;
+this.messageTimer = 0;
+
+this.messageQueue = [];
+this.messageAnimationState = "hidden";
+this.messageAnimationTimer = 0;
+this.messageAnimationDuration = 12;
     this.pickupCooldown = 0;
     this.warnedOutOfTaxi = false;
 
@@ -52,11 +57,72 @@ class TaxiJobManager {
     this.lastTaxiX = 0;
     this.lastTaxiY = 0;
   }
-
-  setMessage(text, duration = 180) {
+    startMessage(text, duration = 180) {
     this.messageText = text;
     this.messageTimer = duration;
-  }
+    this.messageAnimationState = "enter";
+    this.messageAnimationTimer = 0;
+}
+
+setMessage(text, duration = 180) {
+    if (!this.messageText || this.messageAnimationState === "hidden") {
+        this.startMessage(text, duration);
+        return;
+    }
+
+    // Queue the new message instead of overwriting the current one.
+    this.messageQueue.push({ text, duration });
+
+    // Start exiting the current message only once.
+    if (this.messageAnimationState !== "exit") {
+        this.messageAnimationState = "exit";
+        this.messageAnimationTimer = 0;
+    }
+}
+
+updateMessage(dt) {
+    const animationDuration = this.messageAnimationDuration;
+
+    if (this.messageAnimationState === "enter") {
+        this.messageAnimationTimer += dt;
+
+        if (this.messageAnimationTimer >= animationDuration) {
+            this.messageAnimationState = "hold";
+            this.messageAnimationTimer = 0;
+        }
+        return;
+    }
+
+    if (this.messageAnimationState === "hold") {
+        this.messageTimer -= dt;
+
+        if (this.messageTimer <= 0) {
+            this.messageAnimationState = "exit";
+            this.messageAnimationTimer = 0;
+        }
+        return;
+    }
+
+    if (this.messageAnimationState === "exit") {
+        this.messageAnimationTimer += dt;
+
+        if (this.messageAnimationTimer >= animationDuration) {
+            const nextMessage = this.messageQueue.shift();
+
+            if (nextMessage) {
+                this.startMessage(
+                    nextMessage.text,
+                    nextMessage.duration
+                );
+            } else {
+                this.messageText = "";
+                this.messageTimer = 0;
+                this.messageAnimationState = "hidden";
+                this.messageAnimationTimer = 0;
+            }
+        }
+    }
+}
 
   // Search a limited area once per pickup. Prefer walkable grass
   // beside the road and close to an unwalkable boundary.
@@ -183,9 +249,7 @@ class TaxiJobManager {
   }
 
   update(dt, player, cars, npcs) {
-    if (this.messageTimer > 0) {
-      this.messageTimer -= dt;
-    }
+    this.updateMessage(dt);
 
     if (!this.isJobActive) {
       const nearDepot = isWithinJobLocationRadiusCached(
@@ -493,13 +557,41 @@ const nextY = p.y + (pdy / distance) * step;
   }
 
   drawUI(ctx) {
-    if (this.messageTimer > 0 && this.messageText) {
-      ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
-      ctx.fillRect(canvas.width / 2 - 250, 40, 500, 45);
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 16px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText(this.messageText, canvas.width / 2, 68);
+    if (this.messageText && this.messageAnimationState !== "hidden") {
+    const progress = Math.max(
+        0,
+        Math.min(1, this.messageAnimationTimer / this.messageAnimationDuration)
+    );
+
+    let offsetY = 0;
+    let opacity = 1;
+
+    if (this.messageAnimationState === "enter") {
+        // Slide down from above.
+        const eased = 1 - Math.pow(1 - progress, 3);
+        offsetY = -55 * (1 - eased);
+        opacity = eased;
+    } else if (this.messageAnimationState === "exit") {
+        // Slide back up.
+        const eased = progress * progress * progress;
+        offsetY = -55 * eased;
+        opacity = 1 - progress;
+    }
+
+    ctx.save();
+
+    ctx.globalAlpha *= opacity;
+    ctx.translate(0, offsetY);
+
+    ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
+    ctx.fillRect(canvas.width / 2 - 250, 40, 500, 45);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 16px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(this.messageText, canvas.width / 2, 68);
+
+    ctx.restore();
     }
 
     if (this.isJobActive) {
