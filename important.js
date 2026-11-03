@@ -2386,7 +2386,14 @@ function sbHit(r, x, y) {
 // <<< SB CONTROL MODE END
 
 window.addEventListener('keydown', e => {
-
+// ESC = Close first-time control settings panel
+    if (e.key === 'Escape' || e.code === 'Escape') {
+        if (firstTimeControlsOpen) {
+            e.preventDefault();
+            closeFirstTimeControlsPanel();
+            return;
+        }
+    }
     // SPACE = Open / close desktop controls
     if (e.code === 'Space') {
         e.preventDefault();
@@ -4885,11 +4892,11 @@ function sbUpdateCameraFeedback() {
             ? Math.abs(playerCar.speed || 0)
             : 0;
 
-    // Maximum zoom-out: 18%.
+    // Maximum zoom-out: 12%.
     const targetZoom =
-        1 - 0.18 * Math.max(
+        1 - 0.12 * Math.max(
             0,
-            Math.min(1, (speed - 1.0) / 3.8)
+            Math.min(1, (speed - 1.0) / 4.1)
         );
 
     const zoomBlend =

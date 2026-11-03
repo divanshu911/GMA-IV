@@ -1,4 +1,4 @@
-console.log("bye");
+console.log("bye33");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -2319,6 +2319,7 @@ function dispatchRoadblockFallback() {
     reinforcement.isParked = false;
     reinforcement.hasDriver = true;
     reinforcement.roadblockResponseTimer = 720;
+    playPoliceRadioCallSound();
     reinforcement.roadblockResponseRepathTimer = 0;
 
     policeResponseState.roadblockResponder = reinforcement;
@@ -2347,23 +2348,23 @@ function dispatchRoadblockFallback() {
 
     // If the chase ends, release the patrol instead of spawning
     // an unnecessary reinforcement.
-    if (!player.beingChased) {
-        if (
-            patrol.policeState === "RESPONDING"
-        ) {
-            patrol.policeState = "PATROL";
-            patrol.speed = 0;
-            patrol.isParked = false;
+    // A roadblock response is dispatched BEFORE the chase starts.
+// Keep the responder moving until it reaches the player.
+if (player.isBeingArrested || player.isArrestPassenger) {
+    if (patrol.policeState === "RESPONDING") {
+        patrol.policeState = "PATROL";
+        patrol.speed = 0;
+        patrol.isParked = false;
 
-            if (typeof patrol.stopSiren === "function") {
-                patrol.stopSiren();
-            } else {
-                patrol.sirenState = 0;
-            }
+        if (typeof patrol.stopSiren === "function") {
+            patrol.stopSiren();
+        } else {
+            patrol.sirenState = 0;
         }
+    }
 
-        S.roadblockResponder = null;
-        return;
+    S.roadblockResponder = null;
+    return;                   
     }
 
     // A destroyed, stolen, removed, or otherwise invalid responder

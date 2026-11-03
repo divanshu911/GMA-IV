@@ -3629,7 +3629,7 @@ if (!isInsideHouse && !isInsideDealership) {
     lastMoneyCounterValue = player.money;
 } else if (player.money !== lastMoneyCounterValue) {
     moneyCounterFlashColor =
-        player.money > lastMoneyCounterValue ? "#ffffff" : "#e74c3c";
+        player.money > lastMoneyCounterValue ? "#ffeb3b" : "#e74c3c";
 
     moneyCounterFlashUntil = Date.now() + 450;
     lastMoneyCounterValue = player.money;
