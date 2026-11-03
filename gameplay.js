@@ -1,4 +1,4 @@
-console.log("rkhii");
+console.log("rkhii88");
 
 const JOB_LOCATION_CHECK_INTERVAL = 15;
 
@@ -65,21 +65,12 @@ this.messageAnimationDuration = 12;
 }
 
 setMessage(text, duration = 180) {
-    if (!this.messageText || this.messageAnimationState === "hidden") {
-        this.startMessage(text, duration);
-        return;
-    }
+    // Discard any pending notifications.
+    this.messageQueue.length = 0;
 
-    // Queue the new message instead of overwriting the current one.
-    this.messageQueue.push({ text, duration });
-
-    // Start exiting the current message only once.
-    if (this.messageAnimationState !== "exit") {
-        this.messageAnimationState = "exit";
-        this.messageAnimationTimer = 0;
-    }
+    // Immediately replace the current message and animate it in.
+    this.startMessage(text, duration);
 }
-
 updateMessage(dt) {
     const animationDuration = this.messageAnimationDuration;
 
