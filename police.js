@@ -1,4 +1,4 @@
-console.log("bye33");
+console.log("bye96");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -4331,11 +4331,12 @@ function policeResponseRetireStale() {
 
         const dead = !isPoliceUnitAlive(u);
         const idleReinforcement =
-            u.responseRole === "REINFORCEMENT" &&
-            !player.beingChased &&
-            u.policeState !== "CHASE" &&
-            u.policeState !== "WARNING" &&
-            u.policeState !== "ARRESTING";
+    u.responseRole === "REINFORCEMENT" &&
+    !player.beingChased &&
+    u.policeState !== "RESPONDING" &&
+    u.policeState !== "CHASE" &&
+    u.policeState !== "WARNING" &&
+    u.policeState !== "ARRESTING";
 
         if (dead || idleReinforcement) removePoliceResponseUnit(u);
     }
