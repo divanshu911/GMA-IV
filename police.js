@@ -1,4 +1,4 @@
-console.log("bye96");
+console.log("maybe");
 // ============================================================
 // HIT & RUN / CRIME CASE SYSTEM
 // ============================================================
@@ -2319,7 +2319,7 @@ function dispatchRoadblockFallback() {
     reinforcement.isParked = false;
     reinforcement.hasDriver = true;
     reinforcement.roadblockResponseTimer = 720;
-    playPoliceRadioCallSound();
+    
     reinforcement.roadblockResponseRepathTimer = 0;
 
     policeResponseState.roadblockResponder = reinforcement;
@@ -4666,6 +4666,28 @@ function enforcePoliceChaseCaps(dt) {
 // participants and other NPC/traffic are untouched.
 function clearPoliceResponseUnits() {
     const S = policeResponseState;
+    // Cancel any roadblock responder left over from the previous wanted state.
+const pendingResponder = S.roadblockResponder;
+
+if (
+    pendingResponder &&
+    Array.isArray(cars) &&
+    cars.includes(pendingResponder) &&
+    pendingResponder.policeState === "RESPONDING"
+) {
+    // If this was an ordinary city patrol, release it normally.
+    pendingResponder.policeState = "PATROL";
+    pendingResponder.speed = 0;
+    pendingResponder.isParked = false;
+
+    if (typeof pendingResponder.stopSiren === "function") {
+        pendingResponder.stopSiren();
+    } else {
+        pendingResponder.sirenState = 0;
+    }
+}
+
+S.roadblockResponder = null;
     policeResponseCancelReinforcements();
 
     const doomed = new Set(
