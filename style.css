@@ -21,11 +21,12 @@ body {
 }
 
 #startScreen {
-  /* Size of the artwork when scaled with "cover" (image is 720x404).
-     The button is positioned in image coordinates so it always stays
-     right below the drawn title, whatever the screen shape. */
-  --art-w: max(100vw, calc(100vh * 720 / 404));
-  --art-h: max(100vh, calc(100vw * 404 / 720));
+  /* Loading screen uses the same strict 16:9 format as the game stage.
+     --art-w / --art-h = the largest 16:9 rectangle that fits inside the
+     window. The artwork is drawn only inside that rectangle; the rest of
+     the window is plain black (letterbox / pillarbox bars). */
+  --art-w: min(100vw, calc(100vh * 16 / 9));
+  --art-h: min(100vh, calc(100vw * 9 / 16));
 
   position: absolute;
   top: 0;
@@ -33,15 +34,20 @@ body {
   width: 100%;
   height: 100%;
 
-background: #000 url('https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/LOADING.jpg') center / cover no-repeat;
+  background-color: #000;
+  background-image: url('https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/LOADING.jpg');
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: var(--art-w) var(--art-h);
   z-index: 100;
 }
 
 .menu-box {
   position: absolute;
-  /* title centre in the artwork: x = 47.2%, button centre: y = 19.5% */
-  left: calc((100vw - var(--art-w)) / 2 + var(--art-w) * 0.472);
-  top:  calc((100vh - var(--art-h)) / 2 + var(--art-h) * 0.195);
+  /* Title centre in the artwork: x = 47.2%, button centre: y = 19.5%.
+     Positioned relative to the centred 16:9 rectangle, not the window. */
+  left: calc(50vw + (0.472 - 0.5) * var(--art-w));
+  top:  calc(50vh + (0.195 - 0.5) * var(--art-h));
   transform: translate(-50%, -50%);
 }
 
