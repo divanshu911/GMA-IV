@@ -1,4 +1,4 @@
-console.log("jjjj");
+console.log("idli");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
@@ -3643,30 +3643,8 @@ ctx.fillStyle =
 ctx.font = "bold 20px Arial";
 ctx.textAlign = "left";
 ctx.fillText(`$${player.money}`, 35, 50);
-
-  ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
-  ctx.fillRect(20, 200, 180, 25); 
-
-  let hungerWidth = (player.hunger / 100) * 172;
-  ctx.fillStyle = player.hunger < 25 ? "#e74c3c" : "#e67e22"; 
-  ctx.fillRect(24, 204, Math.max(0, hungerWidth), 17);
-
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 11px Arial";
-  ctx.textAlign = "center";
-  ctx.fillText(` HUNGER: ${Math.ceil(player.hunger)}%`, 110, 217);
-
-  ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
-  ctx.fillRect(20, 230, 180, 25); 
-
-  let healthWidth = (player.health / player.maxHealth) * 172;
-  ctx.fillStyle = player.health < 30 ? "#c0392b" : "#e74c3c"; 
-  ctx.fillRect(24, 234, Math.max(0, healthWidth), 17);
-
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 11px Arial";
-  ctx.textAlign = "center";
-  ctx.fillText(` HEALTH: ${Math.ceil(player.health)}%`, 110, 247);
+  
+  
                                // Vehicle-name toast below the health bar.
                                if (vehicleNameToast) {
                                    const elapsed = performance.now() - vehicleNameToastStartedAt;
@@ -3723,7 +3701,10 @@ if (player && player.wanted) {
     
 
   if (mapImage.complete && mapWidth > 0) {
-    const radarRadius = 80, padding = 20, mmX = canvas.width - radarRadius - padding, mmY = radarRadius + padding, radarZoom = 0.12; 
+    const radarRadius = 64, padding = 18,
+    mmX = canvas.width - radarRadius - padding,
+    mmY = radarRadius + padding,
+    radarZoom = 0.12;
     ctx.save();
     ctx.beginPath(); ctx.arc(mmX, mmY, radarRadius, 0, Math.PI * 2); ctx.closePath();
     ctx.save(); ctx.clip(); 
@@ -3904,8 +3885,110 @@ for (
     ctx.restore(); 
     ctx.restore(); 
 
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.4)"; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.arc(mmX, mmY, radarRadius, 0, Math.PI * 2); ctx.stroke();
+    
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(mmX, mmY, radarRadius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Health and hunger rings
+    const meterRadius = radarRadius + 9;
+    const healthRatio = Math.max(0, Math.min(1,
+        player.maxHealth > 0 ? player.health / player.maxHealth : 0
+    ));
+    const hungerRatio = Math.max(0, Math.min(1, player.hunger / 100));
+
+    const pulse = Math.floor(performance.now() / 420) % 2 === 0;
+    const healthLow = healthRatio <= 0.25;
+    const hungerLow = hungerRatio <= 0.20;
+
+    ctx.save();
+    ctx.lineWidth = 7;
+    ctx.lineCap = "round";
+
+    // Grey background tracks
+    ctx.strokeStyle = "rgba(155,160,168,0.75)";
+
+    ctx.beginPath();
+    ctx.arc(mmX, mmY, meterRadius, Math.PI / 2, Math.PI * 1.5);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(mmX, mmY, meterRadius, -Math.PI / 2, Math.PI / 2);
+    ctx.stroke();
+
+    // Health — left semicircle
+    if (healthRatio > 0 && (!healthLow || pulse)) {
+        ctx.strokeStyle = "#e74c3c";
+        ctx.shadowColor = "#e74c3c";
+        ctx.shadowBlur = healthLow ? 9 : 3;
+
+        ctx.beginPath();
+        ctx.arc(
+            mmX, mmY, meterRadius,
+            Math.PI / 2,
+            Math.PI / 2 + Math.PI * healthRatio
+        );
+        ctx.stroke();
+    }
+
+    // Hunger — right semicircle
+    if (hungerRatio > 0 && (!hungerLow || pulse)) {
+        ctx.strokeStyle = "#f39c12";
+        ctx.shadowColor = "#f39c12";
+        ctx.shadowBlur = hungerLow ? 9 : 3;
+
+        ctx.beginPath();
+        ctx.arc(
+            mmX, mmY, meterRadius,
+            -Math.PI / 2,
+            -Math.PI / 2 + Math.PI * hungerRatio
+        );
+        ctx.stroke();
+    }
+
+    ctx.restore();
+
+    // Small icon badges
+    const drawStatIcon = (x, y, glyph, color, low) => {
+        ctx.save();
+        ctx.globalAlpha = low && !pulse ? 0.42 : 1;
+
+        ctx.fillStyle = "rgba(18,22,28,0.94)";
+        ctx.beginPath();
+        ctx.arc(x, y, 11, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = "rgba(255,255,255,0.55)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.fillStyle = color;
+        ctx.font = "bold 15px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(glyph, x, y + 0.5);
+
+        ctx.restore();
+    };
+
+    drawStatIcon(
+        mmX - meterRadius * 0.707,
+        mmY - meterRadius * 0.707,
+        "♥", "#ff6b6b", healthLow
+    );
+
+    drawStatIcon(
+        mmX + meterRadius * 0.707,
+        mmY - meterRadius * 0.707,
+        "🍗", "#f5b942", hungerLow
+    );
+
+    ctx.save();
+    ctx.translate(mmX, mmY);
+    ctx.rotate(player.angle);
+    
 
     ctx.save();
     ctx.translate(mmX, mmY); ctx.rotate(player.angle); 
