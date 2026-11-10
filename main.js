@@ -1,4 +1,4 @@
-console.log("idli");
+console.log("idlisambar");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
@@ -3919,10 +3919,12 @@ for (
     ctx.stroke();
 
     // Health — left semicircle
-    if (healthRatio > 0 && (!healthLow || pulse)) {
+    if (healthRatio > 0) {
         ctx.strokeStyle = "#e74c3c";
         ctx.shadowColor = "#e74c3c";
-        ctx.shadowBlur = healthLow ? 9 : 3;
+        ctx.shadowBlur = healthLow
+    ? 5 + 4 * (0.5 + 0.5 * Math.sin(performance.now() / 650))
+    : 2;
 
         ctx.beginPath();
         ctx.arc(
@@ -3934,10 +3936,12 @@ for (
     }
 
     // Hunger — right semicircle
-    if (hungerRatio > 0 && (!hungerLow || pulse)) {
+    if (hungerRatio > 0) {
         ctx.strokeStyle = "#f39c12";
         ctx.shadowColor = "#f39c12";
-        ctx.shadowBlur = hungerLow ? 9 : 3;
+        ctx.shadowBlur = hungerLow
+    ? 5 + 4 * (0.5 + 0.5 * Math.sin(performance.now() / 650))
+    : 2;
 
         ctx.beginPath();
         ctx.arc(
@@ -3953,7 +3957,7 @@ for (
     // Small icon badges
     const drawStatIcon = (x, y, glyph, color, low) => {
         ctx.save();
-        ctx.globalAlpha = low && !pulse ? 0.42 : 1;
+        ctx.globalAlpha = 1;
 
         ctx.fillStyle = "rgba(18,22,28,0.94)";
         ctx.beginPath();
@@ -3974,16 +3978,16 @@ for (
     };
 
     drawStatIcon(
-        mmX - meterRadius * 0.707,
-        mmY - meterRadius * 0.707,
-        "♥", "#ff6b6b", healthLow
-    );
+    mmX - meterRadius * 0.707,
+    mmY - meterRadius * 0.707,
+    "♥", "#ff6b6b", healthLow
+);
 
-    drawStatIcon(
-        mmX + meterRadius * 0.707,
-        mmY - meterRadius * 0.707,
-        "🍗", "#f5b942", hungerLow
-    );
+drawStatIcon(
+    mmX + meterRadius * 0.707,
+    mmY - meterRadius * 0.707,
+    "🍗", "#f5b942", hungerLow
+);
 
     ctx.save();
     ctx.translate(mmX, mmY);
