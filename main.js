@@ -1,4 +1,4 @@
-console.log("idlisambar");
+console.log("idlisambar3");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
@@ -3899,9 +3899,10 @@ for (
     ));
     const hungerRatio = Math.max(0, Math.min(1, player.hunger / 100));
 
-    const pulse = Math.floor(performance.now() / 420) % 2 === 0;
     const healthLow = healthRatio <= 0.25;
     const hungerLow = hungerRatio <= 0.20;
+      const warningPulse = 0.72 + 0.28 *
+    (0.5 + 0.5 * Math.sin(performance.now() / 500));
 
     ctx.save();
     ctx.lineWidth = 7;
@@ -3918,13 +3919,13 @@ for (
     ctx.arc(mmX, mmY, meterRadius, -Math.PI / 2, Math.PI / 2);
     ctx.stroke();
 
+    
     // Health — left semicircle
     if (healthRatio > 0) {
+        ctx.globalAlpha = healthLow ? warningPulse : 1;
         ctx.strokeStyle = "#e74c3c";
         ctx.shadowColor = "#e74c3c";
-        ctx.shadowBlur = healthLow
-    ? 5 + 4 * (0.5 + 0.5 * Math.sin(performance.now() / 650))
-    : 2;
+        ctx.shadowBlur = healthLow ? 4 : 2;
 
         ctx.beginPath();
         ctx.arc(
@@ -3933,15 +3934,15 @@ for (
             Math.PI / 2 + Math.PI * healthRatio
         );
         ctx.stroke();
+        ctx.globalAlpha = 1;
     }
 
     // Hunger — right semicircle
     if (hungerRatio > 0) {
+        ctx.globalAlpha = hungerLow ? warningPulse : 1;
         ctx.strokeStyle = "#f39c12";
         ctx.shadowColor = "#f39c12";
-        ctx.shadowBlur = hungerLow
-    ? 5 + 4 * (0.5 + 0.5 * Math.sin(performance.now() / 650))
-    : 2;
+        ctx.shadowBlur = hungerLow ? 4 : 2;
 
         ctx.beginPath();
         ctx.arc(
@@ -3950,15 +3951,16 @@ for (
             -Math.PI / 2 + Math.PI * hungerRatio
         );
         ctx.stroke();
+        ctx.globalAlpha = 1;
     }
 
     ctx.restore();
+      
 
     // Small icon badges
     const drawStatIcon = (x, y, glyph, color, low) => {
         ctx.save();
-        ctx.globalAlpha = 1;
-
+        ctx.globalAlpha = low ? warningPulse : 1;
         ctx.fillStyle = "rgba(18,22,28,0.94)";
         ctx.beginPath();
         ctx.arc(x, y, 11, 0, Math.PI * 2);
@@ -3977,15 +3979,17 @@ for (
         ctx.restore();
     };
 
-    drawStatIcon(
-    mmX - meterRadius * 0.707,
-    mmY - meterRadius * 0.707,
+    // Health icon — top (12 o'clock)
+drawStatIcon(
+    mmX,
+    mmY - meterRadius,
     "♥", "#ff6b6b", healthLow
 );
 
+// Hunger icon — bottom (6 o'clock)
 drawStatIcon(
-    mmX + meterRadius * 0.707,
-    mmY - meterRadius * 0.707,
+    mmX,
+    mmY + meterRadius,
     "🍗", "#f5b942", hungerLow
 );
 
