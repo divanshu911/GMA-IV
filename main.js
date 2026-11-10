@@ -1,4 +1,4 @@
-console.log("idlisambar55");
+console.log("pavbhaji");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
@@ -3902,66 +3902,64 @@ ctx.stroke();
 
     const healthLow = healthRatio <= 0.25;
     const hungerLow = hungerRatio <= 0.20;
-      const warningPulse = 0.40 + 0.60 *
-    (0.5 + 0.5 * Math.sin(performance.now() / 500));
+
+    // 0..1 white-flash intensity for low-stat warnings (~0.6s per blink).
+    const warningFlash = 0.5 + 0.5 * Math.sin(performance.now() / 100);
+
+    const METER_TOP = -Math.PI / 2;
+    const METER_BOTTOM = Math.PI / 2;
 
     ctx.save();
     ctx.lineWidth = 7;
     ctx.lineCap = "round";
 
-    // Grey background tracks
+    // Grey background tracks (left and right semicircles)
     ctx.strokeStyle = "rgba(155,160,168,0.75)";
 
     ctx.beginPath();
-    ctx.arc(mmX, mmY, meterRadius, Math.PI / 2, Math.PI * 1.5);
+    ctx.arc(mmX, mmY, meterRadius, METER_BOTTOM, METER_BOTTOM + Math.PI);
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.arc(mmX, mmY, meterRadius, -Math.PI / 2, Math.PI / 2);
+    ctx.arc(mmX, mmY, meterRadius, METER_TOP, METER_BOTTOM);
     ctx.stroke();
 
-    
-    // Health — left semicircle
-    if (healthRatio > 0) {
-        ctx.globalAlpha = healthLow ? warningPulse : 1;
-        ctx.strokeStyle = "#e74c3c";
-        ctx.shadowColor = "#e74c3c";
-        ctx.shadowBlur = healthLow ? 4 : 2;
+    // Each fill is anchored at its icon and drains from the opposite end.
+    // When low, the fill itself flashes white on top of its own color.
+    const drawMeterFill = (anchorAngle, ratio, color, low) => {
+        if (ratio <= 0) return;
+        const endAngle = anchorAngle - Math.PI * ratio;
 
+        ctx.strokeStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 2;
         ctx.beginPath();
-        ctx.arc(
-            mmX, mmY, meterRadius,
-            Math.PI / 2 - Math.PI * healthRatio,
-Math.PI / 2
-        );
+        ctx.arc(mmX, mmY, meterRadius, anchorAngle, endAngle, true);
         ctx.stroke();
-        ctx.globalAlpha = 1;
-    }
 
-    // Hunger — right semicircle
-    if (hungerRatio > 0) {
-        ctx.globalAlpha = hungerLow ? warningPulse : 1;
-        ctx.strokeStyle = "#f39c12";
-        ctx.shadowColor = "#f39c12";
-        ctx.shadowBlur = hungerLow ? 4 : 2;
+        if (low) {
+            ctx.globalAlpha = warningFlash;
+            ctx.strokeStyle = "#ffffff";
+            ctx.shadowColor = "#ffffff";
+            ctx.shadowBlur = 6;
+            ctx.beginPath();
+            ctx.arc(mmX, mmY, meterRadius, anchorAngle, endAngle, true);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+        }
+    };
 
-        ctx.beginPath();
-        ctx.arc(
-            mmX, mmY, meterRadius,
-            Math.PI / 2,
-Math.PI / 2 + Math.PI * hungerRatio
-        );
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-    }
+    // Health — left side, anchored at the top icon
+    drawMeterFill(METER_TOP, healthRatio, "#e74c3c", healthLow);
+
+    // Hunger — right side, anchored at the bottom icon
+    drawMeterFill(METER_BOTTOM, hungerRatio, "#f39c12", hungerLow);
 
     ctx.restore();
-      
 
     // Small icon badges
-    const drawStatIcon = (x, y, glyph, color, low) => {
+    const drawStatIcon = (x, y, glyph, color) => {
         ctx.save();
-        ctx.globalAlpha = low ? warningPulse : 1;
         ctx.fillStyle = "rgba(18,22,28,0.94)";
         ctx.beginPath();
         ctx.arc(x, y, 11, 0, Math.PI * 2);
@@ -3981,18 +3979,10 @@ Math.PI / 2 + Math.PI * hungerRatio
     };
 
     // Health icon — top (12 o'clock)
-drawStatIcon(
-    mmX,
-    mmY - meterRadius,
-    "♥", "#ff6b6b", healthLow
-);
+    drawStatIcon(mmX, mmY - meterRadius, "♥", "#ff6b6b");
 
-// Hunger icon — bottom (6 o'clock)
-drawStatIcon(
-    mmX,
-    mmY + meterRadius,
-    "🍗", "#f5b942", hungerLow
-);
+    // Hunger icon — bottom (6 o'clock)
+    drawStatIcon(mmX, mmY + meterRadius, "🍗", "#f5b942");
 
     ctx.save();
     ctx.translate(mmX, mmY);
