@@ -1,4 +1,4 @@
-console.log("pavbhaji");
+console.log("bhaaji55");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
@@ -3913,59 +3913,76 @@ ctx.stroke();
     ctx.lineWidth = 7;
     ctx.lineCap = "round";
 
-    // Grey background tracks (left and right semicircles)
-    ctx.strokeStyle = "rgba(155,160,168,0.75)";
+    // Strokes one arc layer; radiusOffset shifts it across the ring's width.
+    const strokeMeterArc = (anchorAngle, sweep, width, style, radiusOffset = 0) => {
+        ctx.lineWidth = width;
+        ctx.strokeStyle = style;
+        ctx.beginPath();
+        ctx.arc(mmX, mmY, meterRadius + radiusOffset, anchorAngle, anchorAngle + sweep, sweep < 0);
+        ctx.stroke();
+    };
 
-    ctx.beginPath();
-    ctx.arc(mmX, mmY, meterRadius, METER_BOTTOM, METER_BOTTOM + Math.PI);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(mmX, mmY, meterRadius, METER_TOP, METER_BOTTOM);
-    ctx.stroke();
+    // Background tracks: a dark groove with a lighter channel inside it
+    ctx.shadowBlur = 0;
+    strokeMeterArc(METER_BOTTOM, Math.PI, 7, "rgba(14,17,22,0.92)");
+    strokeMeterArc(METER_BOTTOM, Math.PI, 5, "rgba(96,102,112,0.85)");
+    strokeMeterArc(METER_TOP, Math.PI, 7, "rgba(14,17,22,0.92)");
+    strokeMeterArc(METER_TOP, Math.PI, 5, "rgba(96,102,112,0.85)");
 
     // Each fill is anchored at its icon and drains from the opposite end.
-    // When low, the fill itself flashes white on top of its own color.
-    const drawMeterFill = (anchorAngle, ratio, color, low) => {
+    // Layered strokes (dark edge, base, highlight) give it a tube-like depth.
+    // When low, the fill itself flashes white on top.
+    const drawMeterFill = (anchorAngle, ratio, shades, low) => {
         if (ratio <= 0) return;
-        const endAngle = anchorAngle - Math.PI * ratio;
+        const sweep = -Math.PI * ratio;
 
-        ctx.strokeStyle = color;
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 2;
-        ctx.beginPath();
-        ctx.arc(mmX, mmY, meterRadius, anchorAngle, endAngle, true);
-        ctx.stroke();
+        ctx.shadowColor = shades.base;
+        ctx.shadowBlur = 3;
+        strokeMeterArc(anchorAngle, sweep, 7, shades.dark);
+        ctx.shadowBlur = 0;
+        strokeMeterArc(anchorAngle, sweep, 5, shades.base);
+        strokeMeterArc(anchorAngle, sweep, 2, shades.light, 1.2);
+        strokeMeterArc(anchorAngle, sweep, 1.5, "rgba(0,0,0,0.25)", -2.3);
 
         if (low) {
             ctx.globalAlpha = warningFlash;
-            ctx.strokeStyle = "#ffffff";
             ctx.shadowColor = "#ffffff";
             ctx.shadowBlur = 6;
-            ctx.beginPath();
-            ctx.arc(mmX, mmY, meterRadius, anchorAngle, endAngle, true);
-            ctx.stroke();
+            strokeMeterArc(anchorAngle, sweep, 7, "#ffffff");
             ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
         }
     };
 
     // Health — left side, anchored at the top icon
-    drawMeterFill(METER_TOP, healthRatio, "#e74c3c", healthLow);
+    drawMeterFill(METER_TOP, healthRatio,
+        { dark: "#8e1f14", base: "#e74c3c", light: "rgba(255,170,160,0.85)" }, healthLow);
 
     // Hunger — right side, anchored at the bottom icon
-    drawMeterFill(METER_BOTTOM, hungerRatio, "#f39c12", hungerLow);
+    drawMeterFill(METER_BOTTOM, hungerRatio,
+        { dark: "#9c5a08", base: "#f39c12", light: "rgba(255,222,140,0.85)" }, hungerLow);
 
     ctx.restore();
 
-    // Small icon badges
-    const drawStatIcon = (x, y, glyph, color) => {
+    // Small icon badges; the whole badge flashes white while its stat is low
+    const drawStatIcon = (x, y, glyph, color, low) => {
         ctx.save();
         ctx.fillStyle = "rgba(18,22,28,0.94)";
         ctx.beginPath();
         ctx.arc(x, y, 11, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.strokeStyle = "rgba(255,255,255,0.55)";
+        if (low) {
+            ctx.shadowColor = "#ffffff";
+            ctx.shadowBlur = 8 * warningFlash;
+            ctx.fillStyle = `rgba(255,255,255,${0.55 * warningFlash})`;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+
+        ctx.strokeStyle = low
+            ? `rgba(255,255,255,${0.55 + 0.45 * warningFlash})`
+            : "rgba(255,255,255,0.55)";
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
@@ -3979,10 +3996,10 @@ ctx.stroke();
     };
 
     // Health icon — top (12 o'clock)
-    drawStatIcon(mmX, mmY - meterRadius, "♥", "#ff6b6b");
+    drawStatIcon(mmX, mmY - meterRadius, "♥", "#ff6b6b", healthLow);
 
     // Hunger icon — bottom (6 o'clock)
-    drawStatIcon(mmX, mmY + meterRadius, "🍗", "#f5b942");
+    drawStatIcon(mmX, mmY + meterRadius, "🍗", "#f5b942", hungerLow);
 
     ctx.save();
     ctx.translate(mmX, mmY);
