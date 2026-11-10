@@ -1,4 +1,4 @@
-console.log("bhaaji55");
+console.log("simplified-minimap");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
@@ -3909,59 +3909,67 @@ ctx.stroke();
     const METER_TOP = -Math.PI / 2;
     const METER_BOTTOM = Math.PI / 2;
 
-    ctx.save();
-    ctx.lineWidth = 7;
-    ctx.lineCap = "round";
+    
+ctx.save();
+ctx.lineWidth = 7;
+ctx.lineCap = "round";
 
-    // Strokes one arc layer; radiusOffset shifts it across the ring's width.
-    const strokeMeterArc = (anchorAngle, sweep, width, style, radiusOffset = 0) => {
-        ctx.lineWidth = width;
-        ctx.strokeStyle = style;
-        ctx.beginPath();
-        ctx.arc(mmX, mmY, meterRadius + radiusOffset, anchorAngle, anchorAngle + sweep, sweep < 0);
-        ctx.stroke();
-    };
+// Draw one layer of a meter arc.
+const strokeMeterArc = (anchorAngle, sweep, width, style, radiusOffset = 0) => {
+    ctx.lineWidth = width;
+    ctx.strokeStyle = style;
+    ctx.beginPath();
+    ctx.arc(mmX, mmY, meterRadius + radiusOffset, anchorAngle, anchorAngle + sweep, sweep < 0);
+    ctx.stroke();
+};
 
-    // Background tracks: a dark groove with a lighter channel inside it
+// Subtle background tracks
+ctx.shadowBlur = 0;
+strokeMeterArc(METER_BOTTOM, Math.PI, 5, "rgba(14,17,22,0.85)");
+strokeMeterArc(METER_BOTTOM, Math.PI, 3, "rgba(96,102,112,0.45)");
+strokeMeterArc(METER_TOP, Math.PI, 5, "rgba(14,17,22,0.85)");
+strokeMeterArc(METER_TOP, Math.PI, 3, "rgba(96,102,112,0.45)");
+
+// Slimmer fills with a soft glow and a restrained highlight.
+// The negative sweep preserves the existing drain direction.
+const drawMeterFill = (anchorAngle, ratio, shades, low) => {
+    if (ratio <= 0) return;
+
+    const sweep = -Math.PI * ratio;
+
+    // Soft coloured glow
+    ctx.shadowColor = shades.base;
+    ctx.shadowBlur = 3;
+    strokeMeterArc(anchorAngle, sweep, 5, shades.base);
+
+    // Main coloured arc
     ctx.shadowBlur = 0;
-    strokeMeterArc(METER_BOTTOM, Math.PI, 7, "rgba(14,17,22,0.92)");
-    strokeMeterArc(METER_BOTTOM, Math.PI, 5, "rgba(96,102,112,0.85)");
-    strokeMeterArc(METER_TOP, Math.PI, 7, "rgba(14,17,22,0.92)");
-    strokeMeterArc(METER_TOP, Math.PI, 5, "rgba(96,102,112,0.85)");
+    strokeMeterArc(anchorAngle, sweep, 3.5, shades.base);
 
-    // Each fill is anchored at its icon and drains from the opposite end.
-    // Layered strokes (dark edge, base, highlight) give it a tube-like depth.
-    // When low, the fill itself flashes white on top.
-    const drawMeterFill = (anchorAngle, ratio, shades, low) => {
-        if (ratio <= 0) return;
-        const sweep = -Math.PI * ratio;
+    // Fine highlight for a little depth
+    strokeMeterArc(anchorAngle, sweep, 1, shades.light, 0.8);
 
-        ctx.shadowColor = shades.base;
-        ctx.shadowBlur = 3;
-        strokeMeterArc(anchorAngle, sweep, 7, shades.dark);
+    // Keep the low-stat warning flash
+    if (low) {
+        ctx.globalAlpha = warningFlash;
+        ctx.shadowColor = "#ffffff";
+        ctx.shadowBlur = 5;
+        strokeMeterArc(anchorAngle, sweep, 5, "#ffffff");
+        ctx.globalAlpha = 1;
         ctx.shadowBlur = 0;
-        strokeMeterArc(anchorAngle, sweep, 5, shades.base);
-        strokeMeterArc(anchorAngle, sweep, 2, shades.light, 1.2);
-        strokeMeterArc(anchorAngle, sweep, 1.5, "rgba(0,0,0,0.25)", -2.3);
+    }
+};
 
-        if (low) {
-            ctx.globalAlpha = warningFlash;
-            ctx.shadowColor = "#ffffff";
-            ctx.shadowBlur = 6;
-            strokeMeterArc(anchorAngle, sweep, 7, "#ffffff");
-            ctx.globalAlpha = 1;
-            ctx.shadowBlur = 0;
-        }
-    };
+// Health — left side, anchored at the top icon
+drawMeterFill(METER_TOP, healthRatio,
+    { base: "#e74c3c", light: "rgba(255,170,160,0.75)" }, healthLow);
 
-    // Health — left side, anchored at the top icon
-    drawMeterFill(METER_TOP, healthRatio,
-        { dark: "#8e1f14", base: "#e74c3c", light: "rgba(255,170,160,0.85)" }, healthLow);
+// Hunger — right side, anchored at the bottom icon
+drawMeterFill(METER_BOTTOM, hungerRatio,
+    { base: "#f39c12", light: "rgba(255,222,140,0.75)" }, hungerLow);
 
-    // Hunger — right side, anchored at the bottom icon
-    drawMeterFill(METER_BOTTOM, hungerRatio,
-        { dark: "#9c5a08", base: "#f39c12", light: "rgba(255,222,140,0.85)" }, hungerLow);
-
+ctx.restore();
+      
     ctx.restore();
 
     // Small icon badges; the whole badge flashes white while its stat is low
