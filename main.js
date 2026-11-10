@@ -1,4 +1,4 @@
-console.log("idlisambar3");
+console.log("idlisambar55");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
@@ -3886,11 +3886,12 @@ for (
     ctx.restore(); 
 
     
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(mmX, mmY, radarRadius, 0, Math.PI * 2);
-    ctx.stroke();
+    // Black outer border connecting the minimap to the status rings
+ctx.strokeStyle = "#000000";
+ctx.lineWidth = 11;
+ctx.beginPath();
+ctx.arc(mmX, mmY, radarRadius + 3, 0, Math.PI * 2);
+ctx.stroke();
 
     // Health and hunger rings
     const meterRadius = radarRadius + 9;
@@ -3901,7 +3902,7 @@ for (
 
     const healthLow = healthRatio <= 0.25;
     const hungerLow = hungerRatio <= 0.20;
-      const warningPulse = 0.72 + 0.28 *
+      const warningPulse = 0.40 + 0.60 *
     (0.5 + 0.5 * Math.sin(performance.now() / 500));
 
     ctx.save();
@@ -3930,8 +3931,8 @@ for (
         ctx.beginPath();
         ctx.arc(
             mmX, mmY, meterRadius,
-            Math.PI / 2,
-            Math.PI / 2 + Math.PI * healthRatio
+            Math.PI / 2 - Math.PI * healthRatio,
+Math.PI / 2
         );
         ctx.stroke();
         ctx.globalAlpha = 1;
@@ -3947,8 +3948,8 @@ for (
         ctx.beginPath();
         ctx.arc(
             mmX, mmY, meterRadius,
-            -Math.PI / 2,
-            -Math.PI / 2 + Math.PI * hungerRatio
+            Math.PI / 2,
+Math.PI / 2 + Math.PI * hungerRatio
         );
         ctx.stroke();
         ctx.globalAlpha = 1;
@@ -3997,9 +3998,6 @@ drawStatIcon(
     ctx.translate(mmX, mmY);
     ctx.rotate(player.angle);
     
-
-    ctx.save();
-    ctx.translate(mmX, mmY); ctx.rotate(player.angle); 
     ctx.fillStyle = "#f1c40f"; ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(-5, 5); ctx.lineTo(5, 5); ctx.closePath(); ctx.fill(); ctx.stroke();
     ctx.restore();
