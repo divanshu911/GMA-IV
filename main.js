@@ -1,4 +1,4 @@
-console.log("money");
+console.log("money4");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
@@ -91,13 +91,18 @@ function getMoneyHudPanel() {
     return cv;
 }
 
+
 function drawMoneyCounterHUD(c, amount) {
     const { x, y, w, h, r, shadowPad: pad } = MONEY_HUD;
     const remaining = moneyCounterFlashUntil - Date.now();
-    // 1 = full flash colour, easing back to white over the tail of the flash.
+
+    // 1 = full flash colour, easing back to the amount's resting colour.
     const flash = remaining > 0
         ? Math.min(1, remaining / (MONEY_FLASH_MS * 0.55))
         : 0;
+
+    // Negative balances use muted red instead of white.
+    const baseColor = amount < 0 ? "#c77b7b" : MONEY_HUD_BASE_COLOR;
 
     c.save();
     c.drawImage(getMoneyHudPanel(), x - pad, y - pad);
@@ -121,23 +126,26 @@ function drawMoneyCounterHUD(c, amount) {
         moneyHudFitSize = tw > maxW ? Math.max(12, Math.floor(20 * maxW / tw)) : 20;
         moneyHudFitText = text;
     }
+
     c.font = `bold ${moneyHudFitSize}px Arial`;
     c.textAlign = "left";
     c.textBaseline = "middle";
 
     if (flash > 0) {
-        c.shadowColor = moneyCounterFlashColor;   // brief glow, fades with the flash
+        c.shadowColor = moneyCounterFlashColor;
         c.shadowBlur = 8 * flash;
-        c.fillStyle = moneyHudMixColor(MONEY_HUD_BASE_COLOR, moneyCounterFlashColor, flash);
+        c.fillStyle = moneyHudMixColor(baseColor, moneyCounterFlashColor, flash);
     } else {
-        c.shadowColor = "rgba(0, 0, 0, 0.55)";    // resting: just a tiny legibility shadow
+        c.shadowColor = "rgba(0, 0, 0, 0.55)";
         c.shadowBlur = 2;
         c.shadowOffsetY = 1;
-        c.fillStyle = MONEY_HUD_BASE_COLOR;
+        c.fillStyle = baseColor;
     }
+
     c.fillText(text, x + MONEY_HUD_TEXT_X, y + h / 2 + 1);
     c.restore();
 }
+
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
 bgMusic.loop = true;

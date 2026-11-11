@@ -1,4 +1,4 @@
-console.log("rkhii88");
+console.log("goood");
 
 const JOB_LOCATION_CHECK_INTERVAL = 15;
 
@@ -855,7 +855,9 @@ if (!this.isJobActive) return;
 
   drawWorldMarkers(ctx) {}
 }
-
+// DEBUG: Set true to bypass the 15 Taxi jobs requirement.
+// Set false to restore normal progression.
+const DEBUG_TRUCK_JOB_UNLOCK = true;
 let truckManager = new TruckJobManager(2491, 2206);
 
 const truckBtn = document.getElementById('truckBtn');
@@ -863,18 +865,28 @@ if (truckBtn) {
     truckBtn.style.right = '70%'; 
     truckBtn.style.background = 'rgba(230, 126, 34, 0.7)'; 
 
-    truckBtn.addEventListener('click', () => {
-      let completedTaxi = player.taxiMissionsCompleted || parseInt(localStorage.getItem("gma_taxi_missions_completed") || "0");
+    
+truckBtn.addEventListener('click', () => {
+    let completedTaxi = player.taxiMissionsCompleted ||
+        parseInt(localStorage.getItem("gma_taxi_missions_completed") || "0");
 
-      if (completedTaxi >= 15) {
+    if (DEBUG_TRUCK_JOB_UNLOCK || completedTaxi >= 15) {
         truckManager.startJob(player, cars);
-        if (typeof navigationManager !== "undefined") navigationManager.register("truck");
+
+        if (typeof navigationManager !== "undefined") {
+            navigationManager.register("truck");
+        }
+
         truckBtn.style.display = 'none';
-      } else {
+    } else {
         let missingMissions = 15 - completedTaxi;
-        taxiManager.setMessage(`Locked: Complete ${missingMissions} more Taxi jobs to unlock Cargo Missions!`, 180);
-      }
-    });
+        taxiManager.setMessage(
+            `Locked: Complete ${missingMissions} more Taxi jobs to unlock Cargo Missions!`,
+            180
+        );
+    }
+});
+    
 }
 
 // ===== REPAIR GARAGE GLOBAL DECLARATIONS =====
