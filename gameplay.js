@@ -1,4 +1,4 @@
-console.log("goood");
+console.log("streetbound-gameplay");
 
 const JOB_LOCATION_CHECK_INTERVAL = 15;
 
@@ -773,7 +773,7 @@ class TruckJobManager {
   failJob(player, cars) {
     player.money -= 120; 
     localStorage.setItem("gma_player_money", player.money);
-    taximanager.setMessage("Mission Failed! Left the truck behind. Penalty: -$120", 240);
+    taxiManager.setMessage("Mission Failed! Left the truck behind. Penalty: -$120", 240);
     this.cleanup(cars);
   }
 
@@ -855,9 +855,7 @@ if (!this.isJobActive) return;
 
   drawWorldMarkers(ctx) {}
 }
-// DEBUG: Set true to bypass the 15 Taxi jobs requirement.
-// Set false to restore normal progression.
-const DEBUG_TRUCK_JOB_UNLOCK = true;
+const DEBUG_TRUCK_JOB_UNLOCK = false;
 let truckManager = new TruckJobManager(2491, 2206);
 
 const truckBtn = document.getElementById('truckBtn');

@@ -1,4 +1,4 @@
-console.log("money4");
+console.log("streetbound-main");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
