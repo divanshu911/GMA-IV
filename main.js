@@ -1,4 +1,4 @@
-console.log("streetbound-main45");
+console.log("streetbound-main457");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
@@ -3339,7 +3339,27 @@ function drawGame() {
     const mapProgress = Math.max(
     0,
     Math.min(1, fullMapAnimationProgress)
-);
+);// During map closing, render the live gameplay scene underneath
+// the map before drawing the fading map overlay.
+if (fullMapClosing && !renderingGameplayUnderMap) {
+    const previousShowFullMap = showFullMap;
+    const previousFullMapAnimating = fullMapAnimating;
+
+    renderingGameplayUnderMap = true;
+
+    showFullMap = false;
+    fullMapAnimating = false;
+
+    drawGame();
+
+    showFullMap = previousShowFullMap;
+    fullMapAnimating = previousFullMapAnimating;
+
+    renderingGameplayUnderMap = false;
+
+    // Restore the hidden gameplay buttons while the map remains visible.
+    syncGameplayButtonsWithFullMap();
+}
 // Dark background fades in/out with the map.
 const backgroundAlpha = mapProgress * 0.95;
 
@@ -3692,7 +3712,9 @@ ctx.fillText(
 );
 
 ctx.restore();
-
+if (fullMapClosing && mapProgress <= 0) {
+    fullMapClosing = false;
+}
 return;
   }
 // Camera transform setup

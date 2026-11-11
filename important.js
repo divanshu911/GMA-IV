@@ -1,7 +1,8 @@
+//63525255
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-console.log("streetbound-core4");
+console.log("streetbound-core4u");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
@@ -119,6 +120,8 @@ let playerPhoneOpen = false;
 let firstTimeControlsOpen = false;
 // Full-map animation state
 let fullMapAnimating = false;
+let fullMapClosing = false;
+let renderingGameplayUnderMap = false;
 let fullMapAnimationProgress = 0;
 let fullMapAnimationFrom = 0;
 let fullMapAnimationTo = 0;
@@ -433,6 +436,7 @@ function openFullMap() {
         closePlayerPhone();
     }
 
+    fullMapClosing = false;
     showFullMap = true;
     gameActive = false;
     mapSettingsOpen = false;
@@ -444,7 +448,8 @@ function openFullMap() {
 function closeFullMap() {
     if (!showFullMap && !fullMapAnimating) return;
 
-    gameActive = false;
+    fullMapClosing = true;
+    gameActive = true;
     mapSettingsOpen = false;
     sbSetJoystickZoneInteractive(true);
 
