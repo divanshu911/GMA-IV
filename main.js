@@ -1,4 +1,4 @@
-console.log("streetbound-main4");
+console.log("streetbound-main45");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
@@ -3421,7 +3421,7 @@ ctx.globalAlpha = 1;
         );
 
         ctx.globalAlpha =
-            0.25 + mapProgress * 0.75;
+            mapProgress;
 
         ctx.drawImage(
             mapImage,
