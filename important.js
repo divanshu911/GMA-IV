@@ -1,7 +1,7 @@
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-console.log("streetbound-core");
+console.log("streetbound-core4");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
@@ -1472,13 +1472,12 @@ function drawNightOverlay() {
     }
     ctx.restore();
 }
-                     
 // ============================================================
-// CLOCK HUD  –  shares money-panel visual language
-// Normal: sits directly under the money panel (same width / style).
-// Taxi job active: eases downward so the taxi status panel can sit
-// between money and clock. Always visible; never snaps.
+// CLOCK HUD
+// Normally occupies the lower row of the money panel.
+// During taxi jobs, detaches and slides below the taxi UI.
 // ============================================================
+
 const CLOCK_HUD = {
     x: 20,
     w: 150,
@@ -1486,41 +1485,54 @@ const CLOCK_HUD = {
     r: 8
 };
 
-// Target Y positions (single source of truth for the animation).
-const CLOCK_NORMAL_Y = 65;   // MONEY_HUD.y (20) + MONEY_HUD.h (45)
-const CLOCK_TAXI_Y   = 158;  // below taxi panel (y=80, h=70)
+const CLOCK_NORMAL_Y = 65;
+const CLOCK_TAXI_Y = 158;
 
 let clockHudY = CLOCK_NORMAL_Y;
 let clockHudLastT = 0;
 
 function drawClock() {
-    if (typeof gameSeconds === "undefined" || typeof DAY_LENGTH === "undefined") {
+    if (
+        typeof gameSeconds === "undefined" ||
+        typeof DAY_LENGTH === "undefined"
+    ) {
         return;
     }
 
-    const totalMinutes = Math.floor((gameSeconds / DAY_LENGTH) * 24 * 60);
+    const totalMinutes = Math.floor(
+        (gameSeconds / DAY_LENGTH) * 24 * 60
+    );
+
     const h = Math.floor(totalMinutes / 60) % 24;
     const m = totalMinutes % 60;
 
-    // Single target driven by taxi job state.
     const taxiActive =
         typeof taxiManager !== "undefined" &&
         taxiManager &&
         taxiManager.isJobActive;
 
-    const targetY = taxiActive ? CLOCK_TAXI_Y : CLOCK_NORMAL_Y;
+    const targetY = taxiActive
+        ? CLOCK_TAXI_Y
+        : CLOCK_NORMAL_Y;
 
-    // Exponential ease toward target (~350 ms feel). Continues from
-    // the clock's current Y if the job toggles mid-animation.
+    // Smooth movement between attached and detached positions.
     const now = performance.now();
-    if (!clockHudLastT) clockHudLastT = now;
-    const dt = Math.min(0.05, (now - clockHudLastT) / 1000);
+
+    if (!clockHudLastT) {
+        clockHudLastT = now;
+    }
+
+    const dt = Math.min(
+        0.05,
+        (now - clockHudLastT) / 1000
+    );
+
     clockHudLastT = now;
 
     const blend = 1 - Math.exp(-dt / 0.12);
+
     clockHudY += (targetY - clockHudY) * blend;
 
-    // Snap when extremely close to avoid perpetual sub-pixel drift.
     if (Math.abs(targetY - clockHudY) < 0.15) {
         clockHudY = targetY;
     }
@@ -1533,68 +1545,108 @@ function drawClock() {
 
     ctx.save();
 
-    // Soft drop shadow (matches money panel language).
-    ctx.shadowColor = "rgba(0, 0, 0, 0.45)";
-    ctx.shadowBlur = 8;
-    ctx.shadowOffsetY = 2;
+    // Only draw an independent panel when detached.
+    if (taxiActive) {
+        ctx.shadowColor = "rgba(0,0,0,0.45)";
+        ctx.shadowBlur = 8;
+        ctx.shadowOffsetY = 2;
 
-    // Charcoal body gradient.
-    const body = ctx.createLinearGradient(0, y, 0, y + hgt);
-    body.addColorStop(0, "#33373d");
-    body.addColorStop(1, "#202327");
-    ctx.fillStyle = body;
+        const body = ctx.createLinearGradient(
+            0, y, 0, y + hgt
+        );
 
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + hgt, r);
-    ctx.arcTo(x + w, y + hgt, x, y + hgt, r);
-    ctx.arcTo(x, y + hgt, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-    ctx.fill();
+        body.addColorStop(0, "#33373d");
+        body.addColorStop(1, "#202327");
 
-    ctx.shadowColor = "transparent";
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
+        ctx.fillStyle = body;
 
-    // Subtle top-edge highlight.
-    const hl = ctx.createLinearGradient(0, y, 0, y + hgt);
-    hl.addColorStop(0, "rgba(255, 255, 255, 0.18)");
-    hl.addColorStop(0.45, "rgba(255, 255, 255, 0.04)");
-    hl.addColorStop(1, "rgba(255, 255, 255, 0)");
-    ctx.strokeStyle = hl;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(x + r, y + 0.5);
-    ctx.arcTo(x + w - 0.5, y + 0.5, x + w - 0.5, y + hgt - 0.5, r - 0.5);
-    ctx.arcTo(x + w - 0.5, y + hgt - 0.5, x + 0.5, y + hgt - 0.5, r - 0.5);
-    ctx.arcTo(x + 0.5, y + hgt - 0.5, x + 0.5, y + 0.5, r - 0.5);
-    ctx.arcTo(x + 0.5, y + 0.5, x + w - 0.5, y + 0.5, r - 0.5);
-    ctx.closePath();
-    ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + hgt, r);
+        ctx.arcTo(x + w, y + hgt, x, y + hgt, r);
+        ctx.arcTo(x, y + hgt, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+        ctx.fill();
 
-    // Small clock icon (left side, mirrors the money-panel notes icon).
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetY = 0;
+
+        // Matching inner highlight.
+        const hl = ctx.createLinearGradient(
+            0, y, 0, y + hgt
+        );
+
+        hl.addColorStop(0, "rgba(255,255,255,0.18)");
+        hl.addColorStop(0.45, "rgba(255,255,255,0.04)");
+        hl.addColorStop(1, "rgba(255,255,255,0)");
+
+        ctx.strokeStyle = hl;
+        ctx.lineWidth = 1;
+
+        ctx.beginPath();
+        ctx.moveTo(x + r, y + 0.5);
+        ctx.arcTo(
+            x + w - 0.5,
+            y + 0.5,
+            x + w - 0.5,
+            y + hgt - 0.5,
+            r - 0.5
+        );
+        ctx.arcTo(
+            x + w - 0.5,
+            y + hgt - 0.5,
+            x + 0.5,
+            y + hgt - 0.5,
+            r - 0.5
+        );
+        ctx.arcTo(
+            x + 0.5,
+            y + hgt - 0.5,
+            x + 0.5,
+            y + 0.5,
+            r - 0.5
+        );
+        ctx.arcTo(
+            x + 0.5,
+            y + 0.5,
+            x + w - 0.5,
+            y + 0.5,
+            r - 0.5
+        );
+        ctx.closePath();
+        ctx.stroke();
+    }
+
+    // Clock icon.
     const iconCx = x + 22;
     const iconCy = y + hgt / 2;
     const iconR = 8;
 
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
-    ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
+    ctx.strokeStyle = "rgba(255,255,255,0.55)";
+    ctx.fillStyle = "rgba(255,255,255,0.12)";
     ctx.lineWidth = 1.5;
+
     ctx.beginPath();
     ctx.arc(iconCx, iconCy, iconR, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
 
-    // Clock hands (approximate current time for a bit of life).
-    const hourAngle = ((h % 12) + m / 60) * (Math.PI * 2 / 12) - Math.PI / 2;
-    const minAngle = (m / 60) * (Math.PI * 2) - Math.PI / 2;
+    // Clock hands.
+    const hourAngle =
+        ((h % 12) + m / 60) *
+        (Math.PI * 2 / 12) -
+        Math.PI / 2;
 
-    ctx.strokeStyle = "rgba(242, 244, 245, 0.9)";
+    const minAngle =
+        (m / 60) * (Math.PI * 2) -
+        Math.PI / 2;
+
+    ctx.strokeStyle = "rgba(242,244,245,0.9)";
     ctx.lineWidth = 1.6;
     ctx.lineCap = "round";
 
-    // Hour hand
     ctx.beginPath();
     ctx.moveTo(iconCx, iconCy);
     ctx.lineTo(
@@ -1603,8 +1655,8 @@ function drawClock() {
     );
     ctx.stroke();
 
-    // Minute hand
     ctx.lineWidth = 1.2;
+
     ctx.beginPath();
     ctx.moveTo(iconCx, iconCy);
     ctx.lineTo(
@@ -1613,22 +1665,29 @@ function drawClock() {
     );
     ctx.stroke();
 
-    // Time digits
+    // Digital time.
     const timeText =
-        String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+        String(h).padStart(2, "0") +
+        ":" +
+        String(m).padStart(2, "0");
 
     ctx.fillStyle = "#f2f4f5";
     ctx.font = "bold 18px Arial";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
+
+    ctx.shadowColor = "rgba(0,0,0,0.55)";
     ctx.shadowBlur = 2;
     ctx.shadowOffsetY = 1;
-    ctx.fillText(timeText, x + 40, y + hgt / 2 + 1);
+
+    ctx.fillText(
+        timeText,
+        x + 40,
+        y + hgt / 2 + 1
+    );
 
     ctx.restore();
 }
-
 // --- 2. START BUTTON LOGIC ---
 
 const startBtn = document.getElementById('startButton');

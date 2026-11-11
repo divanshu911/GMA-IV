@@ -1,15 +1,24 @@
-console.log("streetbound-main");
+console.log("streetbound-main4");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
 let moneyCounterFlashUntil = 0;
 
-// --- Money counter HUD (visual only; reads player.money, never writes it) ---
-const MONEY_HUD = { x: 20, y: 20, w: 150, h: 45, r: 8, shadowPad: 12 };
-const MONEY_HUD_TEXT_X = 44;            // text starts this far in from the panel's left edge
-const MONEY_HUD_BASE_COLOR = "#f2f4f5"; // resting amount colour
-const MONEY_FLASH_MS = 450;             // must match the duration set where the flash starts
-let moneyHudPanelCache = null;
+const MONEY_HUD = {
+    x: 20,
+    y: 20,
+    w: 150,
+    h: 81,       // Combined panel height
+    moneyH: 45,  // Upper money row height
+    r: 8,
+    shadowPad: 12
+};
+
+const MONEY_HUD_TEXT_X = 44;
+const MONEY_HUD_BASE_COLOR = "#f2f4f5";
+const MONEY_FLASH_MS = 450;
+
+let moneyHudPanelCache = {};
 let moneyHudFitText = "";
 let moneyHudFitSize = 20;
 
@@ -34,96 +43,181 @@ function moneyHudMixColor(a, b, t) {
 
 // The static part (shadow, charcoal body, inner highlight, cash icon) never
 // changes, so it is drawn once to an offscreen canvas and blitted each frame.
-function getMoneyHudPanel() {
-    if (moneyHudPanelCache) return moneyHudPanelCache;
+function getMoneyHudPanel(panelHeight = MONEY_HUD.h) {
+    if (moneyHudPanelCache[panelHeight]) {
+        return moneyHudPanelCache[panelHeight];
+    }
 
-    const { w, h, r, shadowPad: pad } = MONEY_HUD;
+    const { w, r, shadowPad: pad } = MONEY_HUD;
+
     const cv = document.createElement("canvas");
     cv.width = w + pad * 2;
-    cv.height = h + pad * 2;
-    const g = cv.getContext("2d");
-    const x = pad, y = pad;
+    cv.height = panelHeight + pad * 2;
 
-    // Charcoal body with a soft drop shadow.
+    const g = cv.getContext("2d");
+    const x = pad;
+    const y = pad;
+
+    // Shared charcoal panel.
     g.save();
     g.shadowColor = "rgba(0, 0, 0, 0.45)";
     g.shadowBlur = 8;
     g.shadowOffsetY = 2;
-    const body = g.createLinearGradient(0, y, 0, y + h);
+
+    const body = g.createLinearGradient(0, y, 0, y + panelHeight);
     body.addColorStop(0, "#33373d");
     body.addColorStop(1, "#202327");
+
     g.fillStyle = body;
-    moneyHudRoundRectPath(g, x, y, w, h, r);
+    moneyHudRoundRectPath(g, x, y, w, panelHeight, r);
     g.fill();
     g.restore();
 
-    // Subtle inner highlight: bright along the top edge, fading downward.
+    // Inner highlight.
     g.save();
-    const hl = g.createLinearGradient(0, y, 0, y + h);
-    hl.addColorStop(0, "rgba(255, 255, 255, 0.18)");
-    hl.addColorStop(0.45, "rgba(255, 255, 255, 0.04)");
-    hl.addColorStop(1, "rgba(255, 255, 255, 0)");
+
+    const hl = g.createLinearGradient(0, y, 0, y + panelHeight);
+    hl.addColorStop(0, "rgba(255,255,255,0.18)");
+    hl.addColorStop(0.45, "rgba(255,255,255,0.04)");
+    hl.addColorStop(1, "rgba(255,255,255,0)");
+
     g.strokeStyle = hl;
     g.lineWidth = 1;
-    moneyHudRoundRectPath(g, x + 0.5, y + 0.5, w - 1, h - 1, r - 0.5);
+
+    moneyHudRoundRectPath(
+        g,
+        x + 0.5,
+        y + 0.5,
+        w - 1,
+        panelHeight - 1,
+        r - 0.5
+    );
+
     g.stroke();
     g.restore();
 
-    // Small cash icon: two stacked banknotes (flat colours, no glow).
-    const bw = 20, bh = 13;
+    // Cash icon.
+    const bw = 20;
+    const bh = 13;
+
     const drawNote = (nx, ny, fill, edge, detail) => {
         g.fillStyle = fill;
         moneyHudRoundRectPath(g, nx, ny, bw, bh, 2.5);
         g.fill();
+
         g.strokeStyle = edge;
         g.lineWidth = 1;
-        moneyHudRoundRectPath(g, nx + 1.5, ny + 1.5, bw - 3, bh - 3, 1.5);
+
+        moneyHudRoundRectPath(
+            g,
+            nx + 1.5,
+            ny + 1.5,
+            bw - 3,
+            bh - 3,
+            1.5
+        );
+
         g.stroke();
+
         g.fillStyle = detail;
         g.beginPath();
         g.arc(nx + bw / 2, ny + bh / 2, 2.6, 0, Math.PI * 2);
         g.fill();
     };
-    drawNote(x + 14, y + 15, "#2d6a45", "rgba(255, 255, 255, 0.12)", "rgba(255, 255, 255, 0.18)");
-    drawNote(x + 12, y + 17, "#4e9a66", "rgba(255, 255, 255, 0.35)", "rgba(228, 247, 236, 0.92)");
 
-    moneyHudPanelCache = cv;
+    drawNote(
+        x + 14, y + 15,
+        "#2d6a45",
+        "rgba(255,255,255,0.12)",
+        "rgba(255,255,255,0.18)"
+    );
+
+    drawNote(
+        x + 12, y + 17,
+        "#4e9a66",
+        "rgba(255,255,255,0.35)",
+        "rgba(228,247,236,0.92)"
+    );
+
+    moneyHudPanelCache[panelHeight] = cv;
     return cv;
 }
 
-
 function drawMoneyCounterHUD(c, amount) {
-    const { x, y, w, h, r, shadowPad: pad } = MONEY_HUD;
+    const {
+        x, y, w, moneyH, r, shadowPad: pad
+    } = MONEY_HUD;
+
+    const taxiActive =
+        typeof taxiManager !== "undefined" &&
+        taxiManager &&
+        taxiManager.isJobActive;
+
+    // During taxi jobs, show only the upper money panel.
+    const panelHeight = taxiActive ? moneyH : MONEY_HUD.h;
+
     const remaining = moneyCounterFlashUntil - Date.now();
 
-    // 1 = full flash colour, easing back to the amount's resting colour.
     const flash = remaining > 0
         ? Math.min(1, remaining / (MONEY_FLASH_MS * 0.55))
         : 0;
 
-    // Negative balances use muted red instead of white.
-    const baseColor = amount < 0 ? "#c77b7b" : MONEY_HUD_BASE_COLOR;
+    const baseColor = amount < 0
+        ? "#c77b7b"
+        : MONEY_HUD_BASE_COLOR;
 
     c.save();
-    c.drawImage(getMoneyHudPanel(), x - pad, y - pad);
 
-    // Faint rim tint in the flash colour (only while flashing).
+    c.drawImage(
+        getMoneyHudPanel(panelHeight),
+        x - pad,
+        y - pad
+    );
+
+    // Divider between money and clock rows.
+    if (!taxiActive) {
+        c.strokeStyle = "rgba(255,255,255,0.12)";
+        c.lineWidth = 1;
+
+        c.beginPath();
+        c.moveTo(x + 12, y + moneyH + 0.5);
+        c.lineTo(x + w - 12, y + moneyH + 0.5);
+        c.stroke();
+    }
+
+    // Money-change flash.
     if (flash > 0) {
         c.globalAlpha = 0.45 * flash;
         c.strokeStyle = moneyCounterFlashColor;
         c.lineWidth = 1.5;
-        moneyHudRoundRectPath(c, x + 0.75, y + 0.75, w - 1.5, h - 1.5, r - 0.75);
+
+        moneyHudRoundRectPath(
+            c,
+            x + 0.75,
+            y + 0.75,
+            w - 1.5,
+            panelHeight - 1.5,
+            r - 0.75
+        );
+
         c.stroke();
         c.globalAlpha = 1;
     }
 
-    // Amount: bold, brightest element; shrinks only if a huge value won't fit.
+    // Money amount.
     const text = `$${amount}`;
+
     if (text !== moneyHudFitText) {
         const maxW = w - MONEY_HUD_TEXT_X - 12;
+
         c.font = "bold 20px Arial";
+
         const tw = c.measureText(text).width;
-        moneyHudFitSize = tw > maxW ? Math.max(12, Math.floor(20 * maxW / tw)) : 20;
+
+        moneyHudFitSize = tw > maxW
+            ? Math.max(12, Math.floor(20 * maxW / tw))
+            : 20;
+
         moneyHudFitText = text;
     }
 
@@ -134,18 +228,30 @@ function drawMoneyCounterHUD(c, amount) {
     if (flash > 0) {
         c.shadowColor = moneyCounterFlashColor;
         c.shadowBlur = 8 * flash;
-        c.fillStyle = moneyHudMixColor(baseColor, moneyCounterFlashColor, flash);
+
+        c.fillStyle = moneyHudMixColor(
+            baseColor,
+            moneyCounterFlashColor,
+            flash
+        );
     } else {
-        c.shadowColor = "rgba(0, 0, 0, 0.55)";
+        c.shadowColor = "rgba(0,0,0,0.55)";
         c.shadowBlur = 2;
         c.shadowOffsetY = 1;
         c.fillStyle = baseColor;
     }
 
-    c.fillText(text, x + MONEY_HUD_TEXT_X, y + h / 2 + 1);
+    // Keep the amount centered in the original upper row.
+    c.fillText(
+        text,
+        x + MONEY_HUD_TEXT_X,
+        y + moneyH / 2 + 1
+    );
+
     c.restore();
 }
-
+    
+    
 const musicUrl = "https://raw.githubusercontent.com/divanshu911/My-game-assets/a5fe3dcfe3438531dfff064503d78422031253a7/cricket.ogg";
 const bgMusic = new Audio(musicUrl);
 bgMusic.loop = true;
