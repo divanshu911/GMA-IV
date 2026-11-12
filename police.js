@@ -1380,6 +1380,11 @@ function startArrestTransition() {
                 escort.humAudio.pause();
                 escort.humAudio = null;
             }
+            if (escort.fireAudio) {
+    escort.fireAudio.pause();
+    escort.fireAudio.currentTime = 0;
+    escort.fireAudio = null;
+            }
 
             const index = cars.indexOf(escort);
 
@@ -2282,10 +2287,64 @@ function updateSinglePoliceChase(unit, dt, player, cars, npcs) {
         }
     }
 }
+// Hard limits so a replacement responder can never be spawned in a loop.
+const POLICE_ROADBLOCK_FALLBACK_MAX = 3;        // replacements per escape
+const POLICE_ROADBLOCK_FALLBACK_MIN_GAP_MS = 4000;
+
+// Stand a responder down without spawning anything in its place.
+function releaseRoadblockResponder(patrol) {
+    const S = policeResponseState;
+
+    if (
+        patrol &&
+        Array.isArray(cars) &&
+        cars.includes(patrol) &&
+        patrol.policeState === "RESPONDING"
+    ) {
+        patrol.policeState = "PATROL";
+        patrol.speed = 0;
+        patrol.isParked = false;
+        patrol.roadblockResponseTimer = 0;
+
+        if (typeof patrol.stopSiren === "function") {
+            patrol.stopSiren();
+        } else {
+            patrol.sirenState = 0;
+        }
+    }
+
+    S.roadblockResponder = null;
+    S.roadblockFallbackCount = 0;
+    S.roadblockFallbackAt = 0;
+}
+
 function dispatchRoadblockFallback() {
     if (typeof player === "undefined" || !player) {
         return null;
     }
+
+    const S = policeResponseState;
+
+    // Nobody is looking for the player any more: nothing to reinforce.
+    if (!player.wanted && !player.beingChased) {
+        return null;
+    }
+
+    // Never during an arrest / release sequence.
+    if (player.isBeingArrested || player.isArrestPassenger) {
+        return null;
+    }
+
+    // Rate limit + attempt cap: this function must never fire every frame.
+    const now = Date.now();
+    if (
+        (S.roadblockFallbackCount | 0) >= POLICE_ROADBLOCK_FALLBACK_MAX ||
+        now - (S.roadblockFallbackAt || 0) < POLICE_ROADBLOCK_FALLBACK_MIN_GAP_MS
+    ) {
+        return null;
+    }
+    S.roadblockFallbackCount = (S.roadblockFallbackCount | 0) + 1;
+    S.roadblockFallbackAt = now;
 
     const spawnPos = findPoliceResponseSpawnPoint(
         true,
@@ -2346,6 +2405,16 @@ function dispatchRoadblockFallback() {
 
     if (!patrol) return;
 
+    // The player is neither wanted nor chased (wanted expired, crime cases
+    // cleared, ...). Release the responder; NEVER replace it. The generic
+    // "clear police when not wanted" pass resets RESPONDING cars to PATROL
+    // every frame, which used to look like an invalid responder and caused a
+    // new reinforcement to be spawned every single frame.
+    if (!player.wanted && !player.beingChased) {
+        releaseRoadblockResponder(patrol);
+        return;
+    }
+
     // If the chase ends, release the patrol instead of spawning
     // an unnecessary reinforcement.
     // A roadblock response is dispatched BEFORE the chase starts.
@@ -2367,8 +2436,8 @@ if (player.isBeingArrested || player.isArrestPassenger) {
     return;                   
     }
 
-    // A destroyed, stolen, removed, or otherwise invalid responder
-    // cannot fulfil the request. Fall back to a new car.
+    // A destroyed, stolen, removed, or driverless responder cannot fulfil
+    // the request. Fall back to a new car (rate-limited, see the function).
     if (
         !cars.includes(patrol) ||
         !patrol.isPolice ||
@@ -2376,11 +2445,18 @@ if (player.isBeingArrested || player.isArrestPassenger) {
         patrol.isStolen ||
         patrol.exploded ||
         patrol.health <= 0 ||
-        !patrol.hasDriver ||
-        patrol.policeState !== "RESPONDING"
+        !patrol.hasDriver
     ) {
         S.roadblockResponder = null;
         dispatchRoadblockFallback();
+        return;
+    }
+
+    // The responder is fine but some other system changed its state
+    // (reset to PATROL, taken over by the chase code, ...). Just let go of
+    // it; spawning a replacement here is what made the loop possible.
+    if (patrol.policeState !== "RESPONDING") {
+        S.roadblockResponder = null;
         return;
     }
 
@@ -2400,6 +2476,8 @@ if (player.isBeingArrested || player.isArrestPassenger) {
     patrol.roadblockResponseRepathTimer = 0;
 
     S.roadblockResponder = null;
+    S.roadblockFallbackCount = 0;
+    S.roadblockFallbackAt = 0;
     S.reinforceTimer = POLICE_REINFORCE_FIRST_DELAY;
     S.reinforceCooldown = 0;
     S.reinforceFails = 0;
@@ -2932,6 +3010,8 @@ if (
     }
 
     // The responder is approaching; the chase has not started yet.
+policeResponseState.roadblockFallbackCount = 0;
+policeResponseState.roadblockFallbackAt = 0;
 policeResponseState.chaseActive = false;
 policeResponseState.reinforceFails = 0;
 policeResponseState.reinforceWasAtCap = false;
@@ -3966,6 +4046,11 @@ const policeResponseState = {
     reinforceFails: 0,
     reinforceWasAtCap: false,
 
+    // Roadblock-escape responder bookkeeping (see dispatchRoadblockFallback).
+    roadblockResponder: null,
+    roadblockFallbackCount: 0,
+    roadblockFallbackAt: 0,
+
     capTimer: 0,
     debugInstalled: false
 };
@@ -4232,6 +4317,11 @@ function policeResponseDisposeCar(car) {
     if (car.humAudio) {
         try { car.humAudio.pause(); } catch (e) {}
         car.humAudio = null;
+    }
+    if (car.fireAudio) {
+    car.fireAudio.pause();
+    car.fireAudio.currentTime = 0;
+    car.fireAudio = null;
     }
     if (typeof car.stopSiren === "function") {
         car.stopSiren();
@@ -4688,6 +4778,8 @@ if (
 }
 
 S.roadblockResponder = null;
+    S.roadblockFallbackCount = 0;
+    S.roadblockFallbackAt = 0;
     policeResponseCancelReinforcements();
 
     const doomed = new Set(

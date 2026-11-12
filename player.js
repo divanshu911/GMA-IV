@@ -11,43 +11,45 @@ function showVehicleNameToast(car) {
     vehicleNameToast = car.type;
     vehicleNameToastStartedAt = performance.now();
 }
+
 function checkPlayerDeath() {
-  if (player.health <= 0) {
-      taxiManager.setMessage("WASTED: Rushed to the hospital! Medical fee: $150", 240);
-      player.money -= 100;
-      player.health = player.maxHealth;
-      player.hunger = 100;
+    if (player.health <= 0) {
+        taxiManager.setMessage("WASTED: Rushed to the hospital! Medical fee: $150", 240);
+        player.money -= 100;
+        player.health = player.maxHealth;
+        player.hunger = 100;
 
-      localStorage.setItem("gma_player_money", player.money);
-      localStorage.setItem("gma_player_health", player.health);
-      localStorage.setItem("gma_player_hunger", player.hunger);
+        localStorage.setItem("gma_player_money", player.money);
+        localStorage.setItem("gma_player_health", player.health);
+        localStorage.setItem("gma_player_hunger", player.hunger);
 
-      player.x = 3888;
-      player.y = 1215;
-      player.speed = 0;
+        player.x = 3888;
+        player.y = 1215;
+        player.speed = 0;
 
-      if (playerCar) {
-          if (playerCar.humAudio) {
-              playerCar.humAudio.pause();
-              playerCar.humAudio = null;
-          }
-          playerCar.isParked = true;
-          playerCar.hasDriver = false;
-          playerCar = null;
-          if (exitBtn) exitBtn.style.display = 'none';
-          if (jackBtn) jackBtn.style.display = 'none';
-      }
-  }
-    
-      // Automatically arrest the player at the hospital if still wanted.
-      if (
-          player.wanted &&
-          !player.isBeingArrested &&
-          typeof executeArrestProcess === "function"
-      ) {
-          executeArrestProcess();
-      }
+        if (playerCar) {
+            if (playerCar.humAudio) {
+                playerCar.humAudio.pause();
+                playerCar.humAudio = null;
+            }
+            playerCar.isParked = true;
+            playerCar.hasDriver = false;
+            playerCar = null;
+            if (exitBtn) exitBtn.style.display = 'none';
+            if (jackBtn) jackBtn.style.display = 'none';
+        }
+
+        // Only arrest a wanted player when they die and reach the hospital.
+        if (
+            player.wanted &&
+            !player.isBeingArrested &&
+            typeof executeArrestProcess === "function"
+        ) {
+            executeArrestProcess();
+        }
+    }
 }
+
 let playerDamageVignette = 0;
 
 function damagePlayer(amount) {
