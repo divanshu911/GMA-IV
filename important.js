@@ -503,42 +503,45 @@ function storyBuildTimeline(s) {
         return n;
     });
 
-    // ---- rival gang blocking the road -------------------------------
+    // ---- rival gang (spawned later so the SUV gets a proper approach) ----
     const rivalSpots = [[2668, 550], [2656, 561], [2670, 572], [2656, 583], [2668, 591]];
     const redShirts = ["#c0392b", "#d35400", "#c0392b", "#a93226", "#d35400"];
     const skins = ["#ffdbac", "#f1c27d", "#e0ac69", "#c68642", "#8d5524"];
-    e.rivals = rivalSpots.map((p, i) =>
-        storyNpc(s, p[0], p[1], redShirts[i], i % 2 ? "#f39c12" : "#d35400", skins[i], -Math.PI / 2)
-    );
+    e.rivals = [];
 
     e.box = { x: BOX_X, y: BOX_Y, exploded: false };
 
-    // ---- camera -------------------------------------------------------
+    // ---- camera: follow the SUV while it drives in --------------------
     s.cam.x = suv.x + 90;
     s.cam.y = 566;
     s.camTarget = () => ({ x: e.suv.x + 90, y: 566 });
-    window.sbCutsceneZoom = 1.45;
+    window.sbCutsceneZoom = 1.2;
 
-    storyAt(2.0, () => {
-        window.sbCutsceneZoom = 1.7;
-        s.camTarget = () => ({ x: 2590, y: 566 });
+    // Rivals materialise once the SUV is nearly on them.
+    storyAt(3.6, () => {
+        e.rivals = rivalSpots.map((p, i) =>
+            storyNpc(s, p[0], p[1], redShirts[i], i % 2 ? "#f39c12" : "#d35400", skins[i], -Math.PI / 2)
+        );
+        window.sbCutsceneZoom = 1.35;
     });
 
     // ---- scene 1: ambush --------------------------------------------
-    storyAt(2.2, () => {
+    storyAt(4.0, () => {
         e.rivals.forEach(n => { n.aimHold = true; });
         storySay(e.rivals[2], "Hold it right there!", 1.6);
+        s.camTarget = () => ({ x: 2590, y: 566 });
     });
 
     // rivals open fire on the SUV's tyres while it is braking
-    [3.1, 3.25, 3.4, 3.55, 3.7].forEach((t, i) => {
+    [4.9, 5.05, 5.2, 5.35, 5.5].forEach((t, i) => {
         storyAt(t, () => {
+            if (!e.rivals[i]) return;
             storyFire(e.rivals[i], e.suv.x + 10, e.suv.y + (Math.random() * 8 - 4), { hitCar: e.suv });
         });
     });
 
     // SUV crew bails out and returns fire
-    storyAt(4.4, () => {
+    storyAt(6.2, () => {
         const spots = [[2522, 566], [2500, 566], [2512, 594], [2538, 576]];
         e.crew.forEach((n, i) => {
             n.isPassenger = false;
@@ -549,10 +552,10 @@ function storyBuildTimeline(s) {
         });
         storySay(e.crew[0], "Ambush!", 1.3);
     });
-    storyAt(4.9, () => storySay(e.crew[1], "Get down!", 1.2));
+    storyAt(6.7, () => storySay(e.crew[1], "Get down!", 1.2));
 
     // rivals keep firing (and missing) until they are down
-    for (let t = 4.5; t < 8.9; t += 0.5) {
+    for (let t = 6.3; t < 10.7; t += 0.5) {
         storyAt(t, () => {
             const r = storyAlive(e.rivals), c = storyAlive(e.crew);
             if (!r.length || !c.length) return;
@@ -562,7 +565,7 @@ function storyBuildTimeline(s) {
     }
 
     // crew fires back: filler shots (aimed to miss) ...
-    for (let t = 5.1; t < 9.0; t += 0.42) {
+    for (let t = 6.9; t < 10.8; t += 0.42) {
         storyAt(t, () => {
             const r = storyAlive(e.rivals), c = storyAlive(e.crew);
             if (!r.length || !c.length) return;
@@ -571,29 +574,39 @@ function storyBuildTimeline(s) {
         });
     }
     // ... plus the shots that bring each rival down
-    [[5.6, 0, 0], [6.4, 1, 1], [7.2, 2, 2], [8.0, 3, 3], [8.8, 4, 0]].forEach(k => {
+    [[7.4, 0, 0], [8.2, 1, 1], [9.0, 2, 2], [9.8, 3, 3], [10.6, 4, 0]].forEach(k => {
         storyAt(k[0], () => {
             const tgt = e.rivals[k[1]];
+            if (!tgt) return;
             storyFire(e.crew[k[2]], tgt.x, tgt.y, { kill: tgt });
         });
     });
 
-    storyAt(9.5, () => { e.crew.forEach(n => { n.aimHold = false; }); });
-    storyAt(9.8, () => storySay(e.crew[0], "That's all of them.", 1.7));
-    storyAt(11.6, () => storySay(e.crew[1], "Tyres are shot.", 1.3));
-    storyAt(12.9, () => storySay(e.crew[1], "Leave the car!", 1.3));
-    storyAt(14.2, () => storySay(e.crew[0], "Don't touch that box!", 1.6));
-    storyAt(15.7, () => storySay(e.crew[2], "It's full of explosives!", 1.6));
+    storyAt(11.3, () => { e.crew.forEach(n => { n.aimHold = false; }); });
+    storyAt(11.6, () => storySay(e.crew[0], "That's all of them.", 1.7));
+    storyAt(13.4, () => storySay(e.crew[1], "Tyres are shot.", 1.3));
+    storyAt(14.7, () => storySay(e.crew[1], "Leave the car!", 1.3));
+    storyAt(16.0, () => storySay(e.crew[0], "Don't touch that box!", 1.6));
+    storyAt(17.5, () => storySay(e.crew[2], "It's full of explosives!", 1.6));
 
     // crew walks off along the north kerb, away from the SUV
-    storyAt(17.0, () => {
+    storyAt(18.8, () => {
         e.crew.forEach((n, i) => {
             storyWalk(n, [[n.x - 12, 551], [2250 - i * 18, 551]], 1.35 + i * 0.05);
         });
     });
 
-    // ---- scene 2: the taxi ---------------------------------------------
-    storyAt(17.5, () => {
+    // ---- scene 2: the taxi (black transition, then follow the approach) --
+    // Fade to black while the crew is leaving, set the taxi up off-screen,
+    // then reveal and let the camera track the taxi as it drives in.
+    storyAt(19.2, () => storyBlack(true));
+    storyAt(19.5, () => {
+        // Clear leftover road NPCs so only the taxi sequence is visible.
+        e.crew.forEach(n => storyRemoveNpc(n));
+        e.rivals.forEach(n => storyRemoveNpc(n));
+        e.rivals = [];
+        e.crew = [];
+
         const taxi = new Car(70002, TAXI_X0, NORTH_Y, "#f1c40f");
         taxi.type = "sedan";
         taxi.ownerType = "taxiDepot";
@@ -607,26 +620,36 @@ function storyBuildTimeline(s) {
         cars.push(taxi);
         e.taxi = taxi;
         s.taxiT0 = s.t;
-        window.sbCutsceneZoom = 1.5;
-        s.camTarget = () => ({ x: 2570, y: 566 });
+        window.sbCutsceneZoom = 1.3;
+        // Camera will follow the taxi once the blackout lifts.
+        s.camTarget = () => ({
+            x: e.taxi ? e.taxi.x - 40 : 2570,
+            y: 566
+        });
+        // Seed camera near the taxi so the lerp doesn't start from the old ambush point.
+        if (e.taxi) {
+            s.cam.x = e.taxi.x - 40;
+            s.cam.y = 566;
+        }
     });
-    storyAt(17.9, () => storySay(player, "Finally... home.", 1.6));
-    storyAt(19.3, () => storySay(player, "Huh? What's that box?", 0.7));
+    storyAt(20.0, () => storyBlack(false));
+    storyAt(20.4, () => storySay(player, "Finally... home.", 1.6));
+    storyAt(22.0, () => storySay(player, "Huh? What's that box?", 0.7));
 
     // impact: the taxi clips the box, the box goes off, the taxi drifts away
-    storyAt(20.0, () => {
+    storyAt(22.8, () => {
         e.box.exploded = true;
         s.drift = { t0: s.t, turnSouth: false };
         spawnExplosionDebris(BOX_X, BOX_Y, 20);
         playSpatialSound(explosionPool, player.x, player.y, 1.0, 900);
         if (typeof sbTriggerCameraShake === "function") sbTriggerCameraShake(3.4, -1, 0);
         s.blasts.push({ x: BOX_X, y: BOX_Y, age: 0, life: 40, r: 55 });
-        window.sbCutsceneZoom = 1.8;
+        window.sbCutsceneZoom = 1.45;
         storySay(player, "WHOOOA!!", 1.2);
     });
     // chain reaction: the SUV blows up behind the escaping taxi
-    storyAt(20.4, () => {
-        storyExplode(s, e.suv, 34, 7);
+    storyAt(23.2, () => {
+        if (e.suv) storyExplode(s, e.suv, 34, 7);
         try {
             s.fireAudio = new Audio(fireUrl);
             s.fireAudio.loop = true;
@@ -636,17 +659,17 @@ function storyBuildTimeline(s) {
             s.fireAudio = null;
         }
     });
-    storyAt(21.2, () => {
+    storyAt(24.0, () => {
         storySay(player, "Not stopping!", 1.3);
-        window.sbCutsceneZoom = 1.5;
+        window.sbCutsceneZoom = 1.3;
         s.camTarget = () => (e.taxi
             ? { x: e.taxi.x, y: Math.min(e.taxi.y + 30, 800) }
             : { x: 2570, y: 566 });
     });
-    storyAt(22.4, () => storyBlack(true));          // skip the drive home
+    storyAt(25.2, () => storyBlack(true));          // skip the drive home
 
     // ---- scene 3: next morning, inside the real house --------------------
-    const R = 23.5;                                 // reveal time of the house scene
+    const R = 26.0;                                 // reveal time of the house scene
     const H = (rel) => R + rel;
     const HW = () => (houseMapWidth > 0 ? houseMapWidth : 696);
     const HH = () => (houseMapHeight > 0 ? houseMapHeight : 696);
@@ -656,7 +679,7 @@ function storyBuildTimeline(s) {
     const FLOOR = () => ({ x: CX(), y: 392 });      // where he lies afterwards
     const ENTRY_Y = () => HH() - 46;                // just below the door mat
 
-    storyAt(23.3, () => {
+    storyAt(25.5, () => {
         // Everything below happens while the screen is fully black.
         cars = [];
         npcs = [];
@@ -674,31 +697,34 @@ function storyBuildTimeline(s) {
         outsideY = homeZone.y;
         player.size = 45;
         player.ispassenger = false;
-        player.isLyingDown = true;     // asleep in bed
-        player.angle = 0;
+        // Standing near the bed until the thugs arrive — not drawn laid down yet.
+        player.isLyingDown = false;
+        player.angle = Math.PI;        // facing the doorway
         player.speechText = null;
         player.speechTimer = 0;
         const b = BED();
         s.pBase.x = b.x;
-        s.pBase.y = b.y;
-        window.sbCutsceneZoom = 1.35;
+        s.pBase.y = b.y + 28;          // just in front of the bed
+        window.sbCutsceneZoom = 1.15;
         storySetTime(7);               // morning
 
         // The visitors. Created now, but they only join the scene on entry.
+        // Match player size so they read at the same scale in the house.
         e.thugs = [
             storyNpc(s, 0, 0, "#1b1b1f", "#1d1d1d", "#e0ac69", 0),
             storyNpc(s, 0, 0, "#2c2c34", "#2d3436", "#c68642", 0),
             storyNpc(s, 0, 0, "#3a1f1f", "#4a3728", "#8d5524", 0)
         ];
         e.boss = storyNpc(s, 0, 0, "#f4efe4", "#b9b9b9", "#e0ac69", 0);
-        e.boss.size = 25;               // bigger, pale suit, silver hair
+        e.thugs.forEach(n => { n.size = 45; });
+        e.boss.size = 45;
         e.boss.cutsceneArmed = false;
         e.gang = e.thugs.concat([e.boss]);
         e.gang.forEach(n => storyRemoveNpc(n));
     });
-    storyAt(23.5, () => storyBlack(false));
+    storyAt(26.0, () => storyBlack(false));
 
-    // gang members are created inside the 23.3 event, so look them up lazily
+    // gang members are created inside the house-setup event, so look them up lazily
     const enter = (get, rel, tx, ty) => storyAt(H(rel), () => {
         const n = get();
         n.x = n === e.boss ? CX() : (n === e.thugs[0] ? CX() - 22 : n === e.thugs[1] ? CX() + 22 : CX());
@@ -708,7 +734,8 @@ function storyBuildTimeline(s) {
         storyWalk(n, [[tx(), ty]], 1.6);
     });
 
-    storyAt(H(0.0), () => storySay(player, "Zzz...", 2.2));        // short pause
+    // Quiet beat while he stands near the bed (not drawn laid down).
+    storyAt(H(0.0), () => storySay(player, "...", 1.8));
 
     enter(() => e.thugs[0], 2.4, () => CX() - 30, 380);
     enter(() => e.thugs[1], 2.7, () => CX() + 30, 380);
@@ -717,7 +744,7 @@ function storyBuildTimeline(s) {
 
     const faceAll = () => e.gang.forEach(n => storyFace(n, s.pBase.x, s.pBase.y));
 
-    // he wakes up
+    // he notices the intruders
     storyAt(H(4.6), () => {
         player.isLyingDown = false;
         player.angle = Math.PI;
@@ -949,14 +976,14 @@ function storyTick(s, dt) {
     camera.angle = 0;
     camera.targetAngle = 0;
 
-    // scripted SUV: cruise, brake, stop
+    // scripted SUV: longer cruise, then brake into the ambush
     if (e.suv && !e.suv.exploded) {
         let sp = 0;
-        if (s.t < 1.8) sp = 2.4;
-        else if (s.t < 4.0) sp = 2.4 * (1 - (s.t - 1.8) / 2.2);
+        if (s.t < 3.4) sp = 2.4;
+        else if (s.t < 5.6) sp = 2.4 * (1 - (s.t - 3.4) / 2.2);
         e.suv.speed = sp;
         e.suv.x += sp * dt;
-        if (s.t > 3.3 && sp > 0.15) addTyreMarks(e.suv);
+        if (s.t > 4.8 && sp > 0.15) addTyreMarks(e.suv);
     }
 
     if (e.taxi) storyTickTaxi(s, dt);
