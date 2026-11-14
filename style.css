@@ -909,6 +909,11 @@ canvas {
   opacity: 1;
 }
 
+/* Slower cinematic fade (used for the "The next day" transition) */
+#openingCutscene.slow-black #openingTitleBlackout {
+  transition: opacity 2.2s ease;
+}
+
 /* Put the title/subtitle above the black screen */
 #openingContent {
   z-index: 2;

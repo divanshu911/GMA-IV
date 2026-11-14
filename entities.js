@@ -429,7 +429,8 @@ this.drawBaseBody(
 // separately after all world objects to prevent occlusion.
 if (
     !(typeof openingCutsceneActive !== "undefined" &&
-      openingCutsceneActive)
+      openingCutsceneActive &&
+      !(typeof isInsideHouse !== "undefined" && isInsideHouse))
 ) {
     this.drawSpeechBubble(ctx);
 }
@@ -1747,7 +1748,11 @@ if (isFiring) {
     }
 }
 
-    this.drawSpeechBubble(ctx);
+    // During the opening cutscene the bubble is drawn once, upright, in
+    // the top layer (drawOpeningCutsceneSpeech) so nothing covers it.
+    if (!(typeof openingCutsceneActive !== "undefined" && openingCutsceneActive)) {
+        this.drawSpeechBubble(ctx);
+    }
 ctx.restore();
 
   }

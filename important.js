@@ -244,6 +244,13 @@ function storyBlack(on) {
     if (openingCutscene) openingCutscene.classList.toggle("title-screen", !!on);
 }
 
+// Slow cinematic fade (2.2 s in, normal speed out) for scene changes.
+function storyBlackSlow(on) {
+    if (!openingCutscene) return;
+    openingCutscene.classList.toggle("slow-black", !!on);
+    openingCutscene.classList.toggle("title-screen", !!on);
+}
+
 function storyHideText() {
     if (!openingText) return;
     openingText.classList.remove("show");
@@ -480,7 +487,14 @@ function storyBuildTimeline(s) {
     // cross streets at x~2370 and x~2720.
     const NORTH_Y = 556, SOUTH_Y = 580;
     const BOX_X = 2575, BOX_Y = 556;
-    const TAXI_X0 = 3090;
+    // Taxi starts further east so the player sees it approach the box.
+    const TAXI_X0 = 3450;
+    const TAXI_PPS = 198;                       // taxi speed in px per second
+    const HIT_X = BOX_X + 24;                   // taxi front (14) touches the box (9)
+    const TAXI_SPAWN_T = 19.5;
+    const HIT_T = TAXI_SPAWN_T + (TAXI_X0 - HIT_X) / TAXI_PPS;   // impact moment
+    s.taxiX0 = TAXI_X0;
+    s.taxiPPS = TAXI_PPS;
 
     // ---- SUV + crew (hidden inside via isPassenger) ------------------
     const suv = new Car(70001, 2090, SOUTH_Y, "#0b0b0d", false, "Ranger, SUV");
@@ -600,7 +614,7 @@ function storyBuildTimeline(s) {
     // Fade to black while the crew is leaving, set the taxi up off-screen,
     // then reveal and let the camera track the taxi as it drives in.
     storyAt(19.2, () => storyBlack(true));
-    storyAt(19.5, () => {
+    storyAt(TAXI_SPAWN_T, () => {
         // Clear leftover road NPCs so only the taxi sequence is visible.
         e.crew.forEach(n => storyRemoveNpc(n));
         e.rivals.forEach(n => storyRemoveNpc(n));
@@ -619,7 +633,7 @@ function storyBuildTimeline(s) {
         taxi.speed = 3.3;
         cars.push(taxi);
         e.taxi = taxi;
-        s.taxiT0 = s.t;
+        s.taxiT0 = TAXI_SPAWN_T;     // fixed, so impact time matches the geometry exactly
         window.sbCutsceneZoom = 1.3;
         // Camera will follow the taxi once the blackout lifts.
         s.camTarget = () => ({
@@ -634,10 +648,10 @@ function storyBuildTimeline(s) {
     });
     storyAt(20.0, () => storyBlack(false));
     storyAt(20.4, () => storySay(player, "Finally... home.", 1.6));
-    storyAt(22.0, () => storySay(player, "Huh? What's that box?", 0.7));
+    storyAt(HIT_T - 1.0, () => storySay(player, "Huh? What's that box?", 0.9));
 
     // impact: the taxi clips the box, the box goes off, the taxi drifts away
-    storyAt(22.8, () => {
+    storyAt(HIT_T, () => {
         e.box.exploded = true;
         s.drift = { t0: s.t, turnSouth: false };
         spawnExplosionDebris(BOX_X, BOX_Y, 20);
@@ -648,7 +662,7 @@ function storyBuildTimeline(s) {
         storySay(player, "WHOOOA!!", 1.2);
     });
     // chain reaction: the SUV blows up behind the escaping taxi
-    storyAt(23.2, () => {
+    storyAt(HIT_T + 0.4, () => {
         if (e.suv) storyExplode(s, e.suv, 34, 7);
         try {
             s.fireAudio = new Audio(fireUrl);
@@ -659,17 +673,20 @@ function storyBuildTimeline(s) {
             s.fireAudio = null;
         }
     });
-    storyAt(24.0, () => {
+    storyAt(HIT_T + 1.2, () => {
         storySay(player, "Not stopping!", 1.3);
         window.sbCutsceneZoom = 1.3;
         s.camTarget = () => (e.taxi
             ? { x: e.taxi.x, y: Math.min(e.taxi.y + 30, 800) }
             : { x: 2570, y: 566 });
     });
-    storyAt(25.2, () => storyBlack(true));          // skip the drive home
+    // Let the taxi drive home for a while, then a slow fade with a title.
+    const BLK = HIT_T + 7.0;
+    storyAt(BLK, () => storyBlackSlow(true));
+    storyAt(BLK + 1.2, () => openingShowText("The next day", "subtitle"));
 
     // ---- scene 3: next morning, inside the real house --------------------
-    const R = 26.0;                                 // reveal time of the house scene
+    const R = BLK + 4.6;                                 // reveal time of the house scene
     const H = (rel) => R + rel;
     const HW = () => (houseMapWidth > 0 ? houseMapWidth : 696);
     const HH = () => (houseMapHeight > 0 ? houseMapHeight : 696);
@@ -679,7 +696,7 @@ function storyBuildTimeline(s) {
     const FLOOR = () => ({ x: CX(), y: 392 });      // where he lies afterwards
     const ENTRY_Y = () => HH() - 46;                // just below the door mat
 
-    storyAt(25.5, () => {
+    storyAt(BLK + 2.6, () => {
         // Everything below happens while the screen is fully black.
         cars = [];
         npcs = [];
@@ -722,7 +739,9 @@ function storyBuildTimeline(s) {
         e.gang = e.thugs.concat([e.boss]);
         e.gang.forEach(n => storyRemoveNpc(n));
     });
-    storyAt(26.0, () => storyBlack(false));
+    storyAt(BLK + 3.7, () => storyHideText());
+    storyAt(BLK + 4.2, () => storyClearText());
+    storyAt(R, () => storyBlackSlow(false));
 
     // gang members are created inside the house-setup event, so look them up lazily
     const enter = (get, rel, tx, ty) => storyAt(H(rel), () => {
@@ -942,7 +961,7 @@ function storyTickTaxi(s, dt) {
     if (!s.drift) {
         const k = s.t - s.taxiT0;
 
-        t.x = 3090 - 198 * k;
+        t.x = s.taxiX0 - s.taxiPPS * k;
         t.y = 556;
         t.angle = -Math.PI / 2;
         t.speed = 3.3;
@@ -1031,6 +1050,19 @@ function storyTickTaxi(s, dt) {
     // FOLLOW THE A* WAYPOINTS
     // -------------------------------------------------
 
+    // Safety net: never spend more than ~5 s chasing one waypoint.
+    if (d.homePath) {
+        if (d.wpSeen !== d.homePathIndex) {
+            d.wpSeen = d.homePathIndex;
+            d.wpFrames = 0;
+        }
+        d.wpFrames += dt;
+        if (d.wpFrames > 300) {
+            d.homePathIndex++;
+            d.wpFrames = 0;
+        }
+    }
+
     if (
         d.homePath &&
         d.homePathIndex < d.homePath.length
@@ -1041,7 +1073,7 @@ function storyTickTaxi(s, dt) {
         const dy = wp.y - t.y;
         const distance = Math.hypot(dx, dy);
 
-        if (distance < 10) {
+        if (distance < 42) {
             d.homePathIndex++;
         } else {
             // Convert waypoint direction to the car's angle convention.
@@ -1054,14 +1086,15 @@ function storyTickTaxi(s, dt) {
                 Math.cos(desiredAngle - t.angle)
             );
 
-            const maxTurn = 0.045 * dt;
+            const maxTurn = 0.1 * dt;
 
             t.angle += Math.max(
                 -maxTurn,
                 Math.min(maxTurn, angleDifference)
             );
 
-            const speed = 3.0;
+            // brake into sharp turns so the car never orbits a waypoint
+            const speed = Math.abs(angleDifference) > 0.9 ? 1.6 : 3.0;
             t.speed = speed;
 
             // Move using the same angle convention as the existing taxi.
@@ -1186,21 +1219,36 @@ function drawOpeningCutsceneProps(ctx) {
         ctx.restore();
     }
 
-    // The player is already represented by the taxi.
-    // Do not draw another player body over the vehicle.
-    // Keep his dialogue bubble attached to the taxi.
-    const t = s.e.taxi;
+}
+     
+// Cutscene speech bubbles, drawn once in the topmost world layer
+// (called from main.js after the night overlay, camera transform active).
+function drawOpeningCutsceneSpeech(ctx) {
+    const s = storyIntro;
+    if (!s) return;
 
+    for (let i = 0; i < npcs.length; i++) {
+        const n = npcs[i];
+        if (!n || !n.speechText || n.isInjured) continue;
+        if (n.isPassenger && !n.isTaxiWaiting) continue;   // hidden inside a car
+
+        ctx.save();
+        ctx.translate(n.x, n.y);
+        ctx.rotate(n.angle);            // drawSpeechBubble counter-rotates it
+        n.drawSpeechBubble(ctx);
+        ctx.restore();
+    }
+
+    // The player is represented by the taxi on the road: keep his bubble on it.
+    const t = s.e.taxi;
     if (t && !t.exploded && player.speechText) {
         ctx.save();
         ctx.translate(t.x, t.y);
-
         player.drawSpeechBubble(ctx);
-
         ctx.restore();
     }
 }
-     
+
 // Drawn above the night overlay (same place as bullets / headlights).
 function drawOpeningCutsceneGlow(ctx) {
     const s = storyIntro;
@@ -1335,7 +1383,10 @@ function finishOpeningCutscene() {
     if (gameContainer) gameContainer.classList.remove("opening-cutscene");
 
     storyHideText();
-    if (openingCutscene) openingCutscene.classList.remove("title-screen");   // fade out the title blackout
+    if (openingCutscene) {
+        openingCutscene.classList.remove("slow-black");
+        openingCutscene.classList.remove("title-screen");   // fade out the title blackout
+    }
 
     // Gameplay tips are delivered as scheduled phone messages.
     scheduleGameplayTips();

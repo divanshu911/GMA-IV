@@ -3827,23 +3827,20 @@ if (!isInsideHouse && !isInsideDealership) {
     drawOpeningCutsceneProps(ctx);
 }
 
-// Draw cutscene NPC speech bubbles in a separate top layer.
-// The camera/world transform is still active here.
+// Indoor cutscene bubbles (outdoor ones are drawn in the top layer
+// below, after the night overlay). The NPC is rotated first because
+// drawSpeechBubble counter-rotates by the NPC's angle.
 if (
     typeof openingCutsceneActive !== "undefined" &&
-    openingCutsceneActive
+    openingCutsceneActive &&
+    isInsideHouse
 ) {
     npcs.forEach(npc => {
-        if (
-            !npc ||
-            !npc.speechText ||
-            typeof npc.drawSpeechBubble !== "function"
-        ) {
-            return;
-        }
+        if (!npc || !npc.speechText || npc.isInjured) return;
 
         ctx.save();
         ctx.translate(npc.x, npc.y);
+        ctx.rotate(npc.angle);
         npc.drawSpeechBubble(ctx);
         ctx.restore();
     });
@@ -3889,6 +3886,16 @@ if (!isInsideHouse && !isInsideDealership && typeof drawNightOverlay === 'functi
     );
 
     drawLocationBoardText(ctx);
+
+    // Cutscene speech bubbles: topmost world layer (over cars, props,
+    // the player and the night overlay), same camera transform.
+    if (
+        typeof openingCutsceneActive !== "undefined" &&
+        openingCutsceneActive &&
+        typeof drawOpeningCutsceneSpeech === "function"
+    ) {
+        drawOpeningCutsceneSpeech(ctx);
+    }
 
     ctx.restore();
  }   
