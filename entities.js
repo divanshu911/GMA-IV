@@ -1,4 +1,4 @@
-console.log("1am");
+console.log("7am");
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -425,9 +425,16 @@ this.drawBaseBody(
     punchProgress
 );
 
+    // During the opening cutscene, speech bubbles are drawn
+// separately after all world objects to prevent occlusion.
+if (
+    !(typeof openingCutsceneActive !== "undefined" &&
+      openingCutsceneActive)
+) {
     this.drawSpeechBubble(ctx);
+}
 
-    ctx.restore();
+ctx.restore();
   }
 }
 

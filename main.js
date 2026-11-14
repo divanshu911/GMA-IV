@@ -1,4 +1,4 @@
-console.log("streetbound-main457");
+console.log("streetbound-main7");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
@@ -3819,11 +3819,38 @@ if (!isInsideHouse && !isInsideDealership) {
   drawExhaustParticles(ctx);
   drawDebrisParticles(ctx);
 
-  if (typeof openingCutsceneActive !== 'undefined' && openingCutsceneActive && typeof drawOpeningCutsceneProps === 'function') {
-      drawOpeningCutsceneProps(ctx);
-  }
+  if (
+    typeof openingCutsceneActive !== "undefined" &&
+    openingCutsceneActive &&
+    typeof drawOpeningCutsceneProps === "function"
+) {
+    drawOpeningCutsceneProps(ctx);
+}
 
-  ctx.restore();
+// Draw cutscene NPC speech bubbles in a separate top layer.
+// The camera/world transform is still active here.
+if (
+    typeof openingCutsceneActive !== "undefined" &&
+    openingCutsceneActive
+) {
+    npcs.forEach(npc => {
+        if (
+            !npc ||
+            !npc.speechText ||
+            typeof npc.drawSpeechBubble !== "function"
+        ) {
+            return;
+        }
+
+        ctx.save();
+        ctx.translate(npc.x, npc.y);
+        npc.drawSpeechBubble(ctx);
+        ctx.restore();
+    });
+}
+
+ctx.restore();
+
 
   if (!playerCar && !player.ispassenger) {
   player.draw(ctx, isInsideDealership ? 0 : camera.angle);

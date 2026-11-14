@@ -2,7 +2,7 @@
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-console.log("streetbound-core4u");
+console.log("streetbound-core7u");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
@@ -936,35 +936,141 @@ function storyUpdateNpcs(dt) {
 
 function storyTickTaxi(s, dt) {
     const t = s.e.taxi;
+    if (!t) return;
 
+    // Initial approach towards the explosive box.
     if (!s.drift) {
-        // approach from the east along the westbound lane
         const k = s.t - s.taxiT0;
-        t.x = 3090 - 198 * k;           // 3.3 px per frame
+
+        t.x = 3090 - 198 * k;
         t.y = 556;
         t.angle = -Math.PI / 2;
         t.speed = 3.3;
+
         return;
     }
 
     const d = s.drift;
     const k = s.t - d.t0;
 
+    // Preserve the existing handbrake drift away from the explosion.
     if (!d.turnSouth) {
-        // handbrake swing: west -> north -> east, shoved away from the blast
         const u = Math.min(1, k / 0.7);
         const ease = u * u * (3 - 2 * u);
+
         t.angle = -Math.PI / 2 + Math.PI * ease;
         t.x += (1.0 + 2.0 * ease) * dt;
         t.y = Math.max(549, t.y - 0.5 * (1 - ease) * dt);
         t.speed = 3.2;
-        if (u >= 1) d.turnSouth = true;
+
+        if (u >= 1) {
+            d.turnSouth = true;
+
+            // Initialize the route after the drift is complete.
+            d.homePath = null;
+            d.homePathIndex = 0;
+            d.pathRetry = 0;
+        }
+
+        addTyreMarks(t);
+        return;
+    }
+
+    // -------------------------------------------------
+    // A* ROUTE FROM THE EXPLOSION SCENE TO THE PLAYER'S
+    // HOME. Prefer roads instead of driving through
+    // buildings and obstacles.
+    // -------------------------------------------------
+
+    if (d.pathRetry === undefined) {
+        d.pathRetry = 0;
+    }
+
+    if (d.pathRetry > 0) {
+        d.pathRetry -= dt;
+    }
+
+    // Generate a route only when one is needed.
+    if (!d.homePath && d.pathRetry <= 0) {
+        if (
+            typeof navigationSystem !== "undefined"
+        ) {
+            if (
+                !navigationSystem.ready &&
+                typeof navigationSystem.buildGrid === "function"
+            ) {
+                navigationSystem.buildGrid();
+            }
+
+            if (
+                navigationSystem.ready &&
+                typeof homeZone !== "undefined"
+            ) {
+                d.homePath = navigationSystem.findPath(
+                    t.x,
+                    t.y,
+                    homeZone.x,
+                    homeZone.y,
+                    true
+                );
+            }
+        }
+
+        if (d.homePath && d.homePath.length > 0) {
+            // Skip the starting waypoint if the route contains one.
+            d.homePathIndex =
+                d.homePath.length > 1 ? 1 : 0;
+        } else {
+            // Retry later if the navigation grid cannot find a route.
+            d.homePath = null;
+            d.pathRetry = 60;
+        }
+    }
+
+    // -------------------------------------------------
+    // FOLLOW THE A* WAYPOINTS
+    // -------------------------------------------------
+
+    if (
+        d.homePath &&
+        d.homePathIndex < d.homePath.length
+    ) {
+        const wp = d.homePath[d.homePathIndex];
+
+        const dx = wp.x - t.x;
+        const dy = wp.y - t.y;
+        const distance = Math.hypot(dx, dy);
+
+        if (distance < 10) {
+            d.homePathIndex++;
+        } else {
+            // Convert waypoint direction to the car's angle convention.
+            const desiredAngle =
+                Math.atan2(dy, dx) + Math.PI / 2;
+
+            // Rotate smoothly instead of snapping the car's direction.
+            let angleDifference = Math.atan2(
+                Math.sin(desiredAngle - t.angle),
+                Math.cos(desiredAngle - t.angle)
+            );
+
+            const maxTurn = 0.045 * dt;
+
+            t.angle += Math.max(
+                -maxTurn,
+                Math.min(maxTurn, angleDifference)
+            );
+
+            const speed = 3.0;
+            t.speed = speed;
+
+            // Move using the same angle convention as the existing taxi.
+            t.x += Math.sin(t.angle) * speed * dt;
+            t.y -= Math.cos(t.angle) * speed * dt;
+        }
     } else {
-        // then turn right onto the cross street and head home
-        if (t.angle < Math.PI) t.angle = Math.min(Math.PI, t.angle + 0.09 * dt);
-        t.x += Math.sin(t.angle) * 3.0 * dt;
-        t.y += -Math.cos(t.angle) * 3.0 * dt;
-        t.speed = 3.0;
+        // The taxi has reached the end of its route.
+        t.speed = 0;
     }
 
     addTyreMarks(t);
@@ -977,14 +1083,24 @@ function storyTick(s, dt) {
     camera.targetAngle = 0;
 
     // scripted SUV: longer cruise, then brake into the ambush
-    if (e.suv && !e.suv.exploded) {
-        let sp = 0;
-        if (s.t < 3.4) sp = 2.4;
-        else if (s.t < 5.6) sp = 2.4 * (1 - (s.t - 3.4) / 2.2);
-        e.suv.speed = sp;
-        e.suv.x += sp * dt;
-        if (s.t > 4.8 && sp > 0.15) addTyreMarks(e.suv);
+    // SUV cruises for a few seconds, then brakes and stops
+// safely before the explosive box.
+if (e.suv && !e.suv.exploded) {
+    let sp = 0;
+
+    if (s.t < 3.4) {
+        sp = 1.6;
+    } else if (s.t < 5.6) {
+        sp = 1.6 * (1 - (s.t - 3.4) / 2.2);
     }
+
+    e.suv.speed = sp;
+    e.suv.x += sp * dt;
+
+    if (s.t > 4.8 && sp > 0.15) {
+        addTyreMarks(e.suv);
+    }
+}
 
     if (e.taxi) storyTickTaxi(s, dt);
 
@@ -1041,41 +1157,50 @@ function drawOpeningCutsceneProps(ctx) {
     const s = storyIntro;
     if (!s) return;
 
-    // the explosive box
+    // Draw the explosive box.
     const b = s.e.box;
+
     if (b && !b.exploded) {
         ctx.save();
         ctx.translate(b.x, b.y);
+
         ctx.fillStyle = "rgba(0,0,0,0.3)";
         ctx.fillRect(-7, -6, 18, 18);
+
         ctx.fillStyle = "#8e2b1f";
         ctx.fillRect(-9, -9, 18, 18);
+
         ctx.fillStyle = "#f1c40f";
         ctx.fillRect(-9, -2.5, 18, 5);
+
         ctx.fillStyle = "#111111";
-        for (let i = 0; i < 4; i++) ctx.fillRect(-8 + i * 4.5, -2.5, 2.2, 5);
+
+        for (let i = 0; i < 4; i++) {
+            ctx.fillRect(-8 + i * 4.5, -2.5, 2.2, 5);
+        }
+
         ctx.strokeStyle = "#2b0f0b";
         ctx.lineWidth = 1.5;
         ctx.strokeRect(-9, -9, 18, 18);
+
         ctx.restore();
     }
 
-    // the driver, drawn from the existing player body so he is visibly at the wheel
+    // The player is already represented by the taxi.
+    // Do not draw another player body over the vehicle.
+    // Keep his dialogue bubble attached to the taxi.
     const t = s.e.taxi;
-    if (t && !t.exploded) {
+
+    if (t && !t.exploded && player.speechText) {
         ctx.save();
         ctx.translate(t.x, t.y);
-        ctx.rotate(t.angle);
-        ctx.save();
-        ctx.translate(-t.width * 0.18, -t.length * 0.02);
-        ctx.scale(0.55, 0.55);
-        player.drawBaseBody(ctx, 0, false, 0);
-        ctx.restore();
+
         player.drawSpeechBubble(ctx);
+
         ctx.restore();
     }
 }
-
+     
 // Drawn above the night overlay (same place as bullets / headlights).
 function drawOpeningCutsceneGlow(ctx) {
     const s = storyIntro;
