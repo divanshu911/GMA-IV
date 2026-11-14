@@ -1,4 +1,4 @@
-console.log("7am");
+console.log("11am");
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -255,6 +255,55 @@ class Pedestrian {
     ctx.beginPath();
     ctx.ellipse(0, 0, this.size * 0.38, this.size * 0.22, 0, 0, Math.PI * 2);
     ctx.fill();
+        // Mafia boss: tailored suit, burgundy shirt and gold details
+if (this.isStoryBoss) {
+    const s = this.size;
+
+    ctx.save();
+
+    // Burgundy shirt visible beneath the jacket
+    ctx.fillStyle = "#641f32";
+    ctx.beginPath();
+    ctx.ellipse(0, s * 0.07, s * 0.19, s * 0.14, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Left suit lapel
+    ctx.fillStyle = "#30333b";
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.27, -s * 0.08);
+    ctx.lineTo(-s * 0.07, s * 0.03);
+    ctx.lineTo(-s * 0.16, s * 0.23);
+    ctx.closePath();
+    ctx.fill();
+
+    // Right suit lapel
+    ctx.beginPath();
+    ctx.moveTo(s * 0.27, -s * 0.08);
+    ctx.lineTo(s * 0.07, s * 0.03);
+    ctx.lineTo(s * 0.16, s * 0.23);
+    ctx.closePath();
+    ctx.fill();
+
+    // Gold tie pin / tie detail
+    ctx.fillStyle = "#d6ad55";
+    ctx.beginPath();
+    ctx.moveTo(0, s * 0.04);
+    ctx.lineTo(-s * 0.055, s * 0.12);
+    ctx.lineTo(0, s * 0.23);
+    ctx.lineTo(s * 0.055, s * 0.12);
+    ctx.closePath();
+    ctx.fill();
+
+    // Gold collar chain
+    ctx.strokeStyle = "#d6ad55";
+    ctx.lineWidth = Math.max(1, s * 0.035);
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.15, s * 0.13);
+    ctx.quadraticCurveTo(0, s * 0.25, s * 0.15, s * 0.13);
+    ctx.stroke();
+
+    ctx.restore();
+}
 
     // 3. Draw Head
     ctx.fillStyle = this.hairColor;

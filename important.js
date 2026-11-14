@@ -732,10 +732,20 @@ function storyBuildTimeline(s) {
             storyNpc(s, 0, 0, "#2c2c34", "#2d3436", "#c68642", 0),
             storyNpc(s, 0, 0, "#3a1f1f", "#4a3728", "#8d5524", 0)
         ];
-        e.boss = storyNpc(s, 0, 0, "#174A8B", "#17131C", "#e0ac69", 0);
-        e.thugs.forEach(n => { n.size = 45; });
-        e.boss.size = 45;
-        e.boss.cutsceneArmed = false;
+        // Mafia boss — wealthy, intimidating appearance
+e.boss = storyNpc(
+    s, 0, 0,
+    "#17191f",   // charcoal-black suit
+    "#aeb4bd",   // silver-grey hair
+    "#d7a078",   // skin
+    0
+);
+
+e.thugs.forEach(n => { n.size = 45; });
+
+e.boss.size = 49;
+e.boss.isStoryBoss = true;
+e.boss.cutsceneArmed = false;
         e.gang = e.thugs.concat([e.boss]);
         e.gang.forEach(n => storyRemoveNpc(n));
     });
