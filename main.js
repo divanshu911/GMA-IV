@@ -1,4 +1,4 @@
-console.log("streetbound-main7");
+console.log("streetbound-main9");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
@@ -3826,15 +3826,31 @@ if (!isInsideHouse && !isInsideDealership) {
 ) {
     drawOpeningCutsceneProps(ctx);
 }
+ctx.restore();
 
-// Indoor cutscene bubbles (outdoor ones are drawn in the top layer
-// below, after the night overlay). The NPC is rotated first because
-// drawSpeechBubble counter-rotates by the NPC's angle.
+
+  if (!playerCar && !player.ispassenger) {
+  player.draw(ctx, isInsideDealership ? 0 : camera.angle);
+}
+
+// Indoor cutscene speech bubbles: drawn after the player so they appear above the player.
 if (
     typeof openingCutsceneActive !== "undefined" &&
     openingCutsceneActive &&
     isInsideHouse
 ) {
+    ctx.save();
+    ctx.translate(
+        canvas.width / 2 + cameraFeedback.shakeX,
+        canvas.height / 2 + cameraFeedback.shakeY
+    );
+    ctx.scale(cameraFeedback.zoom, cameraFeedback.zoom);
+    ctx.rotate(-camera.angle);
+    ctx.translate(
+        -player.x - player.size / 2,
+        -player.y - player.size / 2
+    );
+
     npcs.forEach(npc => {
         if (!npc || !npc.speechText || npc.isInjured) return;
 
@@ -3844,15 +3860,10 @@ if (
         npc.drawSpeechBubble(ctx);
         ctx.restore();
     });
+
+    ctx.restore();
 }
-
-ctx.restore();
-
-
-  if (!playerCar && !player.ispassenger) {
-  player.draw(ctx, isInsideDealership ? 0 : camera.angle);
-}
-
+    
 // Ray occlusion + object glow data for this frame (headlights & building lights).
 if (!isInsideHouse && !isInsideDealership && typeof updateObjectLighting === 'function') {
     updateObjectLighting();
