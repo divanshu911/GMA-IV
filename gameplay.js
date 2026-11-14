@@ -697,9 +697,22 @@ if (blackMarketBtn) {
         localStorage.setItem("gma_player_money", player.money);
         taxiManager.setMessage(`Sold a ${carType} for $${price}!`, 180);
 
-        // Remove sold car from cars array
-        let carIndex = cars.indexOf(carToSell);
-        if (carIndex > -1) cars.splice(carIndex, 1);
+    
+        // Stop all looping audio before removing the sold car.
+if (carToSell.fireAudio) {
+    carToSell.fireAudio.pause();
+    carToSell.fireAudio.currentTime = 0;
+    carToSell.fireAudio = null;
+}
+
+if (carToSell.humAudio) {
+    carToSell.humAudio.pause();
+    carToSell.humAudio = null;
+}
+
+// Remove sold car from cars array.
+let carIndex = cars.indexOf(carToSell);
+if (carIndex > -1) cars.splice(carIndex, 1);
 
         // Sync stolen array and recalculate wanted state
         updateStolenCarsStorage(true);
@@ -1489,7 +1502,7 @@ if (sleepBtn) {
 }
 
 setInterval(() => {
-    if (typeof player !== 'undefined' && !isInsideHouse && !isInsideDealership) {
+    if (typeof player !== 'undefined' && !isInsideHouse && !isInsideDealership && !openingCutsceneActive) {
         localStorage.setItem("gma_player_x", player.x.toFixed(2));
         localStorage.setItem("gma_player_y", player.y.toFixed(2));
 

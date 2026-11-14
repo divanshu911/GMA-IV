@@ -83,6 +83,123 @@ class Pedestrian {
     ctx.restore();
   }
 
+  // Lying-flat pose shared by injured NPCs and (story intro) the Player.
+  // Draws around the current origin; callers translate to the body first.
+  drawInjuredBody(ctx) {
+    ctx.rotate(Math.PI / 2);
+
+    const s = this.size;
+
+    // 1. Ground Shadow
+    ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+    ctx.beginPath();
+    ctx.ellipse(0, s * 0.05, s * 0.4, s * 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Line styles for limbs
+    ctx.strokeStyle = this.skinColor;
+    ctx.lineWidth = Math.max(2, s * 0.12);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    // 2. Legs (extending DOWN along the body axis)
+    // Left leg: slightly bent outward at knee
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.12, s * 0.25);
+    ctx.lineTo(-s * 0.22, s * 0.50);
+    ctx.lineTo(-s * 0.18, s * 0.72);
+    ctx.stroke();
+
+    // Right leg: mostly straight down
+    ctx.beginPath();
+    ctx.moveTo(s * 0.12, s * 0.25);
+    ctx.lineTo(s * 0.16, s * 0.52);
+    ctx.lineTo(s * 0.22, s * 0.75);
+    ctx.stroke();
+
+    // Shoes
+    ctx.fillStyle = "#252525";
+    ctx.beginPath();
+    ctx.ellipse(-s * 0.18, s * 0.75, s * 0.06, s * 0.09, 0.1, 0, Math.PI * 2);
+    ctx.ellipse(s * 0.24, s * 0.78, s * 0.06, s * 0.09, -0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 3. Arms (splayed/sprawled naturally near shoulders)
+    // Left arm: sprawling upward/outward
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.22, -s * 0.18);
+    ctx.lineTo(-s * 0.38, -s * 0.28);
+    ctx.lineTo(-s * 0.42, -s * 0.42);
+    ctx.stroke();
+
+    // Right arm: resting alongside upper body
+    ctx.beginPath();
+    ctx.moveTo(s * 0.22, -s * 0.18);
+    ctx.lineTo(s * 0.35, -s * 0.05);
+    ctx.lineTo(s * 0.32, s * 0.18);
+    ctx.stroke();
+
+    // 4. Torso (oriented vertically to match spine)
+    ctx.fillStyle = this.shirtColor;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, s * 0.26, s * 0.32, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Torso outline
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.2)";
+    ctx.lineWidth = Math.max(1, s * 0.03);
+    ctx.stroke();
+
+    // 5. Head & Hair (slanted slightly for an unconscious look)
+    const headX = -s * 0.04;
+    const headY = -s * 0.42;
+
+    ctx.fillStyle = this.skinColor;
+    ctx.beginPath();
+    ctx.arc(headX, headY, s * 0.16, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = this.hairColor;
+    ctx.beginPath();
+    ctx.arc(headX, headY - s * 0.03, s * 0.16, Math.PI * 0.8, Math.PI * 2.2);
+    ctx.fill();
+
+    // Daytime shadow lighting for the lying body (same shapes as above).
+    if (window.ShadowLighting) {
+      const sh = ShadowLighting.pedestrian(this, this.x, this.y);
+      if (sh > 0.01) {
+        const col = ShadowLighting.style(sh);
+        const TAU = Math.PI * 2;
+        ctx.fillStyle = col;
+        ctx.strokeStyle = col;
+        ctx.lineWidth = Math.max(2, s * 0.12);
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.12, s * 0.25);
+        ctx.lineTo(-s * 0.22, s * 0.50);
+        ctx.lineTo(-s * 0.18, s * 0.72);
+        ctx.moveTo(s * 0.12, s * 0.25);
+        ctx.lineTo(s * 0.16, s * 0.52);
+        ctx.lineTo(s * 0.22, s * 0.75);
+        ctx.moveTo(-s * 0.22, -s * 0.18);
+        ctx.lineTo(-s * 0.38, -s * 0.28);
+        ctx.lineTo(-s * 0.42, -s * 0.42);
+        ctx.moveTo(s * 0.22, -s * 0.18);
+        ctx.lineTo(s * 0.35, -s * 0.05);
+        ctx.lineTo(s * 0.32, s * 0.18);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(s * 0.26, 0);
+        ctx.ellipse(0, 0, s * 0.26, s * 0.32, 0, 0, TAU);
+        ctx.moveTo(headX + s * 0.16, headY);
+        ctx.arc(headX, headY, s * 0.16, 0, TAU);
+        ctx.fill();
+      }
+    }
+
+  }
+
     drawBaseBody(ctx, swingOffset, isFiring = false, punchProgress = 0) {
     // 1. Draw Arms (Hands)
     ctx.fillStyle = this.skinColor;
@@ -255,6 +372,24 @@ this.punchCooldown = 0;
   }
 
   draw(ctx, cameraAngle) {
+    // Lying-down pose (story intro). Reuses the NPC injured-body drawing.
+    if (this.isLyingDown) {
+      ctx.save();
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate(-cameraAngle);
+      this.drawInjuredBody(ctx);
+      ctx.restore();
+
+      if (this.speechText) {
+        ctx.save();
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate(this.angle - cameraAngle);
+        this.drawSpeechBubble(ctx);
+        ctx.restore();
+      }
+      return;
+    }
+
     ctx.save();
     ctx.translate(canvas.width / 2, canvas.height / 2);
     ctx.rotate(this.angle - cameraAngle); 
@@ -289,6 +424,8 @@ this.drawBaseBody(
     false,
     punchProgress
 );
+
+    this.drawSpeechBubble(ctx);
 
     ctx.restore();
   }
@@ -1522,118 +1659,7 @@ this.walkTimer +=
 
     // Injured pedestrian lying flat on the ground.
 if (this.isInjured) {
-    ctx.rotate(Math.PI / 2);
-
-    const s = this.size;
-
-    // 1. Ground Shadow
-    ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
-    ctx.beginPath();
-    ctx.ellipse(0, s * 0.05, s * 0.4, s * 0.7, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Line styles for limbs
-    ctx.strokeStyle = this.skinColor;
-    ctx.lineWidth = Math.max(2, s * 0.12);
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-
-    // 2. Legs (extending DOWN along the body axis)
-    // Left leg: slightly bent outward at knee
-    ctx.beginPath();
-    ctx.moveTo(-s * 0.12, s * 0.25);
-    ctx.lineTo(-s * 0.22, s * 0.50);
-    ctx.lineTo(-s * 0.18, s * 0.72);
-    ctx.stroke();
-
-    // Right leg: mostly straight down
-    ctx.beginPath();
-    ctx.moveTo(s * 0.12, s * 0.25);
-    ctx.lineTo(s * 0.16, s * 0.52);
-    ctx.lineTo(s * 0.22, s * 0.75);
-    ctx.stroke();
-
-    // Shoes
-    ctx.fillStyle = "#252525";
-    ctx.beginPath();
-    ctx.ellipse(-s * 0.18, s * 0.75, s * 0.06, s * 0.09, 0.1, 0, Math.PI * 2);
-    ctx.ellipse(s * 0.24, s * 0.78, s * 0.06, s * 0.09, -0.2, 0, Math.PI * 2);
-    ctx.fill();
-
-    // 3. Arms (splayed/sprawled naturally near shoulders)
-    // Left arm: sprawling upward/outward
-    ctx.beginPath();
-    ctx.moveTo(-s * 0.22, -s * 0.18);
-    ctx.lineTo(-s * 0.38, -s * 0.28);
-    ctx.lineTo(-s * 0.42, -s * 0.42);
-    ctx.stroke();
-
-    // Right arm: resting alongside upper body
-    ctx.beginPath();
-    ctx.moveTo(s * 0.22, -s * 0.18);
-    ctx.lineTo(s * 0.35, -s * 0.05);
-    ctx.lineTo(s * 0.32, s * 0.18);
-    ctx.stroke();
-
-    // 4. Torso (oriented vertically to match spine)
-    ctx.fillStyle = this.shirtColor;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, s * 0.26, s * 0.32, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Torso outline
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.2)";
-    ctx.lineWidth = Math.max(1, s * 0.03);
-    ctx.stroke();
-
-    // 5. Head & Hair (slanted slightly for an unconscious look)
-    const headX = -s * 0.04;
-    const headY = -s * 0.42;
-
-    ctx.fillStyle = this.skinColor;
-    ctx.beginPath();
-    ctx.arc(headX, headY, s * 0.16, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = this.hairColor;
-    ctx.beginPath();
-    ctx.arc(headX, headY - s * 0.03, s * 0.16, Math.PI * 0.8, Math.PI * 2.2);
-    ctx.fill();
-
-    // Daytime shadow lighting for the lying body (same shapes as above).
-    if (window.ShadowLighting) {
-      const sh = ShadowLighting.pedestrian(this, this.x, this.y);
-      if (sh > 0.01) {
-        const col = ShadowLighting.style(sh);
-        const TAU = Math.PI * 2;
-        ctx.fillStyle = col;
-        ctx.strokeStyle = col;
-        ctx.lineWidth = Math.max(2, s * 0.12);
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        ctx.beginPath();
-        ctx.moveTo(-s * 0.12, s * 0.25);
-        ctx.lineTo(-s * 0.22, s * 0.50);
-        ctx.lineTo(-s * 0.18, s * 0.72);
-        ctx.moveTo(s * 0.12, s * 0.25);
-        ctx.lineTo(s * 0.16, s * 0.52);
-        ctx.lineTo(s * 0.22, s * 0.75);
-        ctx.moveTo(-s * 0.22, -s * 0.18);
-        ctx.lineTo(-s * 0.38, -s * 0.28);
-        ctx.lineTo(-s * 0.42, -s * 0.42);
-        ctx.moveTo(s * 0.22, -s * 0.18);
-        ctx.lineTo(s * 0.35, -s * 0.05);
-        ctx.lineTo(s * 0.32, s * 0.18);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(s * 0.26, 0);
-        ctx.ellipse(0, 0, s * 0.26, s * 0.32, 0, 0, TAU);
-        ctx.moveTo(headX + s * 0.16, headY);
-        ctx.arc(headX, headY, s * 0.16, 0, TAU);
-        ctx.fill();
-      }
-    }
-
+    this.drawInjuredBody(ctx);
     ctx.restore();
     return;
 }
@@ -1669,7 +1695,7 @@ if (
 }
 
 const isFiring =
-    this.isPolice &&
+    (this.isPolice || this.cutsceneArmed) &&
     this.policeFiringTimer > 0 &&
     !this.isInjured;
 

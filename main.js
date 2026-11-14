@@ -2335,6 +2335,12 @@ function updateGame(dt) {
     // River ambience: spatial river sound (fades out when not outdoors / paused).
     if (typeof updateRiverAmbience === 'function') updateRiverAmbience(dt);
 
+    // Story intro: the world stays frozen, the cutscene drives itself.
+    if (typeof openingCutsceneActive !== 'undefined' && openingCutsceneActive) {
+        if (typeof updateOpeningCutscene === 'function') updateOpeningCutscene(dt);
+        return;
+    }
+
     if (typeof gameActive !== 'undefined' && !gameActive) return;
 
     if (typeof updateDayNight === 'function') {
@@ -3799,6 +3805,9 @@ if (!isInsideHouse && !isInsideDealership) {
     }
 });
       
+  } else if (typeof openingCutsceneActive !== 'undefined' && openingCutsceneActive) {
+      // Story intro inside the house: the world loop skips NPCs indoors.
+      npcs.forEach(npc => npc.draw(ctx));
   }
 
   // Police roadblock barricades (world space, same transform as cars).
@@ -3809,6 +3818,10 @@ if (!isInsideHouse && !isInsideDealership) {
   // 2. Draw exhaust smoke and flying debris
   drawExhaustParticles(ctx);
   drawDebrisParticles(ctx);
+
+  if (typeof openingCutsceneActive !== 'undefined' && openingCutsceneActive && typeof drawOpeningCutsceneProps === 'function') {
+      drawOpeningCutsceneProps(ctx);
+  }
 
   ctx.restore();
 
@@ -3878,6 +3891,10 @@ if (!isInsideHouse && !isInsideDealership) {
     // Bullets are world-space objects, so they must use
     // the same camera transform as vehicles and lights.
     drawPoliceBullets(ctx);
+
+    if (typeof openingCutsceneActive !== 'undefined' && openingCutsceneActive && typeof drawOpeningCutsceneGlow === 'function') {
+        drawOpeningCutsceneGlow(ctx);
+    }
 
     cars.forEach(car => {
         if (isEntityOnScreen(car)) {

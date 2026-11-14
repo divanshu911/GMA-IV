@@ -852,6 +852,17 @@ canvas {
 #gameContainer.opening-cutscene #respawnBtn {
   display: none !important;
 }
+/* Story intro: show the live scene instead of dimming it. */
+#openingCutscene.story-live {
+  background: transparent;
+}
+
+#openingCutscene.story-live #openingFade {
+  animation: none;
+  opacity: 0;
+  transition: opacity 1.4s ease;
+}
+
 #phoneCutsceneMessage {
   position: absolute;
   inset: 0;
