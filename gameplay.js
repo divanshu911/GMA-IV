@@ -1393,7 +1393,7 @@ houseImage.onload = () => {
   hCtx.drawImage(houseImage, 0, 0);
   houseCollisionData = hCtx.getImageData(0, 0, houseMapWidth, houseMapHeight).data;
 };
-houseImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/Player_house.jpg";
+houseImage.src = "https://raw.githubusercontent.com/divanshu911/My-game-assets/refs/heads/main/house.jpg";
 
 function initHomeBtn(id, text, bg, bottom) {
     let btn = document.getElementById(id);
