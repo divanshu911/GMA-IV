@@ -2,7 +2,7 @@
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-console.log("streetbound-core7u");
+console.log("streetbound-core11u");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
@@ -732,7 +732,7 @@ function storyBuildTimeline(s) {
             storyNpc(s, 0, 0, "#2c2c34", "#2d3436", "#c68642", 0),
             storyNpc(s, 0, 0, "#3a1f1f", "#4a3728", "#8d5524", 0)
         ];
-        e.boss = storyNpc(s, 0, 0, "#f4efe4", "#b9b9b9", "#e0ac69", 0);
+        e.boss = storyNpc(s, 0, 0, "#174A8B", "#17131C", "#e0ac69", 0);
         e.thugs.forEach(n => { n.size = 45; });
         e.boss.size = 45;
         e.boss.cutsceneArmed = false;

@@ -1,4 +1,4 @@
-console.log("streetbound-gameplay");
+console.log("streetbound-gameplay11");
 
 const JOB_LOCATION_CHECK_INTERVAL = 15;
 
@@ -240,7 +240,6 @@ updateMessage(dt) {
   }
 
   update(dt, player, cars, npcs) {
-    this.updateMessage(dt);
 
     if (!this.isJobActive) {
       const nearDepot = isWithinJobLocationRadiusCached(

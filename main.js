@@ -1,4 +1,4 @@
-console.log("streetbound-main9");
+console.log("streetbound-main11");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
@@ -2536,10 +2536,13 @@ if (playerDamageVignette > 0) {
   }
 
   if (player.money >= 0 && player.rentDebtActive) {
-      player.rentDebtActive = false;
-  }
+    player.rentDebtActive = false;
+}
 
-  if (!isInsideHouse && !isInsideDealership) {
+// Notifications must animate even while indoors.
+taxiManager.updateMessage(dt);
+
+if (!isInsideHouse && !isInsideDealership) {
     
      // Remove injured pedestrians once they leave the viewport.
      
