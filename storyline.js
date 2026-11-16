@@ -1298,3 +1298,4 @@ function finishOpeningCutscene() {
             }
         }
     }, 800);
+}
