@@ -1,4 +1,4 @@
-console.log("streetbound-main11");
+console.log("streetbound-main12");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
@@ -3750,7 +3750,7 @@ const cameraTarget =
     player.isArrestPassenger &&
     arrestTransportCar
         ? arrestTransportCar
-        : player;
+        : (window.sbCutsceneCamFocus || player);   // introduction cards: temporary focus (null otherwise)
 
 ctx.translate(
     -cameraTarget.x - (cameraTarget.size || player.size) / 2,
@@ -3833,7 +3833,20 @@ ctx.restore();
 
 
   if (!playerCar && !player.ispassenger) {
-  player.draw(ctx, isInsideDealership ? 0 : camera.angle);
+  if (window.sbCutsceneCamFocus) {
+      // Introduction card: the camera is focused away from the player, so shift
+      // the (screen-centred) player sprite to where he really is in the world.
+      const f = window.sbCutsceneCamFocus;
+      ctx.save();
+      ctx.translate(
+          (player.x - f.x) * cameraFeedback.zoom,
+          (player.y - f.y) * cameraFeedback.zoom
+      );
+      player.draw(ctx, isInsideDealership ? 0 : camera.angle);
+      ctx.restore();
+  } else {
+      player.draw(ctx, isInsideDealership ? 0 : camera.angle);
+  }
 }
 
 // Indoor cutscene speech bubbles: drawn after the player so they appear above the player.
@@ -3849,9 +3862,10 @@ if (
     );
     ctx.scale(cameraFeedback.zoom, cameraFeedback.zoom);
     ctx.rotate(-camera.angle);
+    const indoorCamTarget = window.sbCutsceneCamFocus || player;
     ctx.translate(
-        -player.x - player.size / 2,
-        -player.y - player.size / 2
+        -indoorCamTarget.x - (indoorCamTarget.size || player.size) / 2,
+        -indoorCamTarget.y - (indoorCamTarget.size || player.size) / 2
     );
 
     npcs.forEach(npc => {

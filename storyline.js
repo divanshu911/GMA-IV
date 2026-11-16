@@ -1,4 +1,4 @@
-// streetbound-storyline11
+// streetbound-storyline12
 // ===== OPENING CUTSCENE & STORYLINE (extracted from important.js) =====
 
 // ============================================================
@@ -767,6 +767,314 @@ e.boss.cutsceneArmed = false;
     storyAt(H(73.0), () => storyBlack(true));
     storyAt(H(74.0), () => openingShowText("STREETBOUND", "title"));
     storyAt(H(77.6), () => finishOpeningCutscene());
+
+    // ---- cinematic introduction cards (see INTRODUCTION CARDS below) ----
+    storyRegisterIntroductions(s, H);
+}
+
+// ============================================================
+// INTRODUCTION CARDS
+// Cinematic name cards (left side of the screen) for the Jackals, the
+// Marino Syndicate, Victor Marino and Jake Miller.
+//
+//  * Triggers are real story states (watched every frame), not timers.
+//    The only timer is a safety net for the fourth card (see below).
+//  * While a card is active the cutscene is completely paused:
+//    updateOpeningCutscene() returns before it advances s.t, fires events
+//    or runs storyTick (NPCs, cars, bullets, debris, blasts, speech timers
+//    and the clock all live there), so nothing can be skipped or repeated.
+//  * The card's own animation and camera blend are driven from here.
+//  * Zoom reuses the existing window.sbCutsceneZoom -> sbUpdateCameraFeedback
+//    path. Pan: road scene = the existing "player parked on s.cam" trick;
+//    house scene = a temporary window.sbCutsceneCamFocus (used in main.js).
+//    Both are restored to exactly their original state afterwards.
+// ============================================================
+const STORY_CARD_ZOOM_FACTOR = 1.12;   // "slight" zoom-in while a card is up
+const STORY_CARD_T_CAM_IN = 1.1;       // seconds: camera eases onto the focus
+const STORY_CARD_T_FADE_IN0 = 0.3;     // card fade-in start
+const STORY_CARD_T_FADE_IN1 = 1.0;     // card fully visible
+const STORY_CARD_T_OUT0 = 3.5;         // card fade-out + camera return start
+const STORY_CARD_T_FADE_OUT1 = 4.2;    // card fully gone
+const STORY_CARD_T_CAM_OUT1 = 4.6;     // camera back at its original place
+const STORY_CARD_T_MAX = 6.5;          // hard cap so a pause can never hang
+
+const STORY_CARD_DEFS = {
+    jackals:   { name: "The Jackals", sub: "Rivals of the Syndicate" },
+    syndicate: { name: "The Marino Syndicate", sub: "" },              // no subtitle given
+    vic:       { name: "Victor Marino aka Vic", sub: "leader of The Syndicate" },
+    jake:      { name: "Jake Miller", sub: "The protagonist, an ordinary man" }
+};
+
+let storyCardEl = null;       // lazily created DOM card
+let storyCardLive = null;     // { s, a } while a card is active (for abort)
+
+function storyCardEnsureDom() {
+    if (storyCardEl && storyCardEl.isConnected) return storyCardEl;
+
+    if (!document.getElementById("storyIntroCardStyle")) {
+        const st = document.createElement("style");
+        st.id = "storyIntroCardStyle";
+        st.textContent =
+            "#storyIntroCard{position:absolute;left:max(calc(env(safe-area-inset-left,0px) + 16px),5vw);" +
+            "top:50%;z-index:2147483000;display:none;opacity:0;pointer-events:none;box-sizing:border-box;" +
+            "max-width:min(42vw,620px);align-items:stretch;gap:clamp(10px,1.7vmin,20px);" +
+            "padding:clamp(8px,1.8vmin,22px) clamp(18px,3.2vmin,40px) clamp(8px,1.8vmin,22px) 0;" +
+            "background:linear-gradient(90deg,rgba(0,0,0,.66) 0%,rgba(0,0,0,.46) 62%,rgba(0,0,0,0) 100%);" +
+            "will-change:opacity,transform;}" +
+            "#storyIntroCard .sic-bar{flex:0 0 auto;width:clamp(3px,.55vmin,6px);" +
+            "background:linear-gradient(180deg,#ffd166 0%,#e4572e 100%);box-shadow:0 0 12px rgba(255,150,60,.55);}" +
+            "#storyIntroCard .sic-name{font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif;font-weight:800;" +
+            "font-size:clamp(24px,5.4vmin,56px);line-height:1.05;letter-spacing:.02em;color:#f6f2e8;" +
+            "text-shadow:0 2px 12px rgba(0,0,0,.85);overflow-wrap:break-word;}" +
+            "#storyIntroCard .sic-sub{margin-top:.4em;font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif;" +
+            "font-weight:500;font-size:clamp(13px,2.4vmin,24px);line-height:1.2;letter-spacing:.06em;color:#e9c987;" +
+            "text-shadow:0 1px 8px rgba(0,0,0,.85);overflow-wrap:break-word;}";
+        document.head.appendChild(st);
+    }
+
+    const el = document.createElement("div");
+    el.id = "storyIntroCard";
+    el.setAttribute("aria-hidden", "true");
+
+    const bar = document.createElement("div");
+    bar.className = "sic-bar";
+    const box = document.createElement("div");
+    const name = document.createElement("div");
+    name.className = "sic-name";
+    const sub = document.createElement("div");
+    sub.className = "sic-sub";
+    box.appendChild(name);
+    box.appendChild(sub);
+    el.appendChild(bar);
+    el.appendChild(box);
+
+    (document.getElementById("gameContainer") || document.body).appendChild(el);
+    storyCardEl = el;
+    return el;
+}
+
+function storyCardHide() {
+    if (!storyCardEl) return;
+    storyCardEl.style.opacity = "0";
+    storyCardEl.style.display = "none";
+}
+
+function storyCentroid(list) {
+    const pts = (list || []).filter(n => n);
+    if (!pts.length) return null;
+    let x = 0, y = 0;
+    pts.forEach(n => { x += n.x; y += n.y; });
+    return { x: x / pts.length, y: y / pts.length };
+}
+
+function storySmooth(u) {
+    u = Math.max(0, Math.min(1, u));
+    return u * u * (3 - 2 * u);
+}
+
+// ---- registration (once per opening storyline) ---------------------
+function storyRegisterIntroductions(s, H) {
+    const e = s.e;
+    const c = s.cards = {
+        queue: [],
+        seen: {},          // each card plays at most once
+        active: null,
+        watchers: [],
+        jakeLineArmed: false
+    };
+
+    // 1) The Jackals: the first cutscene bullet fired by a rival at the SUV.
+    c.watchers.push({
+        key: "jackals",
+        test: () => e.rivals && e.rivals.length > 0 &&
+            policeBullets.some(b => b.cs && e.rivals.indexOf(b.owner) >= 0),
+        focus: () => storyCentroid(e.rivals)
+    });
+
+    // 2) The Marino Syndicate: every rival is down (isInjured is set by the
+    //    crew's kill bullets, the same flag the existing scene uses).
+    c.watchers.push({
+        key: "syndicate",
+        test: () => e.rivals && e.rivals.length > 0 && e.rivals.every(n => n.isInjured),
+        focus: () => storyCentroid(e.crew)
+    });
+
+    // 3) Victor Marino: the boss is in the house (in npcs) and his walk has
+    //    finished (storyUpdateNpcs clears n.path on arrival).
+    c.watchers.push({
+        key: "vic",
+        test: () => s.scene === "house" && e.boss && npcs.indexOf(e.boss) >= 0 && !e.boss.path,
+        focus: () => e.boss ? { x: e.boss.x, y: e.boss.y } : null
+    });
+
+    // 4) Jake Miller: the protagonist's "I have to do something..." bubble is gone.
+    //    Armed just after the line starts (H(70.0)).
+    storyAt(H(70.05), () => { c.jakeLineArmed = true; });
+    c.watchers.push({
+        key: "jake",
+        test: () => c.jakeLineArmed && !player.speechText,
+        focus: () => ({ x: player.x + player.size / 2, y: player.y + player.size / 2 })
+    });
+    // Safety net only: if the bubble state never clears, still show the card
+    // before the existing blackout at H(73.0). No-op when already triggered.
+    storyAt(H(72.95), () => storyQueueIntro(s, "jake"));
+}
+
+function storyQueueIntro(s, key) {
+    const c = s.cards;
+    if (!c || c.seen[key]) return;          // never twice
+    c.seen[key] = true;
+    const w = c.watchers.find(x => x.key === key);
+    c.queue.push({ key: key, def: STORY_CARD_DEFS[key], focus: w ? w.focus : () => null });
+}
+
+function storyIntroCardsWatch(s) {
+    const c = s.cards;
+    if (!c) return;
+    for (let i = 0; i < c.watchers.length; i++) {
+        const w = c.watchers[i];
+        if (c.seen[w.key]) continue;
+        if (w.test()) storyQueueIntro(s, w.key);
+    }
+}
+
+function storyIntroCardsPending(s) {
+    const c = s.cards;
+    return !!c && (!!c.active || c.queue.length > 0);
+}
+
+// ---- per-frame (returns true while the cutscene must stay frozen) ----
+function storyIntroCardsUpdate(s, dt) {
+    const c = s.cards;
+    if (!c) return false;
+
+    if (!c.active) {
+        if (!c.queue.length) return false;
+        storyIntroCardBegin(s, c, c.queue.shift());
+    }
+
+    const a = c.active;
+    a.t += dt / 60;
+
+    // camera blend: 0 = original view, 1 = on the focus
+    let b;
+    if (a.t < STORY_CARD_T_OUT0) {
+        b = storySmooth(a.t / STORY_CARD_T_CAM_IN);
+    } else {
+        b = storySmooth(1 - (a.t - STORY_CARD_T_OUT0) / (STORY_CARD_T_CAM_OUT1 - STORY_CARD_T_OUT0));
+    }
+
+    // zoom back to the original target when the card starts leaving
+    if (!a.zoomReleased && a.t >= STORY_CARD_T_OUT0) {
+        a.zoomReleased = true;
+        storyCardRestoreZoom(a);
+    }
+
+    // card opacity / slide
+    let o;
+    if (a.t < STORY_CARD_T_FADE_IN1) {
+        o = storySmooth((a.t - STORY_CARD_T_FADE_IN0) / (STORY_CARD_T_FADE_IN1 - STORY_CARD_T_FADE_IN0));
+    } else if (a.t < STORY_CARD_T_OUT0) {
+        o = 1;
+    } else {
+        o = 1 - storySmooth((a.t - STORY_CARD_T_OUT0) / (STORY_CARD_T_FADE_OUT1 - STORY_CARD_T_OUT0));
+    }
+    if (storyCardEl) {
+        storyCardEl.style.opacity = String(o);
+        storyCardEl.style.transform = "translateY(-50%) translateX(" + ((1 - o) * -28).toFixed(1) + "px)";
+    }
+
+    storyIntroCardCamera(s, a, b);
+
+    // finished: card gone, camera back, zoom settled (or hard cap reached)
+    const zoomSettled = a.base === null || typeof sbCameraZoom !== "number" ||
+        Math.abs(sbCameraZoom - a.base) < 0.004;
+    if (a.t >= STORY_CARD_T_CAM_OUT1 && (zoomSettled || a.t >= STORY_CARD_T_MAX)) {
+        storyIntroCardEnd(s, c, a);
+        return c.queue.length > 0;     // queued card: stay frozen; otherwise resume now
+    }
+    return true;
+}
+
+function storyIntroCardBegin(s, c, item) {
+    const a = {
+        key: item.key,
+        def: item.def,
+        focus: item.focus,
+        t: 0,
+        base: (typeof window.sbCutsceneZoom === "number") ? window.sbCutsceneZoom : null,
+        zoomReleased: false,
+        lastF: null
+    };
+    c.active = a;
+    storyCardLive = { s: s, a: a };
+
+    const el = storyCardEnsureDom();
+    el.querySelector(".sic-name").textContent = a.def.name;
+    const sub = el.querySelector(".sic-sub");
+    sub.textContent = a.def.sub || "";
+    sub.style.display = a.def.sub ? "" : "none";       // no empty subtitle line
+    el.style.opacity = "0";
+    el.style.transform = "translateY(-50%) translateX(-28px)";
+    el.style.display = "flex";
+
+    // slight zoom-in, using the existing smoothed cutscene zoom
+    window.sbCutsceneZoom = (a.base || 1) * STORY_CARD_ZOOM_FACTOR;
+}
+
+function storyCardRestoreZoom(a) {
+    if (a.base !== null) window.sbCutsceneZoom = a.base;
+    else delete window.sbCutsceneZoom;
+}
+
+function storyIntroCardCamera(s, a, b) {
+    const f = a.focus();
+    if (f) a.lastF = f;
+    const F = a.lastF;
+    if (!F) return;
+
+    if (s.scene === "road") {
+        // The camera follows the player object, parked on s.cam. s.cam itself
+        // is never modified, so b = 0 gives exactly the original view.
+        const cx = s.cam.x + (F.x - s.cam.x) * b;
+        const cy = s.cam.y + (F.y - s.cam.y) * b;
+        player.x = cx - player.size / 2;
+        player.y = cy - player.size / 2;
+    } else {
+        // House: the player really stands at pBase; main.js looks at this
+        // focus instead of the player while it is set.
+        const px = player.x + player.size / 2;
+        const py = player.y + player.size / 2;
+        window.sbCutsceneCamFocus = {
+            x: px + (F.x - px) * b - player.size / 2,
+            y: py + (F.y - py) * b - player.size / 2,
+            size: player.size
+        };
+    }
+}
+
+function storyIntroCardEnd(s, c, a) {
+    if (!a.zoomReleased) storyCardRestoreZoom(a);
+    window.sbCutsceneCamFocus = null;
+    if (s.scene === "road" && s.cam) {
+        player.x = s.cam.x - player.size / 2;        // same parking storyTick uses
+        player.y = s.cam.y - player.size / 2;
+    }
+    storyCardHide();
+    c.active = null;
+    storyCardLive = null;
+}
+
+// Called when the whole cutscene ends: never leave a card or camera override behind.
+function storyIntroCardsAbort() {
+    if (storyCardLive) {
+        const a = storyCardLive.a;
+        if (!a.zoomReleased) storyCardRestoreZoom(a);
+        storyCardLive.s.cards.active = null;
+        storyCardLive = null;
+    }
+    window.sbCutsceneCamFocus = null;
+    storyCardHide();
 }
 
 // ============================================================
@@ -777,13 +1085,22 @@ function updateOpeningCutscene(dt) {
     if (!s || !openingCutsceneActive) return;
 
     try {
+        // Introduction cards: while one is showing (or queued) the whole cutscene
+        // world is frozen. Nothing below runs, so the timeline cannot advance.
+        if (storyIntroCardsUpdate(s, dt)) return;
+
         s.t += dt / 60;
 
         while (storyIntro === s && s.next < s.events.length && s.events[s.next].t <= s.t) {
             s.events[s.next++].fn();
+            // An event queued a card: leave any other due events for after the pause.
+            if (storyIntroCardsPending(s)) break;
         }
 
         if (storyIntro === s) storyTick(s, dt);
+
+        // Watch for the story states that trigger an introduction card.
+        if (storyIntro === s) storyIntroCardsWatch(s);
     } catch (err) {
         // Never leave the player stuck in a broken cinematic.
         console.error("[Story intro] aborted:", err);
@@ -1205,6 +1522,8 @@ function storyResyncRaceSchedule(hour) {
 // ============================================================
 function finishOpeningCutscene() {
     if (!openingCutsceneActive) return;
+
+    storyIntroCardsAbort();             // hide any card, restore zoom / camera focus
 
     const s = storyIntro;
     storyIntro = null;                  // stops the timeline immediately
