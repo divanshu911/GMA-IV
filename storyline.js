@@ -1,5 +1,5 @@
-// streetbound-storyline12
-// ===== OPENING CUTSCENE & STORYLINE (extracted from important.js) =====
+console.log("streetbound-storyline12");
+// ===== OPENING CUTSCENE & STORYLINE =====
 
 // ============================================================
 // FIRST-PLAY OPENING CUTSCENE
@@ -793,10 +793,10 @@ const STORY_CARD_ZOOM_FACTOR = 1.12;   // "slight" zoom-in while a card is up
 const STORY_CARD_T_CAM_IN = 1.1;       // seconds: camera eases onto the focus
 const STORY_CARD_T_FADE_IN0 = 0.3;     // card fade-in start
 const STORY_CARD_T_FADE_IN1 = 1.0;     // card fully visible
-const STORY_CARD_T_OUT0 = 3.5;         // card fade-out + camera return start
-const STORY_CARD_T_FADE_OUT1 = 4.2;    // card fully gone
-const STORY_CARD_T_CAM_OUT1 = 4.6;     // camera back at its original place
-const STORY_CARD_T_MAX = 6.5;          // hard cap so a pause can never hang
+const STORY_CARD_T_OUT0 = 5.5;         // extended: card fade-out + camera return start (was 3.5)
+const STORY_CARD_T_FADE_OUT1 = 6.2;    // extended: card fully gone (was 4.2)
+const STORY_CARD_T_CAM_OUT1 = 6.6;     // extended: camera back at its original place (was 4.6)
+const STORY_CARD_T_MAX = 8.5; //hard cap
 
 const STORY_CARD_DEFS = {
     jackals:   { name: "The Jackals", sub: "Rivals of the Syndicate" },
