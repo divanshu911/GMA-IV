@@ -1,4 +1,4 @@
-console.log("streetbound-storyline13-syndicate");
+console.log("streetbound-storyline14-syndicate-polish");
 // ===== OPENING CUTSCENE & STORYLINE =====
 
 // ============================================================
@@ -741,7 +741,7 @@ e.boss.cutsceneArmed = false;
     // ---- scene 5: the debt -----------------------------------------------
     storyAt(H(48.2), () => storyFace(e.boss, s.pBase.x, s.pBase.y));
     say(48.3, boss, "Five thousand dollars!", 2.0);
-    say(50.5, boss, "You have to pay me in two weeks!", 2.4);
+    say(50.5, boss, "You have to pay me in 10 days!", 2.4);
     say(53.1, boss, "I don't care what you do.", 2.0);
     say(55.3, boss, "Do a job, become a thief,", 2.0);
     say(57.5, boss, "or start smuggling!", 1.8);
@@ -1650,7 +1650,8 @@ function finishOpeningCutscene() {
 
 const STORY_SYN_KEY = "streetbound_story_syndicate_v1";
 const SYN_MONEY_NEEDED = STORY_DEBT_AMOUNT;          // $5,000
-const SYN_MICKEY_NAME = "Mickey (gang member)";
+const SYN_MICKEY_NAME = "Mickey";
+const SYN_MICKEY_LABEL = "Mickey (gang member)";
 const SYN_REMINDER_MS = 3 * 60 * 1000;               // real time
 const SYN_CALL_RING_MS = 4500;
 const SYN_CALL_ARRIVAL_DELAY = 8 * 60;               // frames of gameplay after a connected call
@@ -1870,8 +1871,14 @@ function synRelabelContact(btn) {
         }
     }
     if (!renamed) btn.textContent = "\uD83D\uDCDE " + SYN_MICKEY_NAME;
-    btn.setAttribute("aria-label", SYN_MICKEY_NAME);
-    if (btn.title) btn.title = SYN_MICKEY_NAME;
+    btn.setAttribute("aria-label", SYN_MICKEY_LABEL);
+    if (btn.title) btn.title = SYN_MICKEY_LABEL;
+    // Match Ambulance contact footprint: short label, no stretch.
+    btn.style.minWidth = "";
+    btn.style.width = "auto";
+    btn.style.maxWidth = "160px";
+    btn.style.whiteSpace = "nowrap";
+    btn.style.boxSizing = "border-box";
 }
 
 function synPhoneEnsure() {
@@ -2624,6 +2631,10 @@ function syndicateBeginMeeting() {
     syndicateMeetingActive = true;
     gameActive = false;
 
+    // Same UI-hide path as the first-play opening cutscene (CSS + canvas HUD gates).
+    const gc = document.getElementById("gameContainer");
+    if (gc) gc.classList.add("opening-cutscene");
+
     playerPhoneOpen = false;
     if (typeof closePlayerPhone === "function") closePlayerPhone();
     synReleaseInput();
@@ -2635,7 +2646,7 @@ function syndicateBeginMeeting() {
     m.C.x = player.x + player.size / 2;
     m.C.y = player.y + player.size / 2;
 
-    window.sbCutsceneZoom = 1.0;           // smooth camera (existing zoom easing)
+    window.sbCutsceneZoom = 1.18;          // slight cinematic zoom for the approach
 
     synSpawnPlan(m, plan);
     return true;
@@ -2709,11 +2720,11 @@ function synStartExit(m) {
         n.y = door.y;
         storyFace(n, n.stand.x, n.stand.y);
         n.boardPoint = door;
-        const delay = i * 0.0;      // all step out together (walk speeds differ slightly)
-        storyWalk(n, [[n.stand.x, n.stand.y]], 1.45 + delay + (i % 3) * 0.05);
+        // Slower, more deliberate walk-out (was ~1.45–1.55).
+        storyWalk(n, [[n.stand.x, n.stand.y]], 0.95 + (i % 3) * 0.04);
     });
 
-    window.sbCutsceneZoom = 1.3;
+    window.sbCutsceneZoom = 1.35;
     m.phase = "exit";
     m.exitT = 0;
 }
@@ -2732,12 +2743,13 @@ function synStartLeave(m) {
     m.actors.forEach(n => {
         n.aimHold = false;
         const door = synDoorPoint(n.carRef.car, n);       // side the actor is standing on
-        storyWalk(n, [[door.x, door.y]], 1.7, () => {
+        // Slower return to the cars (was 1.7).
+        storyWalk(n, [[door.x, door.y]], 1.15, () => {
             storyRemoveNpc(n);
             n.boarded = true;
         });
     });
-    window.sbCutsceneZoom = 1.15;
+    window.sbCutsceneZoom = 1.2;
 }
 
 function synStartDepart(m) {
@@ -2820,7 +2832,8 @@ function updateSyndicateMeeting(dt) {
         } else if (m.phase === "exit") {
             m.exitT += sec;
             const walking = m.actors.some(n => n.path && n.path.length);
-            if (!walking || m.exitT > 9) {
+            // Longer allowance: walk-out speed is slower (~0.95–1.03).
+            if (!walking || m.exitT > 14) {
                 m.actors.forEach(n => { n.path = null; synFacePlayer(n, m); });
                 synPlayerFace(m, m.victor);
                 m.lines = synBuildLines(m.branch);
@@ -2848,7 +2861,8 @@ function updateSyndicateMeeting(dt) {
         } else if (m.phase === "leave") {
             m.leaveT += sec;
             const all = m.actors.every(n => n.boarded);
-            if (all || m.leaveT > 10) {
+            // Match slower board-walk speed (~1.15).
+            if (all || m.leaveT > 14) {
                 m.actors.forEach(n => { storyRemoveNpc(n); n.boarded = true; });
                 synStartDepart(m);
             }
@@ -2885,6 +2899,9 @@ function synCleanupScene(m) {
 
     if (m.zoomBefore !== null) window.sbCutsceneZoom = m.zoomBefore;
     else delete window.sbCutsceneZoom;
+
+    const gc = document.getElementById("gameContainer");
+    if (gc) gc.classList.remove("opening-cutscene");
 
     player.speechText = null;
     player.speechTimer = 0;

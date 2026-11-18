@@ -1,4 +1,4 @@
-console.log("streetbound-main13-syndicate");
+console.log("streetbound-main14-syndicate-polish");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
@@ -3982,7 +3982,9 @@ if (!isInsideHouse && !isInsideDealership) {
 }
 
 
- if (!openingCutsceneActive) {
+ // Hide canvas HUD during opening intro and Syndicate meeting (same freeze).
+ if (!openingCutsceneActive &&
+     !(typeof syndicateMeetingActive !== "undefined" && syndicateMeetingActive)) {
   if (lastMoneyCounterValue === null) {
     lastMoneyCounterValue = player.money;
 } else if (player.money !== lastMoneyCounterValue) {
