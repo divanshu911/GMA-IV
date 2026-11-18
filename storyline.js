@@ -1,4 +1,4 @@
-console.log("streetbound-storyline12");
+console.log("streetbound-storyline13-syndicate");
 // ===== OPENING CUTSCENE & STORYLINE =====
 
 // ============================================================
@@ -70,7 +70,7 @@ function hidePhoneCutsceneMessage() {
 const STORY_INTRO_KEY = "streetbound_story_intro_v1";
 const STORY_DEBT_KEY = "streetbound_story_debt_v1";
 const STORY_DEBT_AMOUNT = 5000;
-const STORY_DEBT_DAYS = 14;
+const STORY_DEBT_DAYS = 10;
 
 let storyIntro = null;          // all cutscene-only state lives here
 let openingFinishTimer = null;  // the single post-title fade timer
@@ -90,6 +90,10 @@ function storyWrite(key, value) {
 // Persistent story data, ready for a future debt / countdown feature.
 // (No HUD, countdown or payment logic exists yet.)
 function storyWriteDebt(issuedAtGameHour) {
+    // Never overwrite: a replayed opening or a reload must not restart the debt.
+    try {
+        if (localStorage.getItem(STORY_DEBT_KEY) !== null) return;
+    } catch (e) {}
     storyWrite(STORY_DEBT_KEY, {
         creditor: "mafia",
         amount: STORY_DEBT_AMOUNT,
@@ -259,6 +263,7 @@ function storyExplode(s, car, count, shake) {
 function storySetTime(hour) {
     gameSeconds = (hour / 24) * DAY_LENGTH;
     lastTimeSave = gameSeconds;          // suppresses the localStorage write
+    if (typeof storySyndicateResyncClock === "function") storySyndicateResyncClock();
     if (typeof updateDayNight === "function") updateDayNight(0);
 }
 
@@ -1576,6 +1581,7 @@ function finishOpeningCutscene() {
 
     storyWrite(STORY_INTRO_KEY, { status: "completed", completedAt: Date.now() });
     storyWriteDebt(7);
+    storySyndicateStartDebt();          // 10-day countdown starts now (idempotent)
 
     // ---- UI ----
     hidePhoneCutsceneMessage();
@@ -1618,3 +1624,1358 @@ function finishOpeningCutscene() {
         }
     }, 800);
 }
+
+// ============================================================
+// CHAPTER 2 - THE DEBT, MICKEY AND THE SYNDICATE'S VISIT
+// ------------------------------------------------------------
+//  * 10-day debt countdown (HUD under the clock), driven by the existing
+//    in-game clock (gameSeconds / DAY_LENGTH). No second clock or timer:
+//    in-game midnights are detected from the clock's own wrap-around.
+//  * "Mickey (gang member)" contact, added to the EXISTING phone Contacts
+//    screen (cloned from the ambulance contact, same call-screen elements).
+//  * Repeated HUD reminder (real time, 3 min) while the player has $5,000
+//    and has not scheduled the meeting.
+//  * Automatic meeting when the deadline expires.
+//  * The Syndicate drives to the player's CURRENT position with the existing
+//    NavigationSystem (A*), the world is frozen like the opening cutscene,
+//    the dialogue branch is chosen from the player's money, the Syndicate
+//    drives off and the game resumes.
+//
+// All progress lives in ONE new localStorage key (STORY_SYN_KEY). Existing
+// keys are never touched. main.js only calls three entry points:
+//   updateSyndicateStory(dt)   - once per normal frame (after updateDayNight)
+//   updateSyndicateMeeting(dt) - while syndicateMeetingActive (world frozen)
+//   drawSyndicateDebtHUD(ctx)  - HUD, right after drawClock()
+// ============================================================
+
+const STORY_SYN_KEY = "streetbound_story_syndicate_v1";
+const SYN_MONEY_NEEDED = STORY_DEBT_AMOUNT;          // $5,000
+const SYN_MICKEY_NAME = "Mickey (gang member)";
+const SYN_REMINDER_MS = 3 * 60 * 1000;               // real time
+const SYN_CALL_RING_MS = 4500;
+const SYN_CALL_ARRIVAL_DELAY = 8 * 60;               // frames of gameplay after a connected call
+const SYN_RETRY_FRAMES = 60;                         // suitability re-check cadence (~1 s)
+const SYN_STABLE_CHECKS = 2;                         // consecutive suitable checks required
+const SYN_MAX_ATTEMPTS = 4;                          // scripted-sequence failures before it is resolved silently
+const SYN_CRUISE_SPEED = 2.4;                        // px per frame (same unit as Car.speed)
+
+let syndicateMeetingActive = false;                  // world-freeze flag read by main.js
+let syndicateMeeting = null;                         // runtime state of the scripted visit
+let storySyn = null;                                 // persisted chapter state (see synDefaults)
+
+const synRt = {
+    arrivalDelay: 0,
+    retry: 0,
+    stable: 0,
+    planFail: 0,
+    scan: 0,
+    callBusy: false,
+    callTimers: [],
+    phoneReady: false,
+    mickeyBtn: null,
+    ambBtn: null
+};
+
+// ------------------------------------------------------------
+// Persistent state
+// ------------------------------------------------------------
+function synDefaults() {
+    return {
+        v: 1,
+        debtStarted: false,          // debt countdown started
+        debtBase: 0,                 // clock reference: elapsed = dayCount + frac - debtBase
+        dayCount: 0,                 // in-game midnights since the countdown began
+        lastFrac: 0,                 // last observed time of day (0..1), for midnight detection
+        debtDeadlineReached: false,
+        mickeyAvailable: false,      // Mickey contact usable
+        hasFiveThousand: false,      // player has the $5,000 (last observed)
+        mickeyCallAttempted: false,
+        meetingScheduled: false,
+        scheduledBy: null,           // "call" | "deadline"
+        arrivalInProgress: false,    // Syndicate arrival running (never persisted as running across reloads)
+        meetingCompleted: false,
+        branch: null,                // "paid" | "short", fixed when the meeting begins
+        recruitmentAccepted: false,
+        dangerousMissionPending: false,
+        debtHudHidden: false,
+        lastReminderAt: 0,           // Date.now() of the last "call Mickey" reminder
+        attempts: 0
+    };
+}
+
+function synLoad() {
+    if (storySyn) return storySyn;
+
+    const d = synDefaults();
+    try {
+        const raw = localStorage.getItem(STORY_SYN_KEY);
+        if (raw) {
+            const p = JSON.parse(raw);
+            if (p && typeof p === "object") {
+                Object.keys(d).forEach(k => { if (p[k] !== undefined) d[k] = p[k]; });
+            }
+        }
+    } catch (e) { /* corrupted save: fall back to defaults */ }
+
+    ["debtBase", "dayCount", "lastFrac", "lastReminderAt", "attempts"].forEach(k => {
+        if (typeof d[k] !== "number" || !isFinite(d[k])) d[k] = 0;
+    });
+
+    // The scripted arrival cannot be resumed mid-way: after a reload it is
+    // simply pending again (same branch, never duplicated, never skipped).
+    if (d.arrivalInProgress && !d.meetingCompleted) {
+        d.arrivalInProgress = false;
+        d.meetingScheduled = true;
+        if (!d.scheduledBy) d.scheduledBy = "deadline";
+    }
+    if (d.meetingScheduled && !d.meetingCompleted) {
+        synRt.arrivalDelay = d.scheduledBy === "call" ? 4 * 60 : 0;
+    }
+    if (d.meetingCompleted) {
+        d.mickeyAvailable = false;
+        d.debtHudHidden = true;
+        d.arrivalInProgress = false;
+    }
+
+    storySyn = d;
+    return d;
+}
+
+function synSave() {
+    if (storySyn) storyWrite(STORY_SYN_KEY, storySyn);
+}
+
+// ------------------------------------------------------------
+// Debt countdown (existing in-game clock only)
+// ------------------------------------------------------------
+function synFrac() {
+    return gameSeconds / DAY_LENGTH;
+}
+
+function synElapsedDays(s) {
+    return s.dayCount + synFrac() - s.debtBase;
+}
+
+function synDebtRemainingDays(s) {
+    return Math.max(0, Math.ceil(STORY_DEBT_DAYS - synElapsedDays(s) - 1e-9));
+}
+
+// Called by the opening storyline once the debt has been spoken (see
+// finishOpeningCutscene). Idempotent: a replay or reload never restarts it.
+function storySyndicateStartDebt() {
+    const s = synLoad();
+    if (s.debtStarted || s.meetingCompleted) return;
+
+    s.debtStarted = true;
+    s.debtBase = synFrac();
+    s.dayCount = 0;
+    s.lastFrac = synFrac();
+    s.mickeyAvailable = true;
+    s.debtHudHidden = false;
+    synSave();
+}
+
+// The opening storyline moves the clock (storySetTime). Keep the elapsed
+// debt time continuous across such a jump instead of counting it.
+function storySyndicateResyncClock() {
+    const s = synLoad();
+    if (!s.debtStarted) return;
+
+    const f = synFrac();
+    const elapsed = s.dayCount + s.lastFrac - s.debtBase;
+    s.debtBase = s.dayCount + f - elapsed;
+    s.lastFrac = f;
+    synSave();
+}
+
+function synTickClock(s) {
+    const f = synFrac();
+    let dirty = false;
+
+    // gameSeconds wraps to 0 at midnight: that is the only "new day" signal.
+    if (s.lastFrac > 0.75 && f < 0.25) {
+        s.dayCount++;
+        dirty = true;
+    }
+    if (dirty || Math.abs(f - s.lastFrac) >= 0.01) {
+        s.lastFrac = f;
+        dirty = true;
+    }
+    if (dirty) synSave();
+}
+
+function drawSyndicateDebtHUD(c) {
+    const s = storySyn;
+    if (!s || !s.debtStarted || s.debtHudHidden || s.meetingCompleted) return;
+    if (openingCutsceneActive || syndicateMeetingActive) return;
+
+    const left = synDebtRemainingDays(s);
+    const label = left <= 0 ? "DEBT: DUE" : "DEBT: " + left + (left === 1 ? " DAY" : " DAYS");
+
+    const x = 20, w = 150, h = 28, r = 8;
+    const baseY = (typeof clockHudY === "number") ? clockHudY : 65;   // follows the clock panel
+    const y = baseY + 36 + 6;
+
+    let color = "#f2f4f5";
+    if (left <= 2) color = "#e74c3c";
+    else if (left <= 5) color = "#f5b041";
+    if (left <= 0 && Math.floor(Date.now() / 500) % 2 === 0) color = "#ff8f80";
+
+    c.save();
+    c.shadowColor = "rgba(0,0,0,0.45)";
+    c.shadowBlur = 8;
+    c.shadowOffsetY = 2;
+
+    const body = c.createLinearGradient(0, y, 0, y + h);
+    body.addColorStop(0, "#33373d");
+    body.addColorStop(1, "#202327");
+    c.fillStyle = body;
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.arcTo(x + w, y, x + w, y + h, r);
+    c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r);
+    c.arcTo(x, y, x + w, y, r);
+    c.closePath();
+    c.fill();
+
+    c.shadowColor = "transparent";
+    c.shadowBlur = 0;
+    c.shadowOffsetY = 0;
+
+    c.fillStyle = "#c0392b";
+    c.fillRect(x + 8, y + 7, 3, h - 14);
+
+    c.fillStyle = color;
+    c.font = "bold 15px Arial";
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillText(label, x + w / 2 + 4, y + h / 2 + 1);
+    c.restore();
+}
+
+// ------------------------------------------------------------
+// Phone: "Mickey (gang member)" in the existing Contacts screen
+// ------------------------------------------------------------
+function synRelabelContact(btn) {
+    let renamed = false;
+    const walker = document.createTreeWalker(btn, NodeFilter.SHOW_TEXT);
+    let n;
+    while ((n = walker.nextNode())) {
+        if (/ambulance/i.test(n.nodeValue)) {
+            n.nodeValue = SYN_MICKEY_NAME;
+            renamed = true;
+        } else if (n.nodeValue.indexOf("\uD83D\uDE91") >= 0) {      // ambulance emoji
+            n.nodeValue = n.nodeValue.replace("\uD83D\uDE91", "\uD83D\uDCDE");
+        }
+    }
+    if (!renamed) btn.textContent = "\uD83D\uDCDE " + SYN_MICKEY_NAME;
+    btn.setAttribute("aria-label", SYN_MICKEY_NAME);
+    if (btn.title) btn.title = SYN_MICKEY_NAME;
+}
+
+function synPhoneEnsure() {
+    if (synRt.phoneReady) return;
+
+    const amb = document.getElementById("ambulanceContactButton");
+    if (!amb || !amb.parentNode) return;
+
+    const btn = amb.cloneNode(true);
+    btn.id = "mickeyContactButton";
+    synRelabelContact(btn);
+
+    // The ambulance button may be styled by its id: copy the visual styling
+    // so the clone looks like a sibling contact.
+    try {
+        const cs = getComputedStyle(amb);
+        ["background", "backgroundColor", "color", "border", "borderRadius", "padding",
+         "font", "boxShadow", "gap", "alignItems", "justifyContent", "flexDirection",
+         "width", "height", "minHeight", "cursor"].forEach(p => {
+            if (cs[p]) btn.style[p] = cs[p];
+        });
+        const mt = parseFloat(cs.marginTop) || 0;
+        btn.style.marginTop = mt > 0 ? cs.marginTop : "10px";
+    } catch (e) { /* styling is cosmetic only */ }
+
+    amb.parentNode.insertBefore(btn, amb.nextSibling);
+    synRt.ambBtn = amb;
+    synRt.mickeyBtn = btn;
+    synRt.phoneReady = true;
+
+    btn.addEventListener("pointerdown", e => {
+        e.preventDefault();
+        if (!playerPhoneOpen) return;
+        syndicateCallMickey();
+    });
+
+    // Back button (existing handler resets the screens): cancel a ringing call.
+    const back = document.getElementById("phoneBackButton");
+    if (back) back.addEventListener("pointerdown", () => synCancelMickeyCall());
+
+    // The existing phone code shows/hides the ambulance contact; mirror it.
+    if (typeof MutationObserver === "function") {
+        new MutationObserver(synPhoneRefresh).observe(amb, { attributes: true, attributeFilter: ["style"] });
+    }
+    synPhoneRefresh();
+}
+
+function synMickeyEnabled() {
+    const s = synLoad();
+    return !!(s.mickeyAvailable && !s.meetingCompleted && !s.arrivalInProgress && !syndicateMeetingActive);
+}
+
+function synPhoneRefresh() {
+    const b = synRt.mickeyBtn, a = synRt.ambBtn;
+    if (!b || !a) return;
+    b.style.display = (!synMickeyEnabled() || a.style.display === "none") ? "none" : a.style.display;
+}
+
+function synCallEls() {
+    return {
+        home: document.getElementById("phoneHomeScreen"),
+        call: document.getElementById("phoneCallScreen"),
+        icon: document.querySelector(".phone-call-icon"),
+        name: document.querySelector(".phone-call-name"),
+        status: document.getElementById("phoneCallStatus")
+    };
+}
+
+function synShowCallScreen(status) {
+    const e = synCallEls();
+    if (!e.home || !e.call) return;
+    e.home.style.display = "none";
+    e.call.style.display = "flex";
+    if (e.icon) e.icon.textContent = "\uD83D\uDCDE";
+    if (e.name) e.name.textContent = SYN_MICKEY_NAME;
+    if (synRt.ambBtn) synRt.ambBtn.style.display = "none";
+    if (synRt.mickeyBtn) synRt.mickeyBtn.style.display = "none";
+    if (e.status) e.status.textContent = status;
+}
+
+function synSetCallStatus(text) {
+    const el = document.getElementById("phoneCallStatus");
+    if (el) el.textContent = text;
+}
+
+// Back to the Contacts list (existing function), never a stuck call screen.
+function synBackToContacts() {
+    if (typeof openAmbulanceCallScreen === "function") openAmbulanceCallScreen();
+    synPhoneRefresh();
+}
+
+function synClearCallTimers() {
+    synRt.callTimers.forEach(t => clearTimeout(t));
+    synRt.callTimers.length = 0;
+}
+
+function synCancelMickeyCall() {
+    synClearCallTimers();
+    synRt.callBusy = false;
+}
+
+function syndicateCallMickey() {
+    const s = synLoad();
+    if (!synMickeyEnabled() || synRt.callBusy) return false;
+
+    synRt.callBusy = true;
+    s.mickeyCallAttempted = true;
+    synSave();
+
+    synShowCallScreen("Calling " + SYN_MICKEY_NAME + "...");
+    synRt.callTimers.push(setTimeout(() => synSetCallStatus("Ringing..."), 1500));
+    synRt.callTimers.push(setTimeout(synFinishMickeyCall, SYN_CALL_RING_MS));
+    return true;
+}
+
+function synFinishMickeyCall() {
+    synClearCallTimers();
+    synRt.callBusy = false;
+
+    const s = synLoad();
+
+    // The Syndicate may have arrived while the phone was ringing.
+    if (!synMickeyEnabled()) {
+        synBackToContacts();
+        return;
+    }
+
+    if (player.money >= SYN_MONEY_NEEDED) {
+        // Connected. A second call never creates a second arrival.
+        if (!s.meetingScheduled) {
+            s.meetingScheduled = true;
+            s.scheduledBy = "call";
+            synRt.arrivalDelay = SYN_CALL_ARRIVAL_DELAY;
+            synRt.retry = 0;
+            synRt.stable = 0;
+            synSave();
+        }
+        synSetCallStatus("Call connected");
+    } else {
+        synSetCallStatus("Call disconnected");
+    }
+
+    synRt.callTimers.push(setTimeout(synBackToContacts, 1600));
+}
+
+// ------------------------------------------------------------
+// Suitable-state check (the meeting never interrupts important play)
+// ------------------------------------------------------------
+function synIsSuitable() {
+    if (typeof gameActive !== "undefined" && !gameActive) return false;
+
+    // other cutscenes / overlays
+    if (openingCutsceneActive || storyIntro || syndicateMeetingActive) return false;
+    if (typeof storyCardLive !== "undefined" && storyCardLive) return false;
+    if (typeof firstTimeControlsOpen !== "undefined" && firstTimeControlsOpen) return false;
+    if (typeof desktopControlsOpen !== "undefined" && desktopControlsOpen) return false;
+    if (typeof showFullMap !== "undefined" && (showFullMap || fullMapAnimating)) return false;
+
+    // the Syndicate drives up to the player in the open world
+    if (isInsideHouse || (typeof isInsideDealership !== "undefined" && isInsideDealership)) return false;
+
+    // police / arrest / death / incapacitated
+    if (player.wanted || player.beingChased) return false;
+    if (player.isBeingArrested || player.isArrestPassenger) return false;
+    if (player.health <= 0 || player.isDead || player.isLyingDown) return false;
+    if (player.ispassenger) return false;
+    if (typeof window.streetBoundTimeScale === "number" && window.streetBoundTimeScale < 0.999) return false;
+
+    // fighting
+    if (player.punchTimer > 0 || player.punchCooldown > 0) return false;
+    if (npcs.some(n => n && n.isFightingBack && !n.isInjured)) return false;
+    if (angryDrivers && angryDrivers.length > 0) return false;
+
+    // jobs / events that cannot be paused cleanly
+    if (typeof taxiManager !== "undefined" && taxiManager && taxiManager.isJobActive && taxiManager.hasPassenger) return false;
+    if (typeof raceEventManager !== "undefined" && raceEventManager &&
+        raceEventManager.state === "RACING" && raceEventManager.playerJoined) return false;
+
+    return true;
+}
+
+// ------------------------------------------------------------
+// Per-frame story tick (called from updateGame, normal gameplay only)
+// ------------------------------------------------------------
+function updateSyndicateStory(dt) {
+    const s = synLoad();
+    synPhoneEnsure();
+
+    if (openingCutsceneActive || syndicateMeetingActive) return;
+    if (s.meetingCompleted) return;
+
+    // Existing saves (opening already seen before this chapter existed), or a
+    // reload during the opening: start the countdown once, never restart it.
+    if (!s.debtStarted) {
+        synRt.scan -= dt;
+        if (synRt.scan > 0) return;
+        synRt.scan = 120;
+        let hasDebtRecord = false;
+        try { hasDebtRecord = localStorage.getItem(STORY_DEBT_KEY) !== null; } catch (e) {}
+        if (hasDebtRecord && hasSeenStoryIntro()) storySyndicateStartDebt();
+        else return;
+    }
+
+    synTickClock(s);
+
+    const has = player.money >= SYN_MONEY_NEEDED;
+    if (has !== s.hasFiveThousand) {
+        s.hasFiveThousand = has;
+        synSave();
+    }
+
+    // Day 10: the Syndicate comes whether or not the player has the money.
+    if (!s.debtDeadlineReached && synElapsedDays(s) >= STORY_DEBT_DAYS) {
+        s.debtDeadlineReached = true;
+        if (!s.meetingScheduled) {
+            s.meetingScheduled = true;
+            s.scheduledBy = "deadline";
+            synRt.arrivalDelay = 0;
+            synRt.retry = 0;
+            synRt.stable = 0;
+        }
+        synSave();
+    }
+
+    // HUD reminder: real-time comparison, one message at most, no backlog.
+    if (s.mickeyAvailable && has && !s.meetingScheduled && !s.arrivalInProgress &&
+        typeof taxiManager !== "undefined" && taxiManager) {
+        const now = Date.now();
+        if (s.lastReminderAt > now) s.lastReminderAt = now;       // system clock moved back
+        if (!s.lastReminderAt || now - s.lastReminderAt >= SYN_REMINDER_MS) {
+            s.lastReminderAt = now;
+            synSave();
+            taxiManager.setMessage("You have $5,000. Call Mickey (Phone > Contacts).", 300);
+        }
+    }
+
+    synPhoneRefresh();
+
+    // Pending meeting: wait for a suitable moment, start exactly once.
+    if (s.meetingScheduled && !s.arrivalInProgress) {
+        if (synRt.arrivalDelay > 0) {
+            synRt.arrivalDelay -= dt;
+            return;
+        }
+        synRt.retry -= dt;
+        if (synRt.retry <= 0) {
+            synRt.retry = SYN_RETRY_FRAMES;
+            if (synIsSuitable()) {
+                synRt.stable++;
+                if (synRt.stable >= SYN_STABLE_CHECKS) {
+                    synRt.stable = 0;
+                    syndicateBeginMeeting();
+                }
+            } else {
+                synRt.stable = 0;
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------
+// Arrival planning (existing NavigationSystem A*, road spawn points)
+// ------------------------------------------------------------
+function synInMap(x, y, margin) {
+    return x >= margin && y >= margin && x <= mapWidth - margin && y <= mapHeight - margin;
+}
+
+function synRoadSpot(x, y) {
+    if (!isRoadColor(x, y)) return false;
+    const r = 11;
+    return isRoadColor(x - r, y) && isRoadColor(x + r, y) && isRoadColor(x, y - r) && isRoadColor(x, y + r);
+}
+
+function synNearestRoadSpot(px, py, maxR) {
+    if (synRoadSpot(px, py)) return { x: px, y: py };
+    for (let r = 12; r <= maxR; r += 12) {
+        const n = Math.max(8, Math.round(r / 6));
+        for (let k = 0; k < n; k++) {
+            const a = (k / n) * Math.PI * 2;
+            const x = px + Math.cos(a) * r, y = py + Math.sin(a) * r;
+            if (synRoadSpot(x, y)) return { x: x, y: y };
+        }
+    }
+    return null;
+}
+
+function synPathLength(path) {
+    let len = 0;
+    for (let i = 1; i < path.length; i++) len += Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y);
+    return len;
+}
+
+function synFindPath(x0, y0, x1, y1) {
+    if (typeof navigationSystem === "undefined") return null;
+    if (!navigationSystem.ready && typeof navigationSystem.buildGrid === "function") navigationSystem.buildGrid();
+    if (!navigationSystem.ready) return null;
+    const p = navigationSystem.findPath(x0, y0, x1, y1, true);
+    return (p && p.length > 0) ? p : null;
+}
+
+// A parking position for a vehicle near the player: car-sized footprint on
+// walkable ground, clear of the player, other vehicles and pedestrians.
+function synStopSpotOk(m, x, y, a, taken) {
+    if (!synInMap(x, y, 50)) return false;
+    if (Math.hypot(x - m.C.x, y - m.C.y) < 76) return false;
+
+    const probeA = { angle: a + Math.PI / 2, length: 38, width: 22 };
+    const probeB = { angle: a, length: 38, width: 22 };
+    if (!isPlayerCarWalkable(x, y, probeA) || !isPlayerCarWalkable(x, y, probeB)) return false;
+
+    for (let i = 0; i < taken.length; i++) {
+        if (Math.hypot(x - taken[i].x, y - taken[i].y) < 62) return false;
+    }
+    for (let i = 0; i < cars.length; i++) {
+        const c = cars[i];
+        if (c && !c.exploded && Math.hypot(x - c.x, y - c.y) < 54) return false;
+    }
+    for (let i = 0; i < npcs.length; i++) {
+        const n = npcs[i];
+        if (n && !n.isPassenger && Math.hypot(x - n.x, y - n.y) < 26) return false;
+    }
+    return true;
+}
+
+function synPickStopSpots(m, a0, n) {
+    const out = [];
+    const offsets = [0, 0.85, -0.85];
+    for (let i = 0; i < n; i++) {
+        let best = null, bestCost = Infinity;
+        for (const da of [0, 0.18, -0.18, 0.36, -0.36, 0.55, -0.55]) {
+            for (const r of [100, 118, 84, 138, 160]) {
+                const a = a0 + offsets[i] + da;
+                const x = m.C.x + Math.cos(a) * r, y = m.C.y + Math.sin(a) * r;
+                if (!synStopSpotOk(m, x, y, a, out)) continue;
+                const cost = Math.abs(da) * 70 + Math.abs(r - 100) * 0.5 + (isRoadColor(x, y) ? 0 : 30);
+                if (cost < bestCost) { bestCost = cost; best = { x: x, y: y }; }
+            }
+        }
+        if (best) out.push(best);
+    }
+    return out;
+}
+
+// Returns { cars: [{def, spawn, angle, spot, path}], offR } or null.
+function synPlanArrival(m) {
+    const C = m.C;
+    const zoom = Math.min(1, (window.sbFrameCamera && window.sbFrameCamera.zoom) || 1);
+    const offR = Math.hypot(canvas.width, canvas.height) / 2 / zoom + 140;   // outside the visible screen
+    m.offR = offR;
+
+    // 1. candidate road spawn points on rings outside the screen, all directions
+    const cands = [];
+    const jitter = Math.random() * 0.26;
+    for (let k = 0; k < 24; k++) {
+        const a = jitter + k * Math.PI * 2 / 24;
+        for (const extra of [30, 140, 260]) {
+            const r = offR + extra;
+            const px = C.x + Math.cos(a) * r, py = C.y + Math.sin(a) * r;
+            if (!synInMap(px, py, 70)) continue;                       // map boundary
+            const spot = synNearestRoadSpot(px, py, 96);
+            if (!spot || !synInMap(spot.x, spot.y, 60)) continue;
+            const d = Math.hypot(spot.x - C.x, spot.y - C.y);
+            if (d < offR) continue;                                    // must be off-screen
+            if (cands.some(c => Math.hypot(c.x - spot.x, c.y - spot.y) < 90)) continue;
+            let crowded = false;
+            for (let i = 0; i < cars.length; i++) {
+                if (cars[i] && Math.hypot(cars[i].x - spot.x, cars[i].y - spot.y) < 70) { crowded = true; break; }
+            }
+            if (crowded) continue;
+            cands.push({ x: spot.x, y: spot.y, d: d });
+        }
+    }
+    cands.sort((p, q) => p.d - q.d);
+
+    // 2. rank by real A* route length to the lead stop spot
+    let best = null;
+    for (let i = 0; i < Math.min(cands.length, 16); i++) {
+        const c = cands[i];
+        const a0 = Math.atan2(c.y - C.y, c.x - C.x);
+        const spots = synPickStopSpots(m, a0, 1);
+        if (!spots.length) continue;
+        const path = synFindPath(c.x, c.y, spots[0].x, spots[0].y);
+        if (!path) continue;
+        const len = synPathLength(path);
+        if (len > c.d * 2.6 + 400) continue;                           // absurd detour
+        if (!best || len < best.len) best = { c: c, a0: a0, len: len };
+    }
+    if (!best) return null;
+
+    // 3. stop spots for the whole convoy + their routes
+    const spots = synPickStopSpots(m, best.a0, 3);
+    if (!spots.length) return null;
+
+    const leadPath = synFindPath(best.c.x, best.c.y, spots[0].x, spots[0].y);
+    if (!leadPath) return null;
+    const j = Math.min(2, leadPath.length - 1);
+    let dx = leadPath[j].x - leadPath[0].x, dy = leadPath[j].y - leadPath[0].y;
+    const dl = Math.hypot(dx, dy) || 1;
+    dx /= dl; dy /= dl;                                                // lead's initial travel direction
+
+    const defs = [
+        { type: "Commuter, Sedan", color: "#0b0b0d" },                 // Victor's car
+        { type: "Ranger, SUV", color: "#0b0b0d" },                     // same black SUV as the opening
+        { type: "Ranger, SUV", color: "#15151a" }
+    ];
+    const plan = { cars: [], offR: offR };
+
+    for (let i = 0; i < spots.length && i < 3; i++) {
+        // followers queue up behind the lead on the same road
+        let spawn = null;
+        if (i === 0) {
+            spawn = { x: best.c.x, y: best.c.y };
+        } else {
+            for (const lat of [0, 14, -14]) {
+                const x = best.c.x - dx * 74 * i - dy * lat;
+                const y = best.c.y - dy * 74 * i + dx * lat;
+                if (synInMap(x, y, 50) && synRoadSpot(x, y)) { spawn = { x: x, y: y }; break; }
+            }
+        }
+        if (!spawn) continue;
+
+        const path = i === 0 ? leadPath : synFindPath(spawn.x, spawn.y, spots[i].x, spots[i].y);
+        if (!path) continue;
+
+        const k = Math.min(2, path.length - 1);
+        const ang = Math.atan2(path[k].y - path[0].y, path[k].x - path[0].x) + Math.PI / 2;
+        plan.cars.push({ def: defs[i], spawn: spawn, angle: ang, spot: spots[i], path: path, slot: i });
+    }
+
+    // the lead (Victor's car) is mandatory, at least two vehicles are wanted
+    if (!plan.cars.length || plan.cars[0].slot !== 0 || plan.cars.length < 2) return null;
+    return plan;
+}
+
+// ------------------------------------------------------------
+// Scripted vehicle driving (same A* waypoint following the opening taxi uses)
+// ------------------------------------------------------------
+function synAngleDiff(a, b) {
+    return Math.atan2(Math.sin(a - b), Math.cos(a - b));
+}
+
+function synSpawnPlan(m, plan) {
+    plan.cars.forEach(pc => {
+        const car = new Car(71001 + pc.slot, pc.spawn.x, pc.spawn.y, pc.def.color, false, pc.def.type);
+        car.angle = pc.angle;
+        car.speed = 0;
+        car.isParked = false;
+        car.hasDriver = true;
+        car.health = car.maxHealth;
+        // Syndicate identification (same ownerType idea as "taxiDepot" / "police")
+        car.ownerType = "syndicate";
+        car.isSyndicate = true;
+        car.team = "syndicate";
+        cars.push(car);
+
+        // finish exactly on the stop spot
+        const path = pc.path.slice();
+        if (path.length > 1 &&
+            Math.hypot(path[path.length - 1].x - pc.spot.x, path[path.length - 1].y - pc.spot.y) < 26) {
+            path.pop();
+        }
+        path.push({ x: pc.spot.x, y: pc.spot.y });
+
+        m.cars.push({
+            car: car,
+            slot: pc.slot,
+            state: "approach",          // approach -> parked -> depart -> gone
+            path: path,
+            idx: path.length > 1 ? 1 : 0,
+            spot: pc.spot,
+            home: pc.spawn,
+            origPath: pc.path.slice(),
+            wpFrames: 0, wpSeen: -1,
+            progX: car.x, progY: car.y, progT: 0,
+            reroutes: 0
+        });
+    });
+}
+
+function synSnapToPath(d) {
+    // last resort against a stuck car: continue from the next cell centre
+    // (always a walkable navigation cell).
+    if (d.idx < d.path.length - 1) d.idx++;
+    const w = d.path[d.idx];
+    d.car.x = w.x;
+    d.car.y = w.y;
+    d.progX = w.x; d.progY = w.y; d.progT = 0;
+}
+
+function synDrive(m, d, dt, departing) {
+    const car = d.car;
+    const path = d.path;
+    if (!path || !path.length) { d.state = departing ? "gone" : "parked"; return; }
+
+    // never chase one waypoint for more than ~4 s
+    if (d.wpSeen !== d.idx) { d.wpSeen = d.idx; d.wpFrames = 0; }
+    d.wpFrames += dt;
+    if (d.wpFrames > 240 && d.idx < path.length - 1) { d.idx++; d.wpFrames = 0; }
+
+    const wp = path[Math.min(d.idx, path.length - 1)];
+    const isLast = d.idx >= path.length - 1;
+    const dx = wp.x - car.x, dy = wp.y - car.y;
+    const dist = Math.hypot(dx, dy);
+
+    // reached a waypoint / the end of the route
+    if (dist < (isLast ? 9 : 42)) {
+        if (!isLast) { d.idx++; return; }
+        if (!departing) {
+            car.speed = 0;
+            d.state = "parked";
+            car.isParked = true;
+            if (typeof playSpatialSound === "function" && typeof carStopPool !== "undefined") {
+                playSpatialSound(carStopPool, car.x, car.y, 0.8);
+            }
+        }
+        return;
+    }
+
+    // steering toward the waypoint (tight pivot when it is behind the car)
+    const desired = Math.atan2(dy, dx) + Math.PI / 2;
+    const diff = synAngleDiff(desired, car.angle);
+    const sharp = Math.abs(diff) > 1.0;
+    const maxTurn = (sharp ? 0.14 : 0.075) * dt;
+    car.angle += Math.max(-maxTurn, Math.min(maxTurn, diff));
+
+    // target speed: cruise, brake into the stop spot, slow in sharp turns
+    let target = SYN_CRUISE_SPEED;
+    if (!departing && isLast) target = Math.max(0.5, SYN_CRUISE_SPEED * Math.min(1, dist / 90));
+    if (sharp) target = Math.min(target, 0.8);
+
+    // keep a gap to another Syndicate car directly ahead
+    const hx = Math.sin(car.angle), hy = -Math.cos(car.angle);
+    for (let i = 0; i < m.cars.length; i++) {
+        const o = m.cars[i];
+        if (o === d || o.state === "gone") continue;
+        const ox = o.car.x - car.x, oy = o.car.y - car.y;
+        const ahead = ox * hx + oy * hy;
+        const side = Math.abs(ox * -hy + oy * hx);
+        if (ahead > 0 && ahead < 52 && side < 20) {
+            target = ahead < 34 ? 0 : Math.min(target, Math.max(0, (o.car.speed || 0) * 0.9));
+        }
+    }
+
+    // accelerate gently, brake faster
+    car.speed += (target > car.speed ? 0.06 : -0.12) * dt;
+    if (Math.abs(target - car.speed) < 0.08) car.speed = target;
+    car.speed = Math.max(0, car.speed);
+
+    const nx = car.x + Math.sin(car.angle) * car.speed * dt;
+    const ny = car.y - Math.cos(car.angle) * car.speed * dt;
+    if (isPlayerCarWalkable(nx, ny, car)) {
+        car.x = nx;
+        car.y = ny;
+    } else {
+        car.speed = 0;                  // never drive through buildings
+        d.progT += dt * 2;              // counts toward the unstick logic
+    }
+
+    // stuck detection: almost no progress for ~1.5 s
+    d.progT += dt;
+    if (d.progT >= 90) {
+        const moved = Math.hypot(car.x - d.progX, car.y - d.progY);
+        d.progX = car.x; d.progY = car.y; d.progT = 0;
+        if (moved < 6 && target > 0) {
+            d.reroutes++;
+            const goal = departing ? d.home : d.spot;
+            const np = d.reroutes <= 2 ? synFindPath(car.x, car.y, goal.x, goal.y) : null;
+            if (np && np.length > 1) {
+                if (!departing) np.push({ x: d.spot.x, y: d.spot.y });
+                d.path = np;
+                d.idx = 1;
+            } else {
+                synSnapToPath(d);
+            }
+        }
+    }
+}
+
+function synEngineAudio(car) {
+    if (typeof engineHumUrl === "undefined") return;
+    const dist = Math.hypot(player.x - car.x, player.y - car.y);
+    const moving = car.speed > 0.15 && !car.isParked;
+    if (!moving || dist >= 400) {
+        if (car.humAudio) { try { car.humAudio.pause(); } catch (e) {} car.humAudio = null; }
+        return;
+    }
+    if (!car.humAudio) {
+        car.humAudio = new Audio(engineHumUrl);
+        car.humAudio.loop = true;
+        car.humAudio.play().catch(() => {});
+    }
+    car.humAudio.volume = Math.max(0, Math.min(1, 0.9 * (1 - dist / 400)));
+}
+
+// ------------------------------------------------------------
+// Dialogue (exact lines from the brief; long lines are split across
+// consecutive speech bubbles, wording unchanged)
+// ------------------------------------------------------------
+const SYN_DIALOGUE = {
+    paid: [
+        ["V", "Well, look at that. You actually managed to get the money."],
+        ["V", "I underestimated you."],
+        ["P", "Here's your money. Now we're done, right?"],
+        ["V", "Money isn't everything, kid. I need a man like you."],
+        ["P", "I'm not interested in working for you."],
+        ["V", "Listen. You can spend your life driving that taxi, making a few bucks every day... or you can make real money."],
+        ["P", "And what exactly do you want me to do?"],
+        ["V", "Nothing complicated. Just a few jobs. You'll be paid well."],
+        ["P", "..."],
+        ["V", "Think about it. You've already proven you can get things done."]
+    ],
+    short: [
+        ["V", "Where's my money?"],
+        ["P", "I... couldn't get all of it."],
+        ["V", "You had ten days."],
+        ["P", "I've been trying. Just give me some more time."],
+        ["V", "I'm getting tired of hearing excuses."],
+        ["P", "Please. I'll get it."],
+        ["V", "You want more time? Fine. But you're going to earn it."],
+        ["P", "What do you mean?"],
+        ["V", "I've got a job for you. A dangerous one. Complete it, and we'll consider your debt settled."],
+        ["P", "What kind of job?"],
+        ["V", "You'll find out."]
+    ]
+};
+
+// Split a line into bubble-sized chunks at clause boundaries.
+function synChunk(text, max) {
+    max = max || 50;
+    if (text.length <= max) return [text];
+    const clauses = text.match(/.*?(?:\.\.\.|[.!?,])(?:\s+|$)|.+$/g) || [text];
+    const out = [];
+    let cur = "";
+    clauses.forEach(c => {
+        c = c.trim();
+        if (!c) return;
+        if (!cur) cur = c;
+        else if ((cur + " " + c).length <= max) cur += " " + c;
+        else { out.push(cur); cur = c; }
+    });
+    if (cur) out.push(cur);
+    return out;
+}
+
+function synBuildLines(branch) {
+    const lines = [];
+    (SYN_DIALOGUE[branch] || SYN_DIALOGUE.short).forEach(l => {
+        synChunk(l[1]).forEach(chunk => {
+            lines.push({
+                who: l[0],
+                text: chunk,
+                dur: Math.max(1.5, Math.min(4.2, 1.0 + chunk.length * 0.045))
+            });
+        });
+    });
+    return lines;
+}
+
+// ------------------------------------------------------------
+// The visit
+// ------------------------------------------------------------
+function synHideActionButtons() {
+    ["jackBtn", "exitBtn", "punchBtn", "sirenBtn"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = "none";    // main.js re-evaluates them every normal frame
+    });
+}
+
+function synReleaseInput() {
+    if (typeof activeMoves !== "undefined" && activeMoves) {
+        Object.keys(activeMoves).forEach(k => { activeMoves[k] = false; });
+    }
+    if (typeof joystickInputX !== "undefined") joystickInputX = 0;
+    if (typeof joystickInputY !== "undefined") joystickInputY = 0;
+}
+
+// If the player is driving, he steps out through the existing exit-car code.
+function synPlayerStepOut() {
+    if (!playerCar) return;
+    try { playerCar.speed = 0; } catch (e) {}
+
+    const eb = document.getElementById("exitBtn");
+    if (eb) {
+        try { eb.dispatchEvent(new Event("pointerdown", { cancelable: true })); } catch (e) {}
+    }
+    if (playerCar) {                       // fallback if the handler was unavailable
+        const pc = playerCar;
+        const side = pc.angle - Math.PI / 2;
+        player.x = pc.x + Math.cos(side) * 35;
+        player.y = pc.y + Math.sin(side) * 35;
+        pc.isParked = true;
+        pc.hasDriver = false;
+        pc.recentlyJackedTimer = 90;
+        if (pc.humAudio) { try { pc.humAudio.pause(); } catch (e) {} pc.humAudio = null; }
+        playerCar = null;
+    }
+    if (eb) eb.style.display = "none";
+}
+
+function syndicateBeginMeeting() {
+    const s = synLoad();
+
+    // exactly once
+    if (syndicateMeetingActive || syndicateMeeting || s.arrivalInProgress || s.meetingCompleted) return false;
+
+    const m = {
+        t: 0,
+        phase: "approach",
+        nextId: 1000,
+        cars: [],
+        actors: [],
+        C: { x: player.x + player.size / 2, y: player.y + player.size / 2 },   // snapshot of the player's position
+        offR: 900,
+        approachT: 0,
+        settle: 0,
+        exitT: 0,
+        lines: [],
+        lineIdx: 0,
+        lineWait: 0,
+        afterT: 0,
+        leaveT: 0,
+        departT: 0,
+        goneWait: 0,
+        zoomBefore: (typeof window.sbCutsceneZoom === "number") ? window.sbCutsceneZoom : null
+    };
+
+    // Plan first: if no valid route exists the meeting simply stays pending.
+    const plan = synPlanArrival(m);
+    if (!plan) {
+        synRt.planFail++;
+        synRt.retry = 300;                  // try again in ~5 s, from the player's new position
+        console.warn("[Syndicate] no valid approach found (attempt " + synRt.planFail + ")");
+        return false;
+    }
+    synRt.planFail = 0;
+
+    // ---- commit: from here on the countdown / Mickey are gone for good ----
+    s.arrivalInProgress = true;
+    s.debtHudHidden = true;
+    s.mickeyAvailable = false;
+    if (!s.branch) s.branch = player.money >= SYN_MONEY_NEEDED ? "paid" : "short";
+    synSave();
+    m.branch = s.branch;
+
+    synCancelMickeyCall();
+    if (typeof cancelAmbulanceCall === "function") cancelAmbulanceCall();   // reset call screen to home
+    synPhoneRefresh();
+
+    syndicateMeeting = m;
+    syndicateMeetingActive = true;
+    gameActive = false;
+
+    playerPhoneOpen = false;
+    if (typeof closePlayerPhone === "function") closePlayerPhone();
+    synReleaseInput();
+    synHideActionButtons();
+    synPlayerStepOut();
+    player.speed = 0;
+    player.speechText = null;
+    player.speechTimer = 0;
+    m.C.x = player.x + player.size / 2;
+    m.C.y = player.y + player.size / 2;
+
+    window.sbCutsceneZoom = 1.0;           // smooth camera (existing zoom easing)
+
+    synSpawnPlan(m, plan);
+    return true;
+}
+
+function synDoorPoint(car, toward) {
+    const h = car.angle - Math.PI / 2;
+    const sx = -Math.sin(h), sy = Math.cos(h);           // perpendicular to the heading
+    const off = (car.width || 18) / 2 + 12;
+    const p1 = { x: car.x + sx * off, y: car.y + sy * off };
+    const p2 = { x: car.x - sx * off, y: car.y - sy * off };
+    const d1 = Math.hypot(p1.x - toward.x, p1.y - toward.y);
+    const d2 = Math.hypot(p2.x - toward.x, p2.y - toward.y);
+    return d1 <= d2 ? p1 : p2;
+}
+
+function synStandSpot(m, ang, r0, taken) {
+    for (let r = r0; r >= 30; r -= 6) {
+        for (const da of [0, 0.25, -0.25, 0.5, -0.5]) {
+            const a = ang + da;
+            const x = m.C.x + Math.cos(a) * r, y = m.C.y + Math.sin(a) * r;
+            if (!isWalkableColor(x, y, 16)) continue;
+            if (taken.some(t => Math.hypot(t.x - x, t.y - y) < 26)) continue;
+            return { x: x, y: y };
+        }
+    }
+    return { x: m.C.x + Math.cos(ang) * 40, y: m.C.y + Math.sin(ang) * 40 };
+}
+
+function synStartExit(m) {
+    const lead = m.cars.find(d => d.slot === 0) || m.cars[0];
+    const aV = Math.atan2(lead.car.y - m.C.y, lead.car.x - m.C.x);
+
+    const looks = [
+        ["#1b1b1f", "#1d1d1d", "#e0ac69"],
+        ["#2c2c34", "#2d3436", "#c68642"],
+        ["#3a1f1f", "#4a3728", "#8d5524"]
+    ];
+    const taken = [];
+
+    // Victor: the same boss appearance as the opening scene
+    const vs = synStandSpot(m, aV, 56, taken);
+    taken.push(vs);
+    const victor = storyNpc(m, lead.car.x, lead.car.y, "#17191f", "#aeb4bd", "#d7a078", 0);
+    victor.isStoryBoss = true;
+    victor.cutsceneArmed = false;
+    victor.isSyndicate = true;
+    victor.carRef = lead;
+    victor.stand = vs;
+    m.victor = victor;
+    m.actors.push(victor);
+
+    // goons: one from the lead car, then one per escort vehicle
+    const goonCars = [lead].concat(m.cars.filter(d => d !== lead));
+    const goonAngles = [0.95, -0.95, 1.7];
+    goonCars.forEach((d, i) => {
+        const gs = synStandSpot(m, aV + goonAngles[i], 66, taken);
+        taken.push(gs);
+        const lk = looks[i % looks.length];
+        const g = storyNpc(m, d.car.x, d.car.y, lk[0], lk[1], lk[2], 0);
+        g.isSyndicate = true;
+        g.carRef = d;
+        g.stand = gs;
+        m.actors.push(g);
+    });
+
+    // step out on the side facing the player and walk to the conversation spots
+    m.actors.forEach((n, i) => {
+        const door = synDoorPoint(n.carRef.car, m.C);
+        n.x = door.x;
+        n.y = door.y;
+        storyFace(n, n.stand.x, n.stand.y);
+        n.boardPoint = door;
+        const delay = i * 0.0;      // all step out together (walk speeds differ slightly)
+        storyWalk(n, [[n.stand.x, n.stand.y]], 1.45 + delay + (i % 3) * 0.05);
+    });
+
+    window.sbCutsceneZoom = 1.3;
+    m.phase = "exit";
+    m.exitT = 0;
+}
+
+function synFacePlayer(n, m) {
+    n.angle = Math.atan2(m.C.y - n.y, m.C.x - n.x) + Math.PI / 2;
+}
+
+function synPlayerFace(m, who) {
+    player.angle = Math.atan2(who.y - m.C.y, who.x - m.C.x) + Math.PI / 2;
+}
+
+function synStartLeave(m) {
+    m.phase = "leave";
+    m.leaveT = 0;
+    m.actors.forEach(n => {
+        n.aimHold = false;
+        const door = synDoorPoint(n.carRef.car, n);       // side the actor is standing on
+        storyWalk(n, [[door.x, door.y]], 1.7, () => {
+            storyRemoveNpc(n);
+            n.boarded = true;
+        });
+    });
+    window.sbCutsceneZoom = 1.15;
+}
+
+function synStartDepart(m) {
+    m.phase = "depart";
+    m.departT = 0;
+    m.cars.forEach((d, i) => {
+        const car = d.car;
+        d.state = "depart";
+        d.startDelay = i * 0.6;                           // lead leaves first
+        let path = synFindPath(car.x, car.y, d.home.x, d.home.y);
+        if (!path) path = d.origPath.slice().reverse();   // the way it came is known to exist
+        d.path = path;
+        d.idx = path.length > 1 ? 1 : 0;
+        d.reroutes = 0;
+        d.wpFrames = 0; d.wpSeen = -1;
+        d.progX = car.x; d.progY = car.y; d.progT = 0;
+        car.isParked = false;
+        if (typeof playSpatialSound === "function" && typeof carStartPool !== "undefined") {
+            playSpatialSound(carStartPool, car.x, car.y, 0.8);
+        }
+    });
+    window.sbCutsceneZoom = 1.0;
+}
+
+function synRemoveCar(d) {
+    const car = d.car;
+    if (car.humAudio) { try { car.humAudio.pause(); } catch (e) {} car.humAudio = null; }
+    const i = cars.indexOf(car);
+    if (i >= 0) cars.splice(i, 1);
+    d.state = "gone";
+}
+
+function updateSyndicateMeeting(dt) {
+    const m = syndicateMeeting;
+    if (!m || !syndicateMeetingActive) { syndicateMeetingActive = false; return; }
+
+    try {
+        // The world stays frozen: a map / controls panel can never hand control back mid-scene.
+        gameActive = false;
+        if (showFullMap || fullMapAnimating) {
+            showFullMap = false;
+            fullMapAnimating = false;
+            fullMapAnimationProgress = 0;
+        }
+        playerPhoneOpen = false;
+
+        const sec = dt / 60;
+        m.t += sec;
+        player.speed = 0;
+        player.updateSpeech(dt);
+        storyUpdateNpcs(dt);                                   // speech timers + scripted walking
+        if (typeof taxiManager !== "undefined" && taxiManager.updateMessage) taxiManager.updateMessage(dt);
+        if (typeof updateTyreMarks === "function") updateTyreMarks(dt);
+
+        if (m.phase === "approach") {
+            m.approachT += sec;
+            let allParked = true;
+            m.cars.forEach(d => {
+                if (d.state === "approach") synDrive(m, d, dt, false);
+                if (d.state !== "parked") allParked = false;
+            });
+
+            // safety nets: a car that is still on its way after 45 s and already
+            // close is parked where it is; after 80 s the visit is abandoned.
+            if (m.approachT > 45 && !allParked) {
+                m.cars.forEach(d => {
+                    if (d.state === "approach" &&
+                        Math.hypot(d.car.x - d.spot.x, d.car.y - d.spot.y) < 240) {
+                        d.car.x = d.spot.x; d.car.y = d.spot.y; d.car.speed = 0;
+                        d.car.isParked = true; d.state = "parked";
+                    }
+                });
+            }
+            if (m.approachT > 80) throw new Error("approach timed out");
+
+            if (allParked) {
+                m.settle += sec;
+                if (m.settle > 0.6) synStartExit(m);
+            }
+        } else if (m.phase === "exit") {
+            m.exitT += sec;
+            const walking = m.actors.some(n => n.path && n.path.length);
+            if (!walking || m.exitT > 9) {
+                m.actors.forEach(n => { n.path = null; synFacePlayer(n, m); });
+                synPlayerFace(m, m.victor);
+                m.lines = synBuildLines(m.branch);
+                m.lineIdx = 0;
+                m.lineWait = 0.8;
+                m.phase = "dialogue";
+            }
+        } else if (m.phase === "dialogue") {
+            m.lineWait -= sec;
+            if (m.lineWait <= 0) {
+                if (m.lineIdx >= m.lines.length) {
+                    m.phase = "afterDialogue";
+                    m.afterT = (m.branch === "paid") ? 1.8 : 1.0;   // a beat before they leave
+                } else {
+                    const L = m.lines[m.lineIdx++];
+                    const speaker = L.who === "V" ? m.victor : player;
+                    if (L.who === "V") { synFacePlayer(m.victor, m); synPlayerFace(m, m.victor); }
+                    storySay(speaker, L.text, L.dur);
+                    m.lineWait = L.dur + 0.25;
+                }
+            }
+        } else if (m.phase === "afterDialogue") {
+            m.afterT -= sec;
+            if (m.afterT <= 0) synStartLeave(m);
+        } else if (m.phase === "leave") {
+            m.leaveT += sec;
+            const all = m.actors.every(n => n.boarded);
+            if (all || m.leaveT > 10) {
+                m.actors.forEach(n => { storyRemoveNpc(n); n.boarded = true; });
+                synStartDepart(m);
+            }
+        } else if (m.phase === "depart") {
+            m.departT += sec;
+            let remaining = 0;
+            m.cars.forEach(d => {
+                if (d.state === "gone") return;
+                if (d.startDelay > 0) { d.startDelay -= sec; remaining++; return; }
+                synDrive(m, d, dt, true);
+                const far = Math.hypot(d.car.x - m.C.x, d.car.y - m.C.y) > m.offR;
+                const arrivedHome = d.idx >= d.path.length - 1 &&
+                    Math.hypot(d.car.x - d.path[d.path.length - 1].x, d.car.y - d.path[d.path.length - 1].y) < 12;
+                if (far || arrivedHome || m.departT > 90) synRemoveCar(d);
+                else remaining++;
+            });
+            if (!remaining) {
+                m.goneWait += sec;
+                if (m.goneWait > 0.5) { synFinishMeeting(m, true); return; }
+            }
+        }
+
+        m.cars.forEach(d => { if (d.state !== "gone") synEngineAudio(d.car); });
+    } catch (err) {
+        console.error("[Syndicate] scene aborted:", err);
+        synAbortMeeting(m);
+    }
+}
+
+function synCleanupScene(m) {
+    m.actors.forEach(n => storyRemoveNpc(n));
+    m.cars.forEach(d => { if (d.state !== "gone") synRemoveCar(d); });
+    m.actors.length = 0;
+
+    if (m.zoomBefore !== null) window.sbCutsceneZoom = m.zoomBefore;
+    else delete window.sbCutsceneZoom;
+
+    player.speechText = null;
+    player.speechTimer = 0;
+    player.speed = 0;
+    synReleaseInput();
+
+    syndicateMeeting = null;
+    syndicateMeetingActive = false;
+    gameActive = true;                    // camera follow / zoom, controls, AI, physics resume
+    synPhoneRefresh();
+}
+
+function synFinishMeeting(m, withMessage) {
+    const s = synLoad();
+    const branch = m.branch || s.branch;
+
+    synCleanupScene(m);
+
+    s.meetingCompleted = true;
+    s.arrivalInProgress = false;
+    s.meetingScheduled = true;
+    s.mickeyAvailable = false;
+    s.debtHudHidden = true;
+    s.branch = branch;
+    if (branch === "paid") {
+        s.recruitmentAccepted = true;      // the player takes the Syndicate's offer
+        s.dangerousMissionPending = false;
+    } else {
+        s.recruitmentAccepted = false;
+        s.dangerousMissionPending = true;  // next chapter: the dangerous job (not implemented here)
+    }
+    synSave();
+
+    if (withMessage && typeof taxiManager !== "undefined" && taxiManager) {
+        taxiManager.setMessage(
+            branch === "paid" ? "You accepted the Syndicate's offer." : "Your debt is still unpaid.", 240);
+    }
+}
+
+// Scene failed: restore the game, stay pending, and give up gracefully after
+// repeated failures so the player can never be soft-locked.
+function synAbortMeeting(m) {
+    const s = synLoad();
+    synCleanupScene(m);
+    s.attempts++;
+    if (s.attempts >= SYN_MAX_ATTEMPTS) {
+        console.warn("[Syndicate] scene failed repeatedly; resolving the meeting without it.");
+        synFinishMeeting(m, true);
+        return;
+    }
+    s.arrivalInProgress = false;
+    s.meetingScheduled = true;
+    synSave();
+    synRt.arrivalDelay = 0;
+    synRt.retry = 600;                     // try again in ~10 s
+    synRt.stable = 0;
+}
+
+// ------------------------------------------------------------
+// Test helpers (console): StreetBoundSyndicate.status() etc.
+// ------------------------------------------------------------
+window.StreetBoundSyndicate = {
+    status: function () {
+        const s = synLoad();
+        return Object.assign({}, s, {
+            elapsedDays: s.debtStarted ? +synElapsedDays(s).toFixed(3) : null,
+            remainingDays: s.debtStarted ? synDebtRemainingDays(s) : null,
+            meetingActive: syndicateMeetingActive,
+            phase: syndicateMeeting ? syndicateMeeting.phase : null
+        });
+    },
+    // Fast-forward the debt clock by whole in-game days (testing only).
+    advanceDays: function (n) {
+        const s = synLoad();
+        s.dayCount += Math.max(0, Math.floor(n || 0));
+        synSave();
+        return this.status();
+    },
+    scheduleNow: function () {
+        const s = synLoad();
+        if (!s.meetingCompleted && !s.meetingScheduled) {
+            s.meetingScheduled = true;
+            s.scheduledBy = "call";
+            synRt.arrivalDelay = 0;
+            synSave();
+        }
+        return this.status();
+    },
+    reset: function () {
+        try { localStorage.removeItem(STORY_SYN_KEY); } catch (e) {}
+        storySyn = null;
+        return "Syndicate chapter state cleared; reload the page.";
+    }
+};

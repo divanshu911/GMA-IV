@@ -1,4 +1,4 @@
-console.log("streetbound-main12");
+console.log("streetbound-main13-syndicate");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
@@ -2341,11 +2341,20 @@ function updateGame(dt) {
         return;
     }
 
+    // Syndicate visit (storyline.js): scripted scene runs while the world is frozen.
+    if (typeof syndicateMeetingActive !== 'undefined' && syndicateMeetingActive) {
+        if (typeof updateSyndicateMeeting === 'function') updateSyndicateMeeting(dt);
+        return;
+    }
+
     if (typeof gameActive !== 'undefined' && !gameActive) return;
 
     if (typeof updateDayNight === 'function') {
         updateDayNight(dt);
     }
+
+    // Debt countdown, Mickey contact, reminders, meeting scheduling (storyline.js).
+    if (typeof updateSyndicateStory === 'function') updateSyndicateStory(dt);
 
     if (
         typeof raceEventManager !== "undefined" &&
@@ -4034,6 +4043,7 @@ ctx.textAlign = "left";
       navigationManager.draw(ctx);
   }
   if (typeof drawClock === 'function') drawClock();
+  if (typeof drawSyndicateDebtHUD === 'function') drawSyndicateDebtHUD(ctx);
 
 if (player && player.wanted) {
     ctx.save();
