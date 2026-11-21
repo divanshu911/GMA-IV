@@ -1,4 +1,4 @@
-console.log("11am");
+console.log("streetbound-entities-police-briefing");
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -204,11 +204,22 @@ class Pedestrian {
     // 1. Draw Arms (Hands)
     ctx.fillStyle = this.skinColor;
 
+    // Optional scripted hand pose (police briefing officials). Positions are in
+    // units of this.size; when unset the normal walking arms are used.
+    const handPose = this.briefingPose;
+
     // Left arm
+    let leftArmX = -this.size * 0.42;
+    let leftArmY = -this.size * 0.1 + swingOffset;
+    if (handPose && handPose.l) {
+      leftArmX = handPose.l.x * this.size;
+      leftArmY = handPose.l.y * this.size;
+    }
+
     ctx.beginPath();
     ctx.arc(
-      -this.size * 0.42,
-      -this.size * 0.1 + swingOffset,
+      leftArmX,
+      leftArmY,
       this.size * 0.12,
       0,
       Math.PI * 2
@@ -240,6 +251,11 @@ class Pedestrian {
       rightArmY = -this.size * 0.1 - swingOffset;
     }
 
+    if (handPose && handPose.r) {
+      rightArmX = handPose.r.x * this.size;
+      rightArmY = handPose.r.y * this.size;
+    }
+
     ctx.beginPath();
     ctx.arc(
       rightArmX,
@@ -255,6 +271,56 @@ class Pedestrian {
     ctx.beginPath();
     ctx.ellipse(0, 0, this.size * 0.38, this.size * 0.22, 0, 0, Math.PI * 2);
     ctx.fill();
+    // Formal wear (police briefing officials): jacket piping, white shirt
+    // collar behind the neck, lapels and a pocket square in an accent colour.
+    if (this.formalWear) {
+      const s = this.size;
+
+      ctx.save();
+
+      // Jacket piping
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.30)";
+      ctx.lineWidth = Math.max(1, s * 0.03);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, s * 0.38, s * 0.22, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Lapels
+      ctx.fillStyle = "rgba(0, 0, 0, 0.32)";
+      ctx.beginPath();
+      ctx.moveTo(-s * 0.30, -s * 0.02);
+      ctx.lineTo(-s * 0.14, s * 0.04);
+      ctx.lineTo(-s * 0.22, s * 0.18);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(s * 0.30, -s * 0.02);
+      ctx.lineTo(s * 0.14, s * 0.04);
+      ctx.lineTo(s * 0.22, s * 0.18);
+      ctx.closePath();
+      ctx.fill();
+
+      // White shirt collar visible behind the neck
+      ctx.strokeStyle = "#f2f2ef";
+      ctx.lineWidth = Math.max(1.5, s * 0.06);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.arc(0, 0, s * 0.265, Math.PI * 0.12, Math.PI * 0.88);
+      ctx.stroke();
+
+      // Pocket square
+      ctx.fillStyle = this.formalWear.accent || "#d6ad55";
+      ctx.beginPath();
+      ctx.moveTo(s * 0.20, -s * 0.07);
+      ctx.lineTo(s * 0.29, -s * 0.10);
+      ctx.lineTo(s * 0.30, -s * 0.02);
+      ctx.lineTo(s * 0.21, -s * 0.01);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.restore();
+    }
+
         // Mafia boss: tailored suit, burgundy shirt and gold details
 if (this.isStoryBoss) {
     const s = this.size;
@@ -305,7 +371,13 @@ if (this.isStoryBoss) {
     ctx.restore();
 }
 
-    // 3. Draw Head
+    // 3. Draw Head (optional scripted head turn: only the nose moves, since
+    // the head is a circle; the torso keeps its own heading)
+    const headTurn = this.briefingHeadTurn || 0;
+    if (headTurn) {
+      ctx.save();
+      ctx.rotate(headTurn);
+    }
     ctx.fillStyle = this.hairColor;
     ctx.beginPath();
     ctx.arc(0, 0, this.size * 0.22, 0, Math.PI * 2);
@@ -316,6 +388,7 @@ if (this.isStoryBoss) {
     ctx.beginPath();
     ctx.arc(0, -this.size * 0.22, this.size * 0.08, 0, Math.PI * 2);
     ctx.fill();
+    if (headTurn) ctx.restore();
 
     // 5. Daytime shadow lighting: darken exactly the shapes drawn above.
     // The Player is anchored at (x + size/2, y + size/2); NPCs and drivers at (x, y).
@@ -329,8 +402,8 @@ if (this.isStoryBoss) {
         ctx.beginPath();
         // one path, all circles/ellipses clockwise -> non-zero fill = union,
         // so overlapping parts (torso/head/arms) are darkened only once
-        ctx.moveTo(-s * 0.42 + s * 0.12, -s * 0.1 + swingOffset);
-        ctx.arc(-s * 0.42, -s * 0.1 + swingOffset, s * 0.12, 0, TAU);
+        ctx.moveTo(leftArmX + s * 0.12, leftArmY);
+        ctx.arc(leftArmX, leftArmY, s * 0.12, 0, TAU);
         ctx.moveTo(rightArmX + s * 0.12, rightArmY);
         ctx.arc(rightArmX, rightArmY, s * 0.12, 0, TAU);
         ctx.moveTo(s * 0.38, 0);
@@ -1723,6 +1796,11 @@ if (this.isInjured) {
 
     ctx.rotate(this.angle);
 
+    // Scripted lean (police briefing): moves the whole upper body forward.
+    if (this.briefingLean) {
+      ctx.translate(0, -this.briefingLean * this.size);
+    }
+
    let swingOffset =
     Math.sin(this.walkTimer) *
     (this.size * 0.18);
@@ -1799,7 +1877,9 @@ if (isFiring) {
 
     // During the opening cutscene the bubble is drawn once, upright, in
     // the top layer (drawOpeningCutsceneSpeech) so nothing covers it.
-    if (!(typeof openingCutsceneActive !== "undefined" && openingCutsceneActive)) {
+    // (topLayerSpeech: the police briefing draws its own bubbles in the top layer.)
+    if (!this.topLayerSpeech &&
+        !(typeof openingCutsceneActive !== "undefined" && openingCutsceneActive)) {
         this.drawSpeechBubble(ctx);
     }
 ctx.restore();

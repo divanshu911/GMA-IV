@@ -2997,1197 +2997,1018 @@ window.StreetBoundSyndicate = {
     }
 };
 
+
 // ============================================================
-// POLICE INTELLIGENCE BRIEFING  (plays BEFORE the opening SUV cutscene)
+// CHAPTER 0 - POLICE INTELLIGENCE BRIEFING
 // ------------------------------------------------------------
-// A self-contained, indoor cutscene: its own tiny canvas scene, its own
-// camera, dialogue box and keypad overlay. It never touches the world,
-// NPC AI, player physics, the debt system or any localStorage key.
+// Plays immediately BEFORE the existing opening cutscene and then calls
+// startOpeningCutscene() itself (the cutscene is not touched).
 //
-// Public interface (the only things the rest of the game calls):
-//   startPoliceBriefing(onDone) - important.js, on a fresh game. onDone is
-//                                 startOpeningCutscene (the existing cutscene).
-//   updatePoliceBriefing(dt)    - main.js, top of updateGame
-//   drawPoliceBriefing(ctx)     - main.js, start of drawGame
-//   briefingActive              - read-only flag
+// This is NOT a second game: it reuses
+//   * NPC (entities.js)           the five officials are real NPC instances, drawn
+//                                 with NPC.draw / drawBaseBody; speech uses
+//                                 say() + drawSpeechBubble()
+//   * drawGame (main.js)          the room, officials, briefcase and bubbles are
+//                                 drawn INSIDE the normal camera transform; the
+//                                 only additions are small hooks that call the
+//                                 draw functions below
+//   * the existing camera         window.sbCutsceneCamFocus / sbCutsceneZoom
+//                                 (smoothed by sbUpdateCameraFeedback), the same
+//                                 mechanism the introduction cards use
+//   * isInsideHouse               the existing "indoors" flag: it already switches
+//                                 off every outdoor layer (night, river, boards)
+//   * important.js input          policeBriefingKey / policeBriefingPointer are
+//                                 called from the EXISTING keydown / pointerdown
+//                                 listeners; no listener is added here
 //
-// Everything temporary (key listeners, DOM, <style>, offscreen canvas,
-// tweens) is released by brfTeardown(). The scene is frame-driven, so no
-// setTimeout chains can outlive it.
+// The officials never enter npcs[], so no ordinary NPC AI can touch them and
+// nothing has to be removed from the normal world afterwards. The world arrays,
+// the player and every saved value are left exactly as they were.
 // ============================================================
 
-let briefingActive = false;
-let briefing = null;
+const PB_PASSWORD = "05071947";                        // kept as a string: leading zero
+const PB_NOTE_TEXT = "I was born on 5 july in the year india gained independence: don't forget dd-mm-yyyy";
+const PB_MAX_DIGITS = 8;
+const PB_ROOM = { w: 720, h: 440 };
+const PB_TABLE = { x: 200, y: 190, w: 320, h: 120 };   // centre (360, 250)
+const PB_SIZE = 32;                                    // NPC size used for the officials
+const PB_CASE_W = 52;
+const PB_CASE_H = 36;
 
-const BRF_PASSWORD = ["05", "07", "1947"].join("");   // never shown anywhere
-const BRF_HINT = "I was born on 5 july in the year india gained independence: don't forget dd-mm-yyyy";
-const BRF_PW_LEN = 8;
-const BRF_W = 640, BRF_H = 360;        // room design space (= logical viewport)
-const BRF_ROOM_M = 120, BRF_ROOM_RS = 1.5;
-const BRF_CASE_LEN = 8.6;              // seconds of the briefcase presentation
-const BRF_TABLE = { fl: 206, fr: 434, fy: 158, nl: 180, nr: 460, ny: 232 };
-const BRF_EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
-
-function brfClamp(v, a, b) { return v < a ? a : v > b ? b : v; }
-function brfLerp(a, b, t) { return a + (b - a) * t; }
-function brfEase(u) { u = brfClamp(u, 0, 1); return u * u * (3 - 2 * u); }
-function brfRR(c, x, y, w, h, r) {
-    c.beginPath();
-    if (c.roundRect) c.roundRect(x, y, w, h, r); else c.rect(x, y, w, h);
-}
-function brfEllipse(c, x, y, rx, ry, fill) {
-    c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
-    if (fill) { c.fillStyle = fill; c.fill(); }
-}
-// Point on the table's top surface. u: left->right, v: far->near.
-function brfTP(u, v) {
-    const T = BRF_TABLE;
-    const y = T.fy + (T.ny - T.fy) * v;
-    const xl = T.fl + (T.nl - T.fl) * v, xr = T.fr + (T.nr - T.fr) * v;
-    return { x: xl + (xr - xl) * u, y: y, s: 0.9 + 0.2 * v };
-}
-
-// ---------------- dialogue (exact text) ----------------
-const BRF_LINES = {
-    l1: [1, "Three months. Victor's Syndicate is still growing."],
-    l2: [2, "We've arrested twelve of his men. It changes nothing."],
-    l3: [3, "Because you keep catching his soldiers, not their commander."],
-    l4: [2, "And what's your brilliant plan?"],
-    l5: [3, "Maybe stop letting Victor know about our raids before we do."],
-    l6: [4, "Enough. His network controls weapons, stolen cars and black-market operations. He's practically running a second government."],
-    l7: [5, "Then perhaps this will help. We recovered a briefcase from one of his couriers."],
-    l8: [1, "Open it. Now."],
-    r1: [2, "You've got to be kidding me."],
-    r2: [3, "Three months of work... for a laughing face."],
-    r3: [4, "He's laughing at us."],
-    r4: [2, "I'M GOING TO\u2014"],
-    r5: [1, "SILENCE!"],
-    r6: [1, "Victor thinks this is a joke. Let's see how he laughs when we come knocking."]
-};
-
-// ---------------- officials ----------------
-const BRF_DEFS = [
-    { id: 1, kind: "far", x: 320, suit: "#2d313c", suitD: "#1b1e26", shirt: "#f2f2f2", tie: "#a3202b", hair: "#9c9c9c", hairStyle: "parted", skin: "#e0b08a", style: 0.6 },
-    { id: 2, kind: "far", x: 232, suit: "#20375a", suitD: "#14243d", shirt: "#fafafa", tie: "#c9a227", hair: "#2a1c14", hairStyle: "short", skin: "#d6a074", style: 1.0, mustache: true },
-    { id: 3, kind: "far", x: 408, suit: "#65503b", suitD: "#46372a", shirt: "#eee5d0", tie: "#2f5d4a", hair: "#4a3020", hairStyle: "slick", skin: "#efc79e", style: 0.7 },
-    { id: 4, kind: "end", x: 146, y: 206, dir: 1, suit: "#17181c", suitD: "#0c0d10", shirt: "#b9d3ea", tie: "#2a2a30", hair: "#1b1b1b", hairStyle: "bald", skin: "#c38a60", style: 0.5, glasses: true },
-    { id: 5, kind: "end", x: 494, y: 206, dir: -1, suit: "#552636", suitD: "#3a1a26", shirt: "#ececec", tie: "#3c3c44", hair: "#6b4a2e", hairStyle: "short", skin: "#e8bd98", style: 0.6 }
+// Seats around the table. face = NPC.angle that looks at the table.
+const PB_SEATS = [
+    { x: 185, y: 250, face: Math.PI / 2 },   // 1  head of the table (west end)
+    { x: 290, y: 175, face: Math.PI },       // 2  north side
+    { x: 290, y: 325, face: 0 },             // 3  south side, opposite 2
+    { x: 430, y: 175, face: Math.PI },       // 4  north side
+    { x: 430, y: 325, face: 0 }              // 5  south side
 ];
 
-function brfMakeOfficial(d) {
-    const z = () => ({ gestR: 0, gestL: 0, shrug: 0, facepalm: 0, point: 0, present: 0, stand: 0, lean: 0, brow: 0, mood: 0, tilt: 0 });
-    return Object.assign({
-        t: Math.random() * 10, lx: 0, ly: 0, ltx: 0, lty: 0, lookT: 0.4 + Math.random() * 2,
-        blink: 0, blinkT: 2 + Math.random() * 3, mouthS: 0, ch: z(), tg: z(),
-        pointDir: 1, slamT: 0, slamHit: false, skinD: "rgba(0,0,0,0.12)"
-    }, d);
-}
-
-function brfHeadPos(o) {
-    if (o.kind === "far") {
-        return { x: o.x, y: 128 - o.ch.stand * 26 + o.ch.lean * 7 - 20 };
-    }
-    return { x: o.x + o.dir * o.ch.lean * 7, y: o.y - 26 + o.ch.lean * 2 };
-}
-
-// ---------------- tweens / steps ----------------
-function brfTween(b, key, to, dur) {
-    b.tw = b.tw.filter(t => t.k !== key);
-    const tw = { k: key, a: b.v[key], to: to, t: 0, dur: Math.max(0.001, dur), done: false };
-    b.tw.push(tw);
-    return tw;
-}
-
-const BRF_S = {
-    do: fn => ({ start: fn }),
-    wait: s => ({ done: (b, st) => st.t >= s }),
-    tw: (key, to, dur, nb) => ({
-        start: (b, st) => { st.tw = brfTween(b, key, to, dur); },
-        done: (b, st) => !!nb || st.tw.done
-    }),
-    until: fn => ({ done: b => fn(b) }),
-    say: (key, ex) => ({
-        start: b => brfBeginLine(b, BRF_LINES[key][0], BRF_LINES[key][1], ex || {}),
-        done: b => b.line.t >= b.line.dur + (b.line.gap),
-        end: b => brfEndLine(b)
-    })
-};
-
-function brfFollow(b, id, z, dy) {
-    b.follow = { id: id, z: z, dy: dy === undefined ? 50 : dy };
-    b.camT.z = z; b.camT.rate = 1.7;
-}
-function brfShot(b, x, y, z, rate) {
-    b.follow = null;
-    b.camT.x = x; b.camT.y = y; b.camT.z = z; b.camT.rate = rate || 1.3;
-}
-function brfAct(o, props) { Object.assign(o.tg, props); }
-function brfRelax(b) {          // everybody back to a calm seated pose
-    for (const id in b.off) {
-        const o = b.off[id];
-        Object.keys(o.tg).forEach(k => { if (k !== "stand") o.tg[k] = 0; });
-    }
-}
-function brfSlam(b, o) { o.slamT = 0.001; o.slamHit = false; }
-
-function brfBuildSteps(b) {
-    const O = b.off, S = BRF_S;
-    const tableShot = (z, rate) => S.do(b => brfShot(b, 320, 178, z, rate));
-    const talk = (key, id, z, setup, ex) => [
-        S.do(b => { brfFollow(b, id, z); if (setup) setup(b); }),
-        S.say(key, ex)
-    ];
-    const steps = [].concat(
-        // ---- 1-2. black screen + intro text, fade into the room ----
-        [S.do(b => { b.v.black = 1; b.v.intro = 0; brfShot(b, 320, 180, 1.0, 1); b.cam.x = 320; b.cam.y = 180; b.cam.z = 1.0; }),
-        S.wait(0.6),
-        S.tw("intro", 1, 1.4),
-        S.wait(1.6),
-        S.tw("intro", 0, 1.1),
-        S.wait(0.5),
-        S.do(b => { brfTween(b, "black", 0, 1.8); brfTween(b, "bars", 1, 2.0); }),
-        S.wait(2.2),
-        tableShot(1.25, 0.55),          // gradual push towards the table
-        S.wait(1.4)],
-
-        // ---- 5. dialogue, first half ----
-        talk("l1", 1, 1.5, null),
-        talk("l2", 2, 1.5, () => { brfAct(O[2], { lean: 0.3, brow: -0.6, mood: -0.5 }); }),
-        talk("l3", 3, 1.5, () => { brfAct(O[3], { lean: 0.2, mood: 0.6, brow: 0.3 }); brfAct(O[2], { brow: -1, mood: -0.8 }); }),
-        talk("l4", 2, 1.55, () => { brfAct(O[2], { lean: 0.7, point: 1, brow: -1, mood: -0.9 }); O[2].pointDir = 1; brfAct(O[3], { lean: 0.2 }); b.sway = 1; }),
-        talk("l5", 3, 1.55, () => { brfAct(O[2], { point: 0 }); brfAct(O[3], { lean: 0.9, mood: 1, brow: 0.6, tilt: 0.08, shrug: 0.5 }); }),
-        talk("l6", 4, 1.6, () => { brfRelax(b); b.sway = 0.4; brfAct(O[4], { brow: -0.4, mood: -0.4, gestR: 1 }); }),
-        // 5 presents the briefcase
-        [S.do(b => { brfFollow(b, 5, 1.55); }),
-        S.say("l7", {
-            cues: [
-                [1.1, b => { brfAct(O[5], { present: 1 }); }],
-                [1.5, b => { b.caseSlide = { t: 0, dur: 1.5, u0: 0.9, u1: 0.62 }; }],
-                [2.0, b => { brfShot(b, 356, 214, 1.85, 1.2); }],
-                [2.6, b => { brfAct(O[5], { present: 0 }); }]
-            ]
-        })],
-        talk("l8", 1, 1.6, () => { brfRelax(b); brfAct(O[1], { lean: 0.5, point: 1, brow: -0.5 }); O[1].pointDir = 1; }, { gap: 0.1 }),
-
-        // ---- 6. puzzle ----
-        [S.do(b => { brfRelax(b); brfShot(b, 320, 182, 1.3, 0.9); brfTween(b, "dim", 0.55, 0.6); brfOpenPuzzle(b); }),
-        S.until(b => b.pz.solved),
-
-        // ---- 7. briefcase opening ----
-        S.do(b => { b.caseOn = true; b.caseT = 0; brfTween(b, "caseA", 1, 0.7); b.v.dim = 0; }),
-        S.until(b => b.caseT >= BRF_CASE_LEN),
-        S.do(b => { brfTween(b, "caseA", 0, 0.7); }),
-        S.wait(0.8),
-        S.do(b => { b.caseOn = false; b.caseHidden = true; brfShot(b, 320, 178, 1.2, 1.1); }),
-        S.wait(0.9)],
-
-        // ---- 8. reactions ----
-        talk("r1", 2, 1.5, () => { brfAct(O[2], { lean: 0.5, brow: -1, mood: -1, gestR: 1 }); b.sway = 1; }),
-        talk("r2", 3, 1.5, () => { brfRelax(b); brfAct(O[3], { shrug: 1, mood: 1, brow: 0.6, tilt: -0.1 }); brfAct(O[2], { brow: -1, mood: -1, lean: 0.4 }); }),
-        talk("r3", 4, 1.6, () => { brfAct(O[3], { shrug: 0 }); brfAct(O[4], { facepalm: 1, mood: -0.8, brow: -0.7, tilt: 0.1 }); }),
-        [S.do(b => { brfFollow(b, 2, 1.75, 56); brfAct(O[4], { facepalm: 0 }); brfAct(O[2], { stand: 1, lean: 0, point: 0, gestR: 0, brow: -1, mood: -1 }); }),
-        S.say("r4", {
-            dur: 2.1, gap: 0, reveal: 0.9,
-            cues: [[0.6, b => { brfSlam(b, O[2]); }]]
-        }),
-        S.do(b => { brfFollow(b, 1, 1.7); b.shake = Math.max(b.shake, 4); brfAct(O[1], { lean: 0.9, gestR: 1, brow: -1, mood: -0.6 }); }),
-        S.say("r5", { dur: 1.7, reveal: 0.3, gap: 0.1 }),
-        S.do(b => { brfAct(O[2], { stand: 0, brow: -0.2, mood: -0.3 }); brfAct(O[1], { lean: 0.2, gestR: 0 }); brfShot(b, 320, 176, 1.25, 0.8); b.sway = 0.4; }),
-        S.wait(1.2)],
-        talk("r6", 1, 1.45, () => { brfAct(O[1], { lean: 0, brow: -0.3, mood: 0.3 }); brfAct(O[2], { stand: 0, mood: 0 }); }, { gap: 0.5 }),
-
-        // ---- 9. pull away, fade out, hand over ----
-        [S.do(b => { brfShot(b, 320, 178, 0.9, 0.42); brfRelax(b); }),
-        S.wait(1.6),
-        S.tw("bars", 0, 1.5, true),
-        S.tw("black", 1, 2.2),
-        S.wait(0.35),
-        S.do(b => finishPoliceBriefing())]
-    );
-    return steps;
-}
-
-// ---------------- dialogue line handling ----------------
-function brfBeginLine(b, id, text, ex) {
-    const len = text.length;
-    b.speaker = id;
-    b.line = {
-        id: id, text: text, t: 0,
-        dur: ex.dur !== undefined ? ex.dur : Math.max(1.8, 1.2 + len * 0.04),
-        gap: ex.gap !== undefined ? ex.gap : 0.25,
-        reveal: ex.reveal !== undefined ? ex.reveal : Math.min(2.2, len / 55),
-        cues: (ex.cues || []).map(c => ({ t: c[0], fn: c[1], done: false }))
-    };
-    const o = b.off[id];
-    if (o) {
-        o.tg.gestR = o.style;                          // speaking gesture amplitude
-        if (id === 2 || id === 3) o.tg.gestL = o.style * 0.5;
-    }
-    for (const k in b.off) {                           // the others turn to the speaker
-        if (+k !== id) b.off[k].lookT = Math.min(b.off[k].lookT, 0.1 + Math.random() * 0.5);
-    }
-}
-function brfEndLine(b) {
-    const o = b.off[b.line.id];
-    if (o) { o.tg.gestR = 0; o.tg.gestL = 0; }
-    b.speaker = 0;
-}
-
-// ---------------- static room (pre-rendered once) ----------------
-function brfRenderRoom() {
-    const RS = BRF_ROOM_RS, M = BRF_ROOM_M;
-    const cv = document.createElement("canvas");
-    cv.width = Math.round((BRF_W + 2 * M) * RS);
-    cv.height = Math.round((BRF_H + 2 * M) * RS);
-    const g = cv.getContext("2d");
-    g.scale(RS, RS);
-    g.translate(M, M);
-    const X0 = -M, X1 = BRF_W + M, Y0 = -M, Y1 = BRF_H + M;
-
-    // wall
-    let gr = g.createLinearGradient(0, Y0, 0, 124);
-    gr.addColorStop(0, "#4b586f"); gr.addColorStop(1, "#2e394b");
-    g.fillStyle = gr; g.fillRect(X0, Y0, X1 - X0, 124 - Y0);
-    g.fillStyle = "rgba(255,255,255,0.035)";
-    for (let x = X0; x < X1; x += 80) g.fillRect(x, Y0, 2, 124 - Y0);
-    // wainscot + baseboard
-    g.fillStyle = "#222b39"; g.fillRect(X0, 94, X1 - X0, 30);
-    g.fillStyle = "#6a5039"; g.fillRect(X0, 92, X1 - X0, 4);
-    g.fillStyle = "rgba(255,255,255,0.05)";
-    for (let x = X0 + 10; x < X1; x += 60) { g.strokeStyle = "rgba(255,255,255,0.08)"; g.strokeRect(x, 100, 48, 18); }
-    g.fillStyle = "#151b25"; g.fillRect(X0, 118, X1 - X0, 6);
-
-    // floor
-    gr = g.createLinearGradient(0, 124, 0, Y1);
-    gr.addColorStop(0, "#3d4555"); gr.addColorStop(1, "#242933");
-    g.fillStyle = gr; g.fillRect(X0, 124, X1 - X0, Y1 - 124);
-    g.strokeStyle = "rgba(255,255,255,0.05)"; g.lineWidth = 1;
-    for (let i = 1; i < 12; i++) {
-        const y = 124 + 360 * Math.pow(i / 12, 1.35);
-        g.beginPath(); g.moveTo(X0, y); g.lineTo(X1, y); g.stroke();
-    }
-    for (let x0 = -700; x0 < 1400; x0 += 80) {
-        g.beginPath(); g.moveTo(320 + (x0 - 320) * 0.5, 124); g.lineTo(x0, Y1); g.stroke();
-    }
-
-    // rug
-    g.fillStyle = "rgba(0,0,0,0.35)";
-    brfEllipse(g, 320, 268, 190, 26, "rgba(0,0,0,0.30)");
-    g.beginPath(); g.moveTo(128, 148); g.lineTo(512, 148); g.lineTo(548, 300); g.lineTo(92, 300); g.closePath();
-    g.fillStyle = "#1d2c47"; g.fill();
-    g.strokeStyle = "#b99a5e"; g.lineWidth = 2; g.stroke();
-    g.beginPath(); g.moveTo(138, 156); g.lineTo(502, 156); g.lineTo(534, 292); g.lineTo(106, 292); g.closePath();
-    g.strokeStyle = "rgba(120,160,220,0.45)"; g.lineWidth = 1; g.stroke();
-
-    // windows
-    [84, 468].forEach(wx => {
-        const wy = 22, ww = 88, wh = 68;
-        g.fillStyle = "rgba(0,0,0,0.3)"; g.fillRect(wx - 3, wy - 3, ww + 6, wh + 10);
-        g.fillStyle = "#cfd6df"; g.fillRect(wx - 4, wy - 4, ww + 8, wh + 8);
-        const sky = g.createLinearGradient(0, wy, 0, wy + wh);
-        sky.addColorStop(0, "#5a7fa8"); sky.addColorStop(1, "#f0b878");
-        g.fillStyle = sky; g.fillRect(wx, wy, ww, wh);
-        g.fillStyle = "#26303f";
-        const hs = [22, 34, 18, 40, 26, 32, 16];
-        hs.forEach((h, i) => g.fillRect(wx + i * 13, wy + wh - h, 11, h));
-        g.fillStyle = "rgba(255,230,150,0.7)";
-        hs.forEach((h, i) => { g.fillRect(wx + i * 13 + 3, wy + wh - h + 5, 2, 2); g.fillRect(wx + i * 13 + 7, wy + wh - h + 11, 2, 2); });
-        for (let y = wy; y < wy + 40; y += 5) {           // half-drawn blinds
-            g.fillStyle = "#d9dde3"; g.fillRect(wx, y, ww, 3.2);
-            g.fillStyle = "rgba(0,0,0,0.25)"; g.fillRect(wx, y + 3.2, ww, 1.8);
-        }
-        g.fillStyle = "#aeb6c2"; g.fillRect(wx - 6, wy + wh + 4, ww + 12, 5);
-        g.fillStyle = "#b8bec8"; g.fillRect(wx + ww / 2 - 1, wy, 2, wh);
-        g.fillStyle = "#8a6f4a"; g.fillRect(wx + 8, wy + 40, 1.5, 22);
-    });
-
-    // filing cabinets
-    [12, 576].forEach(cx => {
-        const cy = 46, cw = 52, ch = 80;
-        g.fillStyle = "rgba(0,0,0,0.3)"; g.fillRect(cx + 3, cy + 4, cw, ch);
-        const cg = g.createLinearGradient(cx, 0, cx + cw, 0);
-        cg.addColorStop(0, "#7d8795"); cg.addColorStop(0.5, "#5f6977"); cg.addColorStop(1, "#4d5662");
-        g.fillStyle = cg; g.fillRect(cx, cy, cw, ch);
-        g.strokeStyle = "#2d343d"; g.lineWidth = 1; g.strokeRect(cx, cy, cw, ch);
-        for (let i = 0; i < 4; i++) {
-            const dy = cy + 3 + i * 19;
-            g.strokeStyle = "#343c47"; g.strokeRect(cx + 3, dy, cw - 6, 17);
-            g.fillStyle = "#cfd4db"; g.fillRect(cx + cw / 2 - 8, dy + 10, 16, 3);
-            g.fillStyle = "#e9e6da"; g.fillRect(cx + cw / 2 - 7, dy + 3, 14, 5);
-            g.fillStyle = "#555"; g.fillRect(cx + cw / 2 - 5, dy + 5, 10, 1);
-        }
-    });
-    // plants
-    [34, 606].forEach(px => {
-        g.fillStyle = "rgba(0,0,0,0.3)"; brfEllipse(g, px, 172, 15, 4, "rgba(0,0,0,0.3)");
-        g.fillStyle = "#8a5b3b"; g.beginPath(); g.moveTo(px - 11, 150); g.lineTo(px + 11, 150); g.lineTo(px + 8, 172); g.lineTo(px - 8, 172); g.fill();
-        g.fillStyle = "#2f6b3d";
-        for (let i = 0; i < 7; i++) {
-            const a = -Math.PI / 2 + (i - 3) * 0.42;
-            g.beginPath(); g.ellipse(px + Math.cos(a) * 12, 146 + Math.sin(a) * 16, 5, 11, a + Math.PI / 2, 0, Math.PI * 2); g.fill();
-        }
-    });
-
-    // clock
-    g.fillStyle = "#e9e9e4"; brfEllipse(g, 196, 44, 13, 13, "#e9e9e4");
-    g.strokeStyle = "#222"; g.lineWidth = 2; g.stroke();
-    g.lineWidth = 1.5; g.beginPath(); g.moveTo(196, 44); g.lineTo(196, 36); g.moveTo(196, 44); g.lineTo(202, 47); g.stroke();
-
-    // investigation board
-    g.fillStyle = "rgba(0,0,0,0.3)"; g.fillRect(224, 16, 198, 66);
-    g.fillStyle = "#6b4b2b"; g.fillRect(220, 10, 200, 68);
-    g.fillStyle = "#b88a55"; g.fillRect(224, 14, 192, 60);
-    g.fillStyle = "rgba(90,60,30,0.25)";
-    for (let i = 0; i < 90; i++) g.fillRect(224 + ((i * 53) % 190), 14 + ((i * 37) % 58), 1.5, 1.5);
-    const pins = [];
-    const photo = (x, y, w, h, r, q) => {
-        g.save(); g.translate(x, y); g.rotate(r);
-        g.fillStyle = "rgba(0,0,0,0.3)"; g.fillRect(-w / 2 + 1.5, -h / 2 + 2, w, h);
-        g.fillStyle = "#f2efe6"; g.fillRect(-w / 2, -h / 2, w, h);
-        g.fillStyle = "#6e7480"; g.fillRect(-w / 2 + 2, -h / 2 + 2, w - 4, h - 6);
-        g.fillStyle = "#2b2e35"; g.beginPath(); g.arc(0, -h / 6, w / 6, 0, Math.PI * 2); g.fill();
-        g.fillRect(-w / 4, -h / 6 + w / 6, w / 2, h / 4);
-        if (q) { g.fillStyle = "#e8d44d"; g.font = "bold " + Math.round(h * 0.5) + "px Arial"; g.textAlign = "center"; g.fillText("?", 0, h * 0.18); }
-        g.restore();
-        pins.push([x, y - h / 2 + 2]);
-    };
-    photo(250, 40, 24, 30, -0.06); photo(300, 30, 22, 28, 0.05); photo(368, 36, 24, 30, 0.08);
-    photo(398, 56, 20, 24, -0.08); photo(270, 62, 20, 22, 0.1); photo(334, 48, 36, 44, 0, true);
-    [[236, 22, 0.1], [352, 18, -0.05], [384, 22, 0.15]].forEach(c => {
-        g.save(); g.translate(c[0], c[1]); g.rotate(c[2]);
-        g.fillStyle = "#f6f1de"; g.fillRect(-12, -8, 24, 16);
-        g.fillStyle = "#777"; for (let i = 0; i < 3; i++) g.fillRect(-9, -4 + i * 4, 18 - i * 3, 1);
-        g.restore(); pins.push([c[0], c[1] - 7]);
-    });
-    g.strokeStyle = "#b3201e"; g.lineWidth = 1;
-    g.beginPath();
-    [0, 5, 3, 7, 1, 6, 2, 4].forEach((p, i) => { const q = pins[p]; if (i) g.lineTo(q[0], q[1]); else g.moveTo(q[0], q[1]); });
-    g.stroke();
-    pins.forEach(p => { g.fillStyle = "#c62828"; g.beginPath(); g.arc(p[0], p[1], 1.8, 0, Math.PI * 2); g.fill(); });
-
-    return { cv: cv, M: M, RS: RS };
-}
-
-// ---------------- chairs / officials ----------------
-function brfChairFar(c, x, y) {
-    brfEllipse(c, x, y + 36, 27, 6, "rgba(0,0,0,0.25)");
-    const g = c.createLinearGradient(x - 20, 0, x + 20, 0);
-    g.addColorStop(0, "#3a3e47"); g.addColorStop(1, "#23262c");
-    brfRR(c, x - 21, y - 36, 42, 60, 10); c.fillStyle = g; c.fill();
-    c.strokeStyle = "#555b67"; c.lineWidth = 1; c.stroke();
-    brfRR(c, x - 15, y - 31, 30, 18, 7); c.fillStyle = "#454a55"; c.fill();
-    brfRR(c, x - 27, y + 2, 7, 22, 3); c.fillStyle = "#1c1e23"; c.fill();
-    brfRR(c, x + 20, y + 2, 7, 22, 3); c.fill();
-}
-function brfChairEnd(c, o) {
-    const d = o.dir, x = o.x, y = o.y;
-    brfEllipse(c, x, y + 40, 24, 6, "rgba(0,0,0,0.25)");
-    brfRR(c, x - d * 20 - 4, y - 28, 9, 58, 4); c.fillStyle = "#2a2d34"; c.fill();
-    c.strokeStyle = "#555b67"; c.lineWidth = 1; c.stroke();
-    brfRR(c, x - 17, y + 22, 34, 14, 6); c.fillStyle = "#383c45"; c.fill();
-}
-
-function brfArm(c, sx, sy, hx, hy, ox, oy, o, flat) {
-    const len = Math.hypot(hx - sx, hy - sy);
-    const k = Math.min(1, len / 60);
-    const ex = (sx + hx) / 2 + ox * k, ey = (sy + hy) / 2 + oy * k;
-    c.lineCap = "round"; c.lineJoin = "round";
-    c.strokeStyle = o.suitD; c.lineWidth = 9.5;
-    c.beginPath(); c.moveTo(sx, sy); c.lineTo(ex, ey); c.lineTo(hx, hy); c.stroke();
-    c.strokeStyle = o.suit; c.lineWidth = 7.5;
-    c.beginPath(); c.moveTo(sx, sy); c.lineTo(ex, ey); c.lineTo(hx, hy); c.stroke();
-    const cx = ex + (hx - ex) * 0.86, cy = ey + (hy - ey) * 0.86;
-    brfEllipse(c, cx, cy, 4.4, 4.4, o.shirt);
-    if (flat) {
-        brfEllipse(c, hx, hy, 5.6, 3.8, o.skin);
-        c.strokeStyle = "rgba(0,0,0,0.25)"; c.lineWidth = 0.8;
-        for (let i = -1; i <= 1; i++) { c.beginPath(); c.moveTo(hx + 2 + i, hy - 1.5 + i * 1.2); c.lineTo(hx + 5.2, hy - 1.5 + i * 1.4); c.stroke(); }
-    } else {
-        brfEllipse(c, hx, hy, 4.4, 4.4, o.skin);
-    }
-}
-
-function brfHeadFront(c, o, hx, hy) {
-    const lx = o.lx, ly = o.ly, tilt = o.ch.tilt;
-    c.save(); c.translate(hx + lx * 1.2, hy); c.rotate(tilt);
-    c.fillStyle = o.skin; c.fillRect(-4.5, 6, 9, 9);
-    c.fillStyle = "rgba(0,0,0,0.18)"; c.fillRect(-4.5, 6, 9, 4);
-    brfEllipse(c, -10.4, 1.5, 2.6, 3.6, o.skin); brfEllipse(c, 10.4, 1.5, 2.6, 3.6, o.skin);
-    brfEllipse(c, 0, 0, 10, 12, o.skin);
-    c.fillStyle = "rgba(0,0,0,0.08)"; c.beginPath(); c.ellipse(0, 5, 9, 7, 0, 0, Math.PI); c.fill();
-    // hair
-    c.fillStyle = o.hair;
-    if (o.hairStyle === "bald") {
-        c.beginPath(); c.ellipse(-9.6, -2, 2.4, 5, 0, 0, Math.PI * 2); c.fill();
-        c.beginPath(); c.ellipse(9.6, -2, 2.4, 5, 0, 0, Math.PI * 2); c.fill();
-        brfEllipse(c, -3, -9, 3, 1.5, "rgba(255,255,255,0.28)");
-    } else {
-        c.beginPath(); c.ellipse(0, -4, 10.8, 9.2, 0, Math.PI, Math.PI * 2); c.fill();
-        c.fillRect(-10.8, -5, 2.6, 7); c.fillRect(8.2, -5, 2.6, 7);
-        if (o.hairStyle === "parted") { c.strokeStyle = "rgba(0,0,0,0.35)"; c.lineWidth = 1; c.beginPath(); c.moveTo(-3, -13); c.lineTo(-1, -6); c.stroke(); }
-        if (o.hairStyle === "slick") { c.strokeStyle = "rgba(255,255,255,0.25)"; c.lineWidth = 1; c.beginPath(); c.moveTo(-6, -10); c.quadraticCurveTo(0, -14, 6, -9); c.stroke(); }
-    }
-    const fx = lx * 2.2, fy = ly * 1.2;
-    // eyes
-    [-4, 4].forEach(ex => {
-        brfEllipse(c, ex + fx, -1 + fy, 2.5, o.blink > 0 ? 0.4 : 1.8, "#f7f7f7");
-        if (o.blink <= 0) brfEllipse(c, ex + fx + lx * 0.8, -1 + fy + ly * 0.5, 1.1, 1.1, "#15110d");
-    });
-    // brows
-    const br = o.ch.brow, up = Math.max(0, br), ang = Math.max(0, -br);
-    const innerY = -5.8 - up * 1.8 + ang * 2.4, outerY = -5.8 - up * 1.2 - ang * 0.4;
-    c.strokeStyle = o.hair === "#9c9c9c" ? "#6e6e6e" : o.hair; c.lineWidth = 1.5; c.lineCap = "round";
-    c.beginPath(); c.moveTo(-8 + fx, outerY + fy); c.lineTo(-1.8 + fx, innerY + fy); c.stroke();
-    c.beginPath(); c.moveTo(8 + fx, outerY + fy); c.lineTo(1.8 + fx, innerY + fy); c.stroke();
-    // nose
-    c.strokeStyle = "rgba(0,0,0,0.2)"; c.lineWidth = 1;
-    c.beginPath(); c.moveTo(0.6 + fx * 0.6, 0.5); c.lineTo(1.6 + fx * 0.6, 4.6); c.stroke();
-    if (o.mustache) { brfEllipse(c, fx * 0.6, 5.9, 4.2, 1.3, o.hair); }
-    // mouth
-    const m = o.ch.mood, open = o.mouthS;
-    if (open > 0.1) {
-        brfEllipse(c, fx * 0.6, 8, 3, 0.8 + open * 3, "#3a1414");
-    } else {
-        c.strokeStyle = "#6b2c2c"; c.lineWidth = 1.2;
-        c.beginPath(); c.moveTo(-3.2 + fx * 0.6, 8 - Math.max(0, m) * 0.2);
-        c.quadraticCurveTo(fx * 0.6, 8 + m * 1.8, 3.4 + fx * 0.6, 8 - Math.max(0, m) * 1.1); c.stroke();
-    }
-    c.restore();
-}
-
-function brfHeadSide(c, o, hx, hy) {
-    const d = o.dir;
-    c.save(); c.translate(hx, hy); c.scale(d, 1); c.rotate(o.ch.tilt);
-    c.fillStyle = o.skin; c.fillRect(-4, 6, 8, 9);
-    c.fillStyle = o.hair;
-    if (o.hairStyle !== "bald") { c.beginPath(); c.ellipse(-1.5, -2, 10.8, 11.6, 0, 0, Math.PI * 2); c.fill(); }
-    else { brfEllipse(c, -8, 2, 2.8, 5.5, o.hair); }
-    brfEllipse(c, o.hairStyle === "bald" ? 0 : 2.4, o.hairStyle === "bald" ? 0 : 1.2, o.hairStyle === "bald" ? 10.5 : 8.4, o.hairStyle === "bald" ? 11.5 : 10.4, o.skin);
-    if (o.hairStyle === "bald") brfEllipse(c, -1, -8, 4, 1.8, "rgba(255,255,255,0.25)");
-    c.fillStyle = o.skin; c.beginPath(); c.moveTo(9.6, -1); c.lineTo(13.4, 4.2); c.lineTo(9.4, 5.2); c.closePath(); c.fill();
-    brfEllipse(c, -2.5, 2, 2.3, 3.3, "rgba(0,0,0,0.15)");
-    const ex = 6 + o.lx * 0.8;
-    brfEllipse(c, 6, -0.8, 2.3, o.blink > 0 ? 0.4 : 1.7, "#f7f7f7");
-    if (o.blink <= 0) brfEllipse(c, ex, -0.8 + o.ly * 0.5, 1.1, 1.1, "#15110d");
-    const br = o.ch.brow, up = Math.max(0, br), ang = Math.max(0, -br);
-    c.strokeStyle = "#2a2018"; c.lineWidth = 1.4; c.lineCap = "round";
-    c.beginPath(); c.moveTo(3, -5.4 - up * 1.2 - ang * 0.3); c.lineTo(8.6, -5.4 - up * 1.6 + ang * 2.2); c.stroke();
-    if (o.glasses) {
-        c.strokeStyle = "#1a1a1a"; c.lineWidth = 1.2;
-        c.beginPath(); c.arc(6.2, -0.8, 3.6, 0, Math.PI * 2); c.stroke();
-        c.beginPath(); c.moveTo(2.6, -0.8); c.lineTo(-2.5, 1.2); c.stroke();
-        c.fillStyle = "rgba(180,220,255,0.18)"; c.beginPath(); c.arc(6.2, -0.8, 3.4, 0, Math.PI * 2); c.fill();
-    }
-    if (o.mouthS > 0.1) brfEllipse(c, 8.6, 7.8, 1.2 + o.mouthS * 0.8, 0.8 + o.mouthS * 2.6, "#3a1414");
-    else { c.strokeStyle = "#6b2c2c"; c.lineWidth = 1.2; c.beginPath(); c.moveTo(6.4, 8 + Math.max(0, -o.ch.mood) * 0.6); c.lineTo(9.8, 8 - o.ch.mood * 1.2); c.stroke(); }
-    c.restore();
-}
-
-// torso + head of a far-side official (drawn BEFORE the table)
-function brfDrawFarBody(c, o) {
-    const x = o.x, ch = o.ch;
-    const breath = Math.sin(o.t * 1.7) * 0.5;
-    const sy = 128 - ch.stand * 26 + ch.lean * 7 + breath - ch.shrug * 2;
-    brfChairFar(c, x, 128 - ch.stand * 5);
-    const tl = 46 + ch.stand * 34;
-    c.fillStyle = o.suit;
-    c.beginPath();
-    c.moveTo(x - 18, sy + tl); c.lineTo(x - 19, sy + 4); c.quadraticCurveTo(x - 19, sy - 3, x - 10, sy - 4);
-    c.lineTo(x + 10, sy - 4); c.quadraticCurveTo(x + 19, sy - 3, x + 19, sy + 4); c.lineTo(x + 18, sy + tl);
-    c.closePath(); c.fill();
-    c.strokeStyle = o.suitD; c.lineWidth = 1; c.stroke();
-    c.fillStyle = o.shirt;
-    c.beginPath(); c.moveTo(x - 6.5, sy - 4); c.lineTo(x + 6.5, sy - 4); c.lineTo(x, sy + 17); c.closePath(); c.fill();
-    c.fillStyle = "rgba(0,0,0,0.12)"; c.beginPath(); c.moveTo(x - 6.5, sy - 4); c.lineTo(x - 1, sy - 4); c.lineTo(x, sy + 10); c.closePath(); c.fill();
-    c.fillStyle = o.tie;
-    c.beginPath(); c.moveTo(x - 2, sy - 3); c.lineTo(x + 2, sy - 3); c.lineTo(x + 3.4, sy + 20); c.lineTo(x, sy + 24); c.lineTo(x - 3.4, sy + 20); c.closePath(); c.fill();
-    c.fillRect(x - 2.4, sy - 4, 4.8, 3.4);
-    c.strokeStyle = o.suitD; c.lineWidth = 1.4;
-    c.beginPath(); c.moveTo(x - 7, sy - 4); c.lineTo(x - 10, sy + 20); c.moveTo(x + 7, sy - 4); c.lineTo(x + 10, sy + 20); c.stroke();
-    c.fillStyle = "#f4f4f4"; c.fillRect(x + 11, sy + 9, 5, 2);
-    brfHeadFront(c, o, x, sy - 20);
-}
-
-// arms of a far-side official (drawn AFTER the table, they reach over it)
-function brfFarHands(c, o) {
-    const x = o.x, ch = o.ch;
-    const sy = 128 - ch.stand * 26 + ch.lean * 7 - ch.shrug * 2;
-    const sRx = x + 17, sLx = x - 17, sY = sy + 1;
-    const rest = 176 + ch.lean * 3;
-    let hr = { x: x + 22, y: rest }, hl = { x: x - 22, y: rest };
-    const t = o.t;
-    // speaking gesture
-    if (ch.gestR > 0.02) { hr.x = brfLerp(hr.x, x + 34 + Math.sin(t * 5) * 4, brfClamp(ch.gestR, 0, 1)); hr.y = brfLerp(hr.y, sy + 10 + Math.sin(t * 3.1) * 7, brfClamp(ch.gestR, 0, 1)); }
-    if (ch.gestL > 0.02) { hl.x = brfLerp(hl.x, x - 34 - Math.sin(t * 4.3) * 4, brfClamp(ch.gestL, 0, 1)); hl.y = brfLerp(hl.y, sy + 14 + Math.sin(t * 3.6) * 6, brfClamp(ch.gestL, 0, 1)); }
-    if (ch.point > 0.02) { hr.x = brfLerp(hr.x, x + o.pointDir * 54, ch.point); hr.y = brfLerp(hr.y, sy + 16, ch.point); }
-    if (ch.shrug > 0.02) { hr.x = brfLerp(hr.x, x + 40, ch.shrug); hr.y = brfLerp(hr.y, sy + 24, ch.shrug); hl.x = brfLerp(hl.x, x - 40, ch.shrug); hl.y = brfLerp(hl.y, sy + 24, ch.shrug); }
-    const hp = brfHeadPos(o);
-    if (ch.facepalm > 0.02) { hr.x = brfLerp(hr.x, hp.x + 5, ch.facepalm); hr.y = brfLerp(hr.y, hp.y + 2, ch.facepalm); }
-    // slam: hand up, down hard, held, released
-    let slamming = false;
-    if (o.slamT > 0) {
-        const s = o.slamT; slamming = true;
-        let hy2;
-        if (s < 0.28) hy2 = brfLerp(rest, sy - 14, brfEase(s / 0.28));
-        else if (s < 0.38) hy2 = brfLerp(sy - 14, rest + 3, (s - 0.28) / 0.1);
-        else if (s < 0.85) hy2 = rest + 3;
-        else hy2 = brfLerp(rest + 3, rest, (s - 0.85) / 0.15);
-        hr.x = x + 26; hr.y = hy2;
-        hl.x = x - 24; hl.y = rest + 2;
-    }
-    const flatR = hr.y > 170 && !slamming ? true : (slamming && o.slamT >= 0.38);
-    const flatL = hl.y > 170;
-    brfArm(c, sLx, sY, hl.x, hl.y, -9, 5, o, flatL);
-    brfArm(c, sRx, sY, hr.x, hr.y, 9, 5, o, flatR);
-}
-
-function brfDrawEnd(c, o, b) {
-    const d = o.dir, x = o.x + d * o.ch.lean * 7, y = o.y + o.ch.lean * 2, ch = o.ch;
-    brfChairEnd(c, o);
-    brfRR(c, x - 12, y - 14, 24, 42, 8); c.fillStyle = o.suit; c.fill();
-    c.strokeStyle = o.suitD; c.lineWidth = 1; c.stroke();
-    brfRR(c, x + d * 3 - 4, y - 14, 8, 9, 3); c.fillStyle = o.shirt; c.fill();
-    brfRR(c, x + d * 9 - 1.5, y - 8, 3, 17, 1.5); c.fillStyle = o.tie; c.fill();
-    c.strokeStyle = o.suitD; c.lineWidth = 1.2;
-    c.beginPath(); c.moveTo(x + d * 5, y - 12); c.lineTo(x + d * 8, y + 12); c.stroke();
-    brfHeadSide(c, o, x + d * 1, y - 26);
-    // arm
-    const sx = x + d * 6, sy = y - 9;
-    let h = { x: x + d * 40, y: y + 8 };
-    if (ch.gestR > 0.02) { h.x = brfLerp(h.x, x + d * 32 + Math.sin(o.t * 4.5) * 3, brfClamp(ch.gestR, 0, 1)); h.y = brfLerp(h.y, y - 22 + Math.sin(o.t * 3.2) * 5, brfClamp(ch.gestR, 0, 1)); }
-    if (ch.facepalm > 0.02) { const hp = brfHeadPos(o); h.x = brfLerp(h.x, hp.x + d * 5, ch.facepalm); h.y = brfLerp(h.y, hp.y + 3, ch.facepalm); }
-    if (ch.present > 0.02 && b.caseObj) {
-        const cp = brfTP(b.caseObj.u, b.caseObj.v);
-        let dx = cp.x - sx, dy = cp.y - sy; const L = Math.hypot(dx, dy) || 1, reach = Math.min(L, 64);
-        h.x = brfLerp(h.x, sx + dx / L * reach, ch.present); h.y = brfLerp(h.y, sy + dy / L * reach, ch.present);
-    }
-    brfArm(c, sx, sy, h.x, h.y, -d * 6, 7, o, h.y > y + 3);
-}
-
-// ---------------- table, items, briefcase ----------------
-const BRF_ITEMS = [
-    { k: "map", u: 0.5, v: 0.5, r: -0.04, w: 74, h: 46 },
-    { k: "paper", u: 0.18, v: 0.34, r: -0.12, w: 34, h: 24 }, { k: "paper", u: 0.30, v: 0.66, r: 0.08, w: 36, h: 26, stamp: true },
-    { k: "paper", u: 0.80, v: 0.30, r: 0.1, w: 34, h: 24 }, { k: "paper", u: 0.70, v: 0.72, r: 0.15, w: 34, h: 24 },
-    { k: "folder", u: 0.22, v: 0.72, r: -0.2, w: 32, h: 23, col: "#d9b46a" }, { k: "folder", u: 0.58, v: 0.20, r: 0.12, w: 32, h: 23, col: "#8aa7c7" },
-    { k: "folder", u: 0.78, v: 0.58, r: -0.1, w: 32, h: 23, col: "#d9b46a", stamp: true },
-    { k: "photo", u: 0.27, v: 0.40, r: 0.25 }, { k: "photo", u: 0.36, v: 0.52, r: -0.2 }, { k: "photo", u: 0.62, v: 0.60, r: 0.3 },
-    { k: "photo", u: 0.66, v: 0.30, r: -0.15 }, { k: "photo", u: 0.44, v: 0.78, r: 0.1 }, { k: "photo", u: 0.52, v: 0.34, r: 0.2 },
-    { k: "mug", u: 0.10, v: 0.52 }, { k: "mug", u: 0.90, v: 0.28 }, { k: "mug", u: 0.5, v: 0.9 },
-    { k: "pen", u: 0.40, v: 0.92, r: 0.4 }
+// Suit colour is NPC.shirtColor (existing property); formalWear adds the details.
+const PB_LOOKS = [
+    { shirt: "#23262d", hair: "#b9bcc2", skin: "#d7a078", accent: "#8e2b3a" },
+    { shirt: "#1f3a5f", hair: "#1b1b1b", skin: "#c68642", accent: "#d6ad55" },
+    { shirt: "#4b4f58", hair: "#5a3b22", skin: "#e0ac69", accent: "#2e8b84" },
+    { shirt: "#3a2c27", hair: "#8a8f98", skin: "#8d5524", accent: "#e6e6e0" },
+    { shirt: "#2b3342", hair: "#c9a45c", skin: "#f0c8a0", accent: "#2f6fc0" }
 ];
 
-function brfDrawItem(c, it, dy) {
-    const p = brfTP(it.u, it.v);
-    c.save();
-    c.translate(p.x, p.y + dy);
-    c.scale(p.s, p.s * 0.8);
-    c.rotate(it.r || 0);
-    if (it.k === "paper") {
-        const w = it.w, h = it.h;
-        c.fillStyle = "rgba(0,0,0,0.3)"; c.fillRect(-w / 2 + 1.5, -h / 2 + 2, w, h);
-        c.fillStyle = "#f4f1e6"; c.fillRect(-w / 2, -h / 2, w, h);
-        c.fillStyle = "#8a8f99";
-        for (let i = 0; i < 5; i++) c.fillRect(-w / 2 + 3, -h / 2 + 3 + i * 4, w - 6 - (i % 3) * 5, 1);
-        if (it.stamp) { c.strokeStyle = "#b3201e"; c.lineWidth = 1.2; c.strokeRect(-w / 2 + 6, h / 2 - 9, 16, 6); c.fillStyle = "#b3201e"; c.fillRect(-w / 2 + 8, h / 2 - 6.5, 12, 1); }
-    } else if (it.k === "photo") {
-        c.fillStyle = "rgba(0,0,0,0.3)"; c.fillRect(-8 + 1.5, -6 + 2, 16, 12);
-        c.fillStyle = "#f2efe6"; c.fillRect(-8, -6, 16, 12);
-        c.fillStyle = "#6e7480"; c.fillRect(-6.5, -4.8, 13, 8.6);
-        c.fillStyle = "#23262c"; c.beginPath(); c.arc(0, -1.6, 2.4, 0, Math.PI * 2); c.fill(); c.fillRect(-3.6, 0.8, 7.2, 2.6);
-        if ((it.u * 10 | 0) % 2) { c.strokeStyle = "#c62828"; c.lineWidth = 0.9; c.beginPath(); c.arc(0, -1.6, 4, 0, Math.PI * 2); c.stroke(); }
-    } else if (it.k === "folder") {
-        const w = it.w, h = it.h;
-        c.fillStyle = "rgba(0,0,0,0.3)"; c.fillRect(-w / 2 + 1.5, -h / 2 + 2, w, h);
-        c.fillStyle = it.col; c.fillRect(-w / 2, -h / 2, w, h);
-        c.fillRect(-w / 2 + 3, -h / 2 - 3, 11, 4);
-        c.fillStyle = "rgba(0,0,0,0.12)"; c.fillRect(-w / 2, h / 2 - 3, w, 3);
-        c.fillStyle = "#f4f1e6"; c.fillRect(-w / 2 + 4, -h / 2 + 5, 14, 6);
-        c.fillStyle = "#555"; c.fillRect(-w / 2 + 5, -h / 2 + 7, 11, 1);
-        if (it.stamp) { c.strokeStyle = "#b3201e"; c.lineWidth = 1.3; c.strokeRect(2, -3, 12, 7); }
-    } else if (it.k === "map") {
-        const w = it.w, h = it.h;
-        c.fillStyle = "rgba(0,0,0,0.3)"; c.fillRect(-w / 2 + 2, -h / 2 + 2, w, h);
-        c.fillStyle = "#cfe0ea"; c.fillRect(-w / 2, -h / 2, w, h);
-        c.strokeStyle = "rgba(70,110,150,0.45)"; c.lineWidth = 0.6;
-        for (let i = 1; i < 6; i++) { c.beginPath(); c.moveTo(-w / 2 + i * w / 6, -h / 2); c.lineTo(-w / 2 + i * w / 6, h / 2); c.stroke(); }
-        for (let i = 1; i < 4; i++) { c.beginPath(); c.moveTo(-w / 2, -h / 2 + i * h / 4); c.lineTo(w / 2, -h / 2 + i * h / 4); c.stroke(); }
-        c.strokeStyle = "#fff"; c.lineWidth = 1.6; c.beginPath(); c.moveTo(-w / 2, 4); c.lineTo(-10, -2); c.lineTo(8, 8); c.lineTo(w / 2, -6); c.stroke();
-        c.strokeStyle = "#c62828"; c.lineWidth = 1.2;
-        [[-18, -8], [14, -10], [20, 10]].forEach(q => { c.beginPath(); c.moveTo(q[0] - 2.5, q[1] - 2.5); c.lineTo(q[0] + 2.5, q[1] + 2.5); c.moveTo(q[0] + 2.5, q[1] - 2.5); c.lineTo(q[0] - 2.5, q[1] + 2.5); c.stroke(); });
-    } else if (it.k === "mug") {
-        brfEllipse(c, 1.5, 2, 6.5, 6.5, "rgba(0,0,0,0.3)");
-        brfEllipse(c, 0, 0, 6, 6, "#ecebe6");
-        brfEllipse(c, 0, 0, 4.4, 4.4, "#4a2c1d");
-        c.strokeStyle = "#ecebe6"; c.lineWidth = 2; c.beginPath(); c.arc(7, 0, 3, -1.2, 1.2); c.stroke();
-    } else if (it.k === "pen") {
-        c.fillStyle = "#1c1c22"; c.fillRect(-9, -1, 18, 2.2); c.fillStyle = "#c9a227"; c.fillRect(-9, -1, 4, 2.2);
-    }
-    c.restore();
+// Lock puzzle layout, in the game's logical 640x360 screen space.
+const PB_LAYOUT = (function () {
+    const keys = [];
+    const rows = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["remove", "0", "clear"]];
+    rows.forEach((row, r) => row.forEach((id, c) => {
+        keys.push({ id: id, x: 190 + c * 90, y: 104 + r * 38, w: 80, h: 32 });
+    }));
+    keys.push({ id: "submit", x: 190, y: 258, w: 260, h: 34 });
+    return {
+        panel: { x: 170, y: 24, w: 300, h: 312 },
+        bar: { x: 190, y: 60, w: 260, h: 34 },
+        note: { x: 456, y: 116, w: 164, h: 112 },
+        keys: keys
+    };
+})();
+
+let policeBriefingActive = false;       // read by main.js
+let policeBriefing = null;              // all briefing-only state lives here
+let policeBriefingPlayed = false;       // the briefing can only ever start once per page load
+
+// ---- small helpers -------------------------------------------------
+function pbRR(c, x, y, w, h, r) {
+    c.beginPath();
+    if (typeof c.roundRect === "function") c.roundRect(x, y, w, h, r);
+    else c.rect(x, y, w, h);
 }
 
-function brfDrawBriefcaseClosed(c, w, h) {
-    c.fillStyle = "rgba(0,0,0,0.4)"; brfRR(c, -w / 2 + 3, -h / 2 + 4, w, h, 5); c.fill();
-    const g = c.createLinearGradient(0, -h / 2, 0, h / 2);
-    g.addColorStop(0, "#2b2b30"); g.addColorStop(1, "#0d0d10");
-    brfRR(c, -w / 2, -h / 2, w, h, 5); c.fillStyle = g; c.fill();
-    c.strokeStyle = "#3d3d45"; c.lineWidth = 1; c.stroke();
-    c.strokeStyle = "rgba(255,255,255,0.18)"; c.setLineDash([2, 2]);
-    brfRR(c, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 3); c.stroke(); c.setLineDash([]);
-    brfRR(c, -w * 0.18, -h / 2 - 3.5, w * 0.36, 5, 2.5); c.strokeStyle = "#050506"; c.lineWidth = 2.4; c.stroke();
-    c.fillStyle = "#d4af37";
-    [-w * 0.3, w * 0.3].forEach(lx => { c.fillRect(lx - 4.5, h / 2 - 9, 9, 7); c.fillStyle = "#8a6d1c"; c.fillRect(lx - 1.2, h / 2 - 7, 2.4, 3); c.fillStyle = "#d4af37"; });
-    brfRR(c, -5, -3, 10, 7, 2); c.fillStyle = "#c9a227"; c.fill();
-    c.fillStyle = "#222"; c.fillRect(-0.8, -1, 1.6, 3.5);
-    c.fillStyle = "#b9962b"; [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(q => c.fillRect(q[0] * (w / 2 - 4) - 1.5, q[1] * (h / 2 - 4) - 1.5, 3, 3));
+function pbTween(pb, obj, key, to, dur) {
+    pb.tweens = pb.tweens.filter(t => !(t.obj === obj && t.key === key));
+    pb.tweens.push({ obj: obj, key: key, from: obj[key], to: to, dur: Math.max(0.001, dur), t: 0 });
 }
 
-function brfDrawTable(c, b) {
-    const T = BRF_TABLE;
-    // soft shadow + near legs
-    brfEllipse(c, 320, 268, 168, 20, "rgba(0,0,0,0.28)");
-    [T.nl + 10, T.nr - 18].forEach(lx => {
-        const lg = c.createLinearGradient(lx, 0, lx + 8, 0); lg.addColorStop(0, "#5a3820"); lg.addColorStop(1, "#2c1809");
-        c.fillStyle = lg; c.fillRect(lx, T.ny + 8, 8, 40);
-        brfEllipse(c, lx + 4, T.ny + 49, 8, 2.5, "rgba(0,0,0,0.35)");
-    });
-    // front face
-    let g = c.createLinearGradient(0, T.ny, 0, T.ny + 14);
-    g.addColorStop(0, "#573520"); g.addColorStop(1, "#2e1a0e");
-    c.fillStyle = g; c.fillRect(T.nl, T.ny, T.nr - T.nl, 14);
-    c.fillStyle = "rgba(255,220,170,0.35)"; c.fillRect(T.nl, T.ny, T.nr - T.nl, 1.5);
-    // top
-    c.beginPath(); c.moveTo(T.fl, T.fy); c.lineTo(T.fr, T.fy); c.lineTo(T.nr, T.ny); c.lineTo(T.nl, T.ny); c.closePath();
-    g = c.createLinearGradient(T.nl, 0, T.nr, 0);
-    g.addColorStop(0, "#7b4a2a"); g.addColorStop(0.5, "#945c36"); g.addColorStop(1, "#7b4a2a");
-    c.fillStyle = g; c.fill();
-    c.save(); c.clip();
-    c.strokeStyle = "rgba(60,30,12,0.22)"; c.lineWidth = 1;
-    for (let i = 0; i < 9; i++) {
-        const v = 0.06 + i * 0.11, a = brfTP(0, v), z = brfTP(1, v);
-        c.beginPath(); c.moveTo(a.x, a.y); c.quadraticCurveTo(320, a.y + (i % 2 ? 2 : -2), z.x, z.y); c.stroke();
-    }
-    const sh = c.createLinearGradient(0, T.fy, 0, T.ny);
-    sh.addColorStop(0, "rgba(255,255,255,0.00)"); sh.addColorStop(0.6, "rgba(255,240,210,0.10)"); sh.addColorStop(1, "rgba(255,255,255,0.00)");
-    c.fillStyle = sh; c.fillRect(T.nl, T.fy, T.nr - T.nl, T.ny - T.fy);
-    c.restore();
-    c.strokeStyle = "rgba(255,225,180,0.45)"; c.lineWidth = 1.2;
-    c.beginPath(); c.moveTo(T.nl, T.ny); c.lineTo(T.nr, T.ny); c.stroke();
-    c.strokeStyle = "rgba(0,0,0,0.35)"; c.lineWidth = 1;
-    c.beginPath(); c.moveTo(T.fl, T.fy); c.lineTo(T.fr, T.fy); c.stroke();
-
-    // items + briefcase, far to near, with the slam shake
-    const list = BRF_ITEMS.map((it, i) => ({ it: it, v: it.v, i: i }));
-    if (b.caseObj && !b.caseHidden) list.push({ cs: true, v: b.caseObj.v + 0.02, i: 99 });
-    list.sort((p, q) => p.v - q.v);
-    const ts = b.tshake;
-    for (const e of list) {
-        const dy = ts > 0.02 ? -ts * (1.2 + (e.i % 3)) * Math.abs(Math.sin(b.time * 38 + e.i)) : 0;
-        if (e.cs) {
-            const cp = brfTP(b.caseObj.u, b.caseObj.v);
-            c.save(); c.translate(cp.x, cp.y + dy); c.scale(cp.s * 1.12, cp.s * 1.12 * 0.86); c.rotate(-0.05);
-            brfDrawBriefcaseClosed(c, 46, 32);
-            c.restore();
-        } else brfDrawItem(c, e.it, dy);
+function pbStepTweens(pb, sec) {
+    for (let i = pb.tweens.length - 1; i >= 0; i--) {
+        const tw = pb.tweens[i];
+        tw.t += sec;
+        const u = Math.min(1, tw.t / tw.dur);
+        const e = u * u * (3 - 2 * u);
+        tw.obj[tw.key] = tw.from + (tw.to - tw.from) * e;
+        if (u >= 1) pb.tweens.splice(i, 1);
     }
 }
 
-// ---------------- the room scene ----------------
-function brfDrawRoom(c, b) {
-    const R = b.room;
-    c.drawImage(R.cv, 0, 0, R.cv.width, R.cv.height, -R.M, -R.M, BRF_W + 2 * R.M, BRF_H + 2 * R.M);
-    const offs = [b.off[2], b.off[1], b.off[3]];
-    offs.forEach(o => brfDrawFarBody(c, o));
-    brfDrawTable(c, b);
-    brfDrawEnd(c, b.off[4], b);
-    brfDrawEnd(c, b.off[5], b);
-    offs.forEach(o => brfFarHands(c, o));
-    // warm lamp pool over the table
-    const lg = c.createRadialGradient(320, 190, 10, 320, 190, 240);
-    lg.addColorStop(0, "rgba(255,238,200,0.12)"); lg.addColorStop(1, "rgba(255,238,200,0)");
-    c.fillStyle = lg; c.fillRect(-100, -100, BRF_W + 200, BRF_H + 200);
-    // speaker marker
-    if (b.speaker && b.line && b.line.t < b.line.dur) {
-        const o = b.off[b.speaker], h = brfHeadPos(o), bob = Math.sin(b.time * 6) * 2;
-        const top = h.y - 22 + bob;
-        c.fillStyle = "#ffd166"; c.strokeStyle = "rgba(0,0,0,0.6)"; c.lineWidth = 1;
-        c.beginPath(); c.moveTo(h.x - 5, top - 6); c.lineTo(h.x + 5, top - 6); c.lineTo(h.x, top + 1); c.closePath(); c.fill(); c.stroke();
-    }
+// ---- camera: feeds the EXISTING camera focus / zoom hooks ----------
+function pbCam(pb, x, y, zoom, tau) {
+    const c = pb.cam;
+    c.tx = x; c.ty = y; c.tz = zoom; c.tau = tau || 1;
 }
 
-// ---------------- briefcase opening presentation (top-down) ----------------
-function brfDrawCaseScene(c, b, alpha) {
-    const W = GAME_WIDTH, H = GAME_HEIGHT, T = b.caseT;
-    c.save();
-    c.globalAlpha = alpha;
-    // dark desk + warm pool of light
-    let g = c.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, "#1b1511"); g.addColorStop(1, "#0b0908");
-    c.fillStyle = g; c.fillRect(0, 0, W, H);
-    g = c.createRadialGradient(W / 2, H / 2, 20, W / 2, H / 2, 300);
-    g.addColorStop(0, "rgba(255,226,170,0.32)"); g.addColorStop(1, "rgba(255,226,170,0)");
-    c.fillStyle = g; c.fillRect(0, 0, W, H);
+function pbCamStep(pb, sec) {
+    const c = pb.cam;
+    const k = c.tau > 0 ? 1 - Math.exp(-sec / c.tau) : 1;
+    c.x += (c.tx - c.x) * k;
+    c.y += (c.ty - c.y) * k;
+    c.zoom += (c.tz - c.zoom) * k;
+    window.sbCutsceneCamFocus = { x: c.x - 1, y: c.y - 1, size: 2 };   // main.js centres on this
+    window.sbCutsceneZoom = c.zoom;                                    // smoothed by sbUpdateCameraFeedback
+}
 
-    // camera: wide on the closed case, then moves towards the interior
-    const zi = brfEase((T - 2.6) / 2.0);
-    const z = brfLerp(0.9, 1.25, zi), cy = brfLerp(190, 186, zi);
-    const open = brfEase((T - 1.5) / 1.5);              // 0..1
-    const th = open * 3.0;                              // lid angle (rad)
-    const latch = brfEase((T - 0.9) / 0.5);
-    const intro = brfEase(T / 0.8);
-    c.translate(W / 2, H / 2); c.scale(z * (0.94 + 0.06 * intro), z * (0.94 + 0.06 * intro)); c.translate(-320, -cy);
+function pbFrameSpeaker(pb, id) {
+    const s = PB_SEATS[id - 1];
+    pbCam(pb, 360 + (s.x - 360) * 0.6, 250 + (s.y - 250) * 0.5, 1.3, 0.8);
+}
 
-    const L = 190, Tp = 118, CW = 260, CH = 170, R = L + CW, B = Tp + CH;
-    // shadow
-    c.fillStyle = "rgba(0,0,0,0.5)"; brfRR(c, L + 8, Tp + 10, CW, CH, 16); c.fill();
-    // base shell
-    g = c.createLinearGradient(0, Tp, 0, B); g.addColorStop(0, "#26262b"); g.addColorStop(1, "#0e0e11");
-    brfRR(c, L, Tp, CW, CH, 14); c.fillStyle = g; c.fill();
-    c.strokeStyle = "#3f3f48"; c.lineWidth = 1.5; c.stroke();
-    // interior (lining)
-    brfRR(c, L + 10, Tp + 10, CW - 20, CH - 20, 8);
-    g = c.createLinearGradient(0, Tp, 0, B); g.addColorStop(0, "#3d1822"); g.addColorStop(1, "#5a2330");
-    c.fillStyle = g; c.fill();
-    c.strokeStyle = "rgba(0,0,0,0.5)"; c.lineWidth = 3; c.stroke();
-    c.strokeStyle = "rgba(255,200,200,0.18)"; c.lineWidth = 1; c.setLineDash([3, 3]);
-    brfRR(c, L + 16, Tp + 16, CW - 32, CH - 32, 6); c.stroke(); c.setLineDash([]);
-    // empty pen loops + empty strap (nothing stored in them)
-    c.fillStyle = "rgba(0,0,0,0.35)";
-    for (let i = 0; i < 3; i++) brfRR(c, L + 24, Tp + 30 + i * 12, 20, 5, 2.5), c.fill();
-    c.fillStyle = "rgba(20,8,12,0.55)"; c.fillRect(L + 20, B - 44, CW - 40, 3);
-    // hinges
-    c.fillStyle = "#9a9ca4"; c.fillRect(L + 40, Tp - 3, 28, 7); c.fillRect(R - 68, Tp - 3, 28, 7);
+// ============================================================
+// START / FINISH
+// ============================================================
+function startPoliceBriefing() {
+    // Can never start twice, and never while / after the opening cutscene runs.
+    if (policeBriefingActive || policeBriefing || policeBriefingPlayed) return;
+    if (openingCutsceneActive || storyIntro) return;
+    if (hasSeenStoryIntro()) return;
+    policeBriefingPlayed = true;
 
-    // the single sheet of paper (only visible once the lid is lifting)
-    if (open > 0.05) {
-        const wob = T > 3.4 ? Math.sin(T * 1.6) * 0.012 : 0;
-        c.save(); c.translate(320, 204); c.rotate(-0.05 + wob);
-        c.fillStyle = "rgba(0,0,0,0.4)"; c.fillRect(-84, -62, 176, 132);
-        c.fillStyle = "#f7f4ea"; c.fillRect(-88, -66, 176, 132);
-        c.strokeStyle = "rgba(0,0,0,0.08)"; c.lineWidth = 1;
-        c.beginPath(); c.moveTo(-88, 0); c.lineTo(88, 0); c.stroke();
-        const pulse = T > 3.6 ? 1 + Math.sin(T * 2.4) * 0.025 : 1;
-        c.font = Math.round(88 * pulse) + "px " + BRF_EMOJI_FONT;
-        c.textAlign = "center"; c.textBaseline = "middle"; c.fillStyle = "#000";
-        c.fillText("\uD83D\uDE02", 0, 4);
-        c.restore();
-    }
+    const gc = document.getElementById("gameContainer");
+    const joy = document.getElementById("joystickZone");
 
-    // lid: hinged on the far (top) edge
-    const cs = Math.cos(th), sn = Math.sin(th);
-    const hgt = CH * cs, sc = 1 + 0.07 * Math.abs(sn);
-    const x0 = L, x1 = R, y0 = Tp, y1 = Tp + hgt;
-    const inset = (CW * sc - CW) / 2;
-    c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y0); c.lineTo(x1 + inset, y1); c.lineTo(x0 - inset, y1); c.closePath();
-    if (cs >= 0) {
-        g = c.createLinearGradient(0, y0, 0, y1 === y0 ? y0 + 1 : y1);
-        g.addColorStop(0, "#2a2a30"); g.addColorStop(1, "#0f0f12");
-        c.fillStyle = g; c.fill(); c.strokeStyle = "#444450"; c.lineWidth = 1.5; c.stroke();
-        if (hgt > 8) {
-            c.save(); c.translate(320, y0 + hgt / 2); c.scale(1, Math.max(0.05, cs));
-            c.strokeStyle = "rgba(255,255,255,0.16)"; c.setLineDash([3, 3]); brfRR(c, -CW / 2 + 12, -CH / 2 + 12, CW - 24, CH - 24, 8); c.stroke(); c.setLineDash([]);
-            brfRR(c, -50, CH / 2 - 44, 100, 12, 6); c.strokeStyle = "#050506"; c.lineWidth = 5; c.stroke();
-            // lock plate + latches
-            const lo = latch * 5;
-            c.fillStyle = "#d4af37";
-            [-CW * 0.3, CW * 0.3].forEach(lx => { c.fillRect(lx - 14, CH / 2 - 26 + lo, 28, 16); c.fillStyle = "#7b5f14"; c.fillRect(lx - 4, CH / 2 - 22 + lo, 8, 8); c.fillStyle = "#d4af37"; });
-            brfRR(c, -16, CH / 2 - 22, 32, 14, 3); c.fill();
-            c.fillStyle = "#222"; c.fillRect(-1.5, CH / 2 - 19, 3, 7);
-            c.restore();
+    const pb = policeBriefing = {
+        t: 0,
+        gen: null, waitSec: 0, until: null, finished: false,
+        tweens: [],
+        black: 1,                 // full-screen black (canvas overlay)
+        titleAlpha: 0,
+        officials: [], drawOrder: [], rt: [],
+        speaker: 0, addr: 0, lookAt: null,
+        act: {},                  // active gestures by official id
+        shake: 0,                 // table jolt when a hand slams on it
+        cam: { x: 360, y: 222, zoom: 0.8, tx: 360, ty: 222, tz: 0.8, tau: 1 },
+        briefcase: { x: 430, y: 284, a: 0.12, lid: 0, paper: 0, alpha: 1, visible: true },
+        puz: null,
+        snap: {
+            isInsideHouse: isInsideHouse,
+            ispassenger: player.ispassenger,
+            camAngle: camera.angle,
+            camTargetAngle: camera.targetAngle,
+            joyDisplay: joy ? joy.style.display : "",
+            zoom: sbCameraZoom
         }
-    } else {
-        g = c.createLinearGradient(0, y0, 0, y1);
-        g.addColorStop(0, "#4a1e29"); g.addColorStop(1, "#6a2a38");
-        c.fillStyle = g; c.fill(); c.strokeStyle = "#2a2a30"; c.lineWidth = 3; c.stroke();
-        c.save(); c.translate(320, y0 + hgt / 2); c.scale(1, Math.max(0.05, -cs));
-        c.strokeStyle = "rgba(255,200,200,0.2)"; c.setLineDash([3, 3]); brfRR(c, -CW / 2 + 16, -CH / 2 + 16, CW - 32, CH - 32, 6); c.stroke(); c.setLineDash([]);
-        c.restore();
-    }
-    c.restore();
-    // vignette
-    c.save(); c.globalAlpha = alpha;
-    const vg = c.createRadialGradient(W / 2, H / 2, 120, W / 2, H / 2, 420);
-    vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,0.6)");
-    c.fillStyle = vg; c.fillRect(0, 0, W, H); c.restore();
-}
+    };
 
-// ---------------- dialogue box ----------------
-function brfWrap(c, text, maxW) {
-    const words = text.split(" "), lines = []; let cur = "";
-    for (const w of words) {
-        const t = cur ? cur + " " + w : w;
-        if (c.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; } else cur = t;
+    // The five officials: ordinary NPC instances (not added to npcs[]).
+    for (let i = 0; i < 5; i++) {
+        const L = PB_LOOKS[i], S = PB_SEATS[i];
+        const n = new NPC(61001 + i, S.x, S.y, L.shirt, L.hair, L.skin, false);
+        n.size = PB_SIZE;
+        n.speed = 0;
+        n.canFightBack = false;
+        n.isFightingBack = false;
+        n.punchTimer = 0;
+        n.walkTimer = 0;
+        n.angle = S.face;
+        n.formalWear = { accent: L.accent };      // new, opt-in clothing detail (entities.js)
+        n.topLayerSpeech = true;                  // bubbles are drawn in the top layer
+        n.briefingPose = { l: { x: -0.36, y: -0.74 }, r: { x: 0.36, y: -0.74 } };
+        n.briefingLean = 0;
+        n.briefingHeadTurn = 0;
+        pb.officials.push(n);
+        pb.rt.push({ look: 0, sway: 0 });
     }
-    if (cur) lines.push(cur);
-    return lines;
-}
-function brfDrawDialogue(c, b) {
-    const L = b.line;
-    if (!L || b.boxA < 0.02) return;
-    const W = GAME_WIDTH, H = GAME_HEIGHT;
-    const bw = 560, bh = 64, bx = (W - bw) / 2, by = H - bh - 24;
-    c.save(); c.globalAlpha = b.boxA;
-    const o = b.off[L.id], hp = o ? brfHeadPos(o) : { x: 320 };
-    const sx = brfClamp((hp.x - b.cam.x) * b.cam.z + W / 2, bx + 26, bx + bw - 26);
-    c.fillStyle = "rgba(8,12,20,0.86)"; brfRR(c, bx, by, bw, bh, 9); c.fill();
-    c.beginPath(); c.moveTo(sx - 8, by + 0.5); c.lineTo(sx + 8, by + 0.5); c.lineTo(sx, by - 8); c.closePath(); c.fill();
-    c.strokeStyle = "rgba(255,209,102,0.85)"; c.lineWidth = 1.5;
-    brfRR(c, bx, by, bw, bh, 9); c.stroke();
-    c.strokeStyle = "rgba(255,209,102,0.5)";
-    c.beginPath(); c.moveTo(sx - 8, by - 0.5); c.lineTo(sx, by - 8); c.lineTo(sx + 8, by - 0.5); c.stroke();
-    c.font = "600 14px 'Segoe UI', Arial, sans-serif";
-    c.textAlign = "left"; c.textBaseline = "alphabetic"; c.fillStyle = "#f6f6f2";
-    const lines = brfWrap(c, L.text, bw - 40);
-    let shown = Math.ceil(L.text.length * brfClamp(L.t / Math.max(0.05, L.reveal), 0, 1));
-    const lh = 19, top = by + (bh - lines.length * lh) / 2 + 14;
-    lines.forEach((ln, i) => {
-        const n = Math.max(0, Math.min(ln.length, shown));
-        shown -= ln.length + 1;
-        if (n > 0) c.fillText(ln.substring(0, n), bx + 20, top + i * lh);
-    });
-    c.restore();
-}
+    pb.drawOrder = pb.officials.slice().sort((a, b) => a.y - b.y);
 
-// ---------------- keypad overlay (DOM) ----------------
-function brfInjectStyle(b) {
-    if (document.getElementById("sbBrfStyle")) return;
-    const s = document.createElement("style");
-    s.id = "sbBrfStyle";
-    s.textContent = [
-        "#sbBrf{position:absolute;left:0;top:0;width:" + GAME_WIDTH + "px;height:" + GAME_HEIGHT + "px;z-index:7000;pointer-events:none;font-family:'Courier New',monospace;user-select:none;-webkit-user-select:none}",
-        "#sbBrf .pn{position:absolute;left:" + ((GAME_WIDTH - 300) / 2) + "px;top:" + ((GAME_HEIGHT - 300) / 2) + "px;width:300px;height:300px;box-sizing:border-box;padding:10px 16px 12px;border-radius:9px;background:linear-gradient(160deg,#1d2935,#0e151d);border:2px solid #3b4b5e;box-shadow:0 0 0 2px #080c11,0 12px 34px rgba(0,0,0,.75),inset 0 0 22px rgba(80,140,200,.14);pointer-events:auto;touch-action:none;opacity:0;transform:scale(.93);transition:opacity .3s,transform .3s}",
-        "#sbBrf .pn.show{opacity:1;transform:scale(1)}",
-        "#sbBrf .hd{display:flex;align-items:center;justify-content:space-between;height:16px;margin-bottom:7px;font-size:9px;letter-spacing:2px;color:#8fb0cf}",
-        "#sbBrf .led{width:8px;height:8px;border-radius:50%;background:#d33;box-shadow:0 0 6px #d33;margin-right:6px;display:inline-block;vertical-align:middle}",
-        "#sbBrf .led.ok{background:#2ecc71;box-shadow:0 0 8px #2ecc71}",
-        "#sbBrf .scr{position:absolute;width:5px;height:5px;border-radius:50%;background:#5b6b7d;box-shadow:inset 0 0 1px #000}",
-        "#sbBrf .bar{height:36px;box-sizing:border-box;margin-bottom:10px;border:2px solid #38566f;border-radius:4px;background:#05080b;display:flex;align-items:center;padding:0 10px;overflow:hidden}",
-        "#sbBrf .tx{font-size:22px;font-weight:bold;letter-spacing:5px;color:#fff;white-space:nowrap}",
-        "#sbBrf .cr{display:inline-block;width:2px;height:20px;background:#9bd;margin-left:2px;animation:sbBrfBlink 1s steps(1) infinite}",
-        "@keyframes sbBrfBlink{50%{opacity:0}}",
-        "#sbBrf .bar.wrong{animation:sbBrfShake .45s}",
-        "#sbBrf .bar.wrong .tx{animation:sbBrfRed .6s}",
-        "@keyframes sbBrfRed{0%,100%{color:#fff}12%,40%{color:#ff2d2d}26%,54%{color:#fff}68%{color:#ff2d2d}84%{color:#fff}}",
-        "@keyframes sbBrfShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-5px)}40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(3px)}}",
-        "#sbBrf .bar.ok{animation:sbBrfGreen 1.2s forwards}",
-        "@keyframes sbBrfGreen{0%{background:#05080b;border-color:#38566f}10%,30%{background:#1fa64f;border-color:#6dffa0}42%,58%{background:#05080b;border-color:#38566f}68%,100%{background:#1fa64f;border-color:#6dffa0}}",
-        "#sbBrf .kp{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}",
-        "#sbBrf .k{height:30px;border-radius:4px;border:1px solid #4d657b;background:linear-gradient(#2e3d4d,#1b2530);color:#e8f1f8;font:bold 15px 'Courier New',monospace;padding:0;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;outline:none}",
-        "#sbBrf .k.sp{font-size:10px;letter-spacing:1px}",
-        "#sbBrf .k.rm{color:#ffc766}#sbBrf .k.cl{color:#ff8a80}",
-        "#sbBrf .k.sb{grid-column:1/4;color:#7dffae;border-color:#3f8a5c;background:linear-gradient(#244a35,#16301f)}",
-        "#sbBrf .k.fx{transform:translateY(1px);filter:brightness(1.6);background:#3c5368}",
-        "#sbBrf .pn.lock .k{opacity:.55}",
-        "#sbBrf .nt{position:absolute;left:" + ((GAME_WIDTH - 300) / 2 + 292) + "px;top:84px;width:150px;box-sizing:border-box;padding:16px 12px 14px;background:linear-gradient(170deg,#f6ecc0,#e8d9a0);color:#3a2d16;font:italic 13px/1.28 'Bradley Hand','Segoe Print','Comic Sans MS',cursive;transform:rotate(3.5deg);box-shadow:2px 5px 9px rgba(0,0,0,.6);pointer-events:none;opacity:0;transition:opacity .4s .15s}",
-        "#sbBrf .nt.show{opacity:1}",
-        "#sbBrf .nt:before{content:'';position:absolute;left:46px;top:-8px;width:52px;height:15px;background:rgba(235,235,225,.55);transform:rotate(-4deg);box-shadow:0 1px 2px rgba(0,0,0,.25)}",
-        "#sbBrf .nt:after{content:'';position:absolute;left:-9px;bottom:10px;width:30px;height:12px;background:rgba(235,235,225,.5);transform:rotate(-38deg);box-shadow:0 1px 2px rgba(0,0,0,.25)}"
-    ].join("\n");
-    document.head.appendChild(s);
-}
-
-function brfEl(tag, cls, text) {
-    const e = document.createElement(tag);
-    if (cls) e.className = cls;
-    if (text !== undefined) e.textContent = text;
-    return e;
-}
-
-function brfOpenPuzzle(b) {
-    if (b.pz) return;
-    brfInjectStyle(b);
-    const host = document.getElementById("gameContainer") || gameStage;
-    const root = brfEl("div"); root.id = "sbBrf";
-    const pn = brfEl("div", "pn");
-    [[5, 5], [290, 5], [5, 290], [290, 290]].forEach(p => { const s = brfEl("div", "scr"); s.style.left = p[0] + "px"; s.style.top = p[1] + "px"; pn.appendChild(s); });
-    const hd = brfEl("div", "hd");
-    const left = brfEl("span"); const led = brfEl("i", "led"); left.appendChild(led); left.appendChild(brfEl("span", "", "EVIDENCE LOCK"));
-    hd.appendChild(left); hd.appendChild(brfEl("span", "", "8-DIGIT"));
-    pn.appendChild(hd);
-    const bar = brfEl("div", "bar"); const tx = brfEl("span", "tx"); const cr = brfEl("span", "cr");
-    bar.appendChild(tx); bar.appendChild(cr); pn.appendChild(bar);
-    const kp = brfEl("div", "kp"); pn.appendChild(kp);
-    const defs = [["1", "digit:1"], ["2", "digit:2"], ["3", "digit:3"], ["4", "digit:4"], ["5", "digit:5"], ["6", "digit:6"],
-    ["7", "digit:7"], ["8", "digit:8"], ["9", "digit:9"], ["REMOVE", "remove", "sp rm"], ["0", "digit:0"], ["CLEAR", "clear", "sp cl"], ["SUBMIT", "submit", "sp sb"]];
-    const p = { root: root, pn: pn, bar: bar, tx: tx, cr: cr, led: led, pw: "", state: "input", ready: false, t: 0, okT: 0, solved: false, btns: {}, fx: [] };
-    defs.forEach(d => {
-        const k = brfEl("button", "k " + (d[2] || ""), d[0]);
-        k.type = "button"; k.tabIndex = -1;
-        p.btns[d[1]] = k;
-        k.addEventListener("pointerdown", e => {
-            e.preventDefault(); e.stopPropagation();
-            if (e.pointerType === "mouse" && e.button !== 0) return;
-            brfPressFx(p, k);
-            brfDoAction(b, d[1]);
-        });
-        k.addEventListener("mousedown", e => e.preventDefault());   // never steal focus
-        k.addEventListener("contextmenu", e => e.preventDefault());
-        kp.appendChild(k);
-    });
-    bar.addEventListener("animationend", () => { if (p.state === "input") bar.classList.remove("wrong"); });
-    const nt = brfEl("div", "nt", BRF_HINT);
-    root.appendChild(pn); root.appendChild(nt);
-    host.appendChild(root);
-    p.nt = nt;
-    b.pz = p;
-    brfRefreshBar(p);
-    void pn.offsetWidth;
-    pn.classList.add("show"); nt.classList.add("show");
-}
-function brfPressFx(p, el) { el.classList.add("fx"); p.fx.push({ el: el, t: 0.12 }); }
-function brfRefreshBar(p) {
-    p.tx.textContent = p.pw;
-    p.cr.style.display = p.state === "input" && p.pw.length < BRF_PW_LEN ? "inline-block" : "none";
-}
-function brfDoAction(b, act) {
-    const p = b.pz;
-    if (!p || p.state !== "input" || !p.ready) return false;
-    if (act.indexOf("digit:") === 0) { if (p.pw.length < BRF_PW_LEN) p.pw += act.charAt(6); }
-    else if (act === "remove") p.pw = p.pw.slice(0, -1);
-    else if (act === "clear") p.pw = "";
-    else if (act === "submit") { brfSubmit(b); return true; }
-    brfRefreshBar(p);
-    return true;
-}
-function brfSubmit(b) {
-    const p = b.pz;
-    if (p.pw === BRF_PASSWORD) {
-        p.state = "ok"; p.okT = 0;
-        p.bar.classList.remove("wrong"); p.bar.classList.add("ok");
-        p.led.classList.add("ok"); p.pn.classList.add("lock");
-        brfRefreshBar(p);
-        try {
-            if (typeof PHONE_MESSAGE_SOUND_URL === "string") {   // existing short chime asset
-                const a = new Audio(PHONE_MESSAGE_SOUND_URL); a.volume = 0.8; a.play().catch(() => { });
-            }
-        } catch (e) { }
-    } else {
-        p.bar.classList.remove("wrong"); void p.bar.offsetWidth; p.bar.classList.add("wrong");
-    }
-}
-function brfUpdatePuzzle(b, ds) {
-    const p = b.pz; if (!p) return;
-    p.t += ds;
-    if (p.t > 0.45) p.ready = true;
-    for (let i = p.fx.length - 1; i >= 0; i--) {
-        p.fx[i].t -= ds;
-        if (p.fx[i].t <= 0) { p.fx[i].el.classList.remove("fx"); p.fx.splice(i, 1); }
-    }
-    if (p.state === "ok") {
-        p.okT += ds;
-        if (p.okT > 1.55) { p.pn.classList.remove("show"); p.nt.classList.remove("show"); }
-        if (p.okT > 2.0 && !p.solved) { p.solved = true; brfDestroyPuzzle(b); }
-    }
-}
-function brfDestroyPuzzle(b) {
-    const p = b.pz; if (!p) return;
-    if (p.root && p.root.parentNode) p.root.parentNode.removeChild(p.root);
-    p.fx.length = 0; p.btns = {};
-}
-
-// Keyboard: captured on window while the briefing runs, so nothing reaches the game.
-function brfOnKey(e) {
-    const b = briefing; if (!b) return;
-    e.stopImmediatePropagation();
-    const key = e.key, mod = e.ctrlKey || e.metaKey || e.altKey;
-    const p = b.pz, live = p && p.state === "input" && p.ready;
-    let act = null;
-    if (!mod) {
-        if (key.length === 1 && key >= "0" && key <= "9") act = "digit:" + key;
-        else if (key === "Backspace") act = "remove";
-        else if (key === "Escape") act = "clear";
-        else if (key === "Enter") act = "submit";
-    }
-    if (act || key === " " || key === "Spacebar" || key.indexOf("Arrow") === 0 || key === "Tab") e.preventDefault();
-    if (e.type !== "keydown" || e.repeat && act !== "remove") return;
-    if (act && live && brfDoAction(b, act)) { const el = p.btns[act]; if (el) brfPressFx(p, el); }
-}
-
-// ---------------- update ----------------
-function brfUpdateOfficial(b, o, ds) {
-    o.t += ds;
-    for (const k in o.tg) o.ch[k] += (o.tg[k] - o.ch[k]) * Math.min(1, ds * (k === "stand" ? 4 : 6));
-    const talking = b.speaker === o.id && b.line && b.line.t < b.line.dur && b.line.t < b.line.reveal + 0.7;
-    const mt = talking ? 0.35 + 0.65 * Math.abs(Math.sin(o.t * 14 + o.id)) : 0;
-    o.mouthS += (mt - o.mouthS) * Math.min(1, ds * 18);
-    o.lookT -= ds;
-    if (o.lookT <= 0) {
-        o.lookT = 1.5 + Math.random() * 2.8;
-        const sp = b.speaker && b.speaker !== o.id ? b.off[b.speaker] : null;
-        if (sp && Math.random() < 0.75) {
-            const toward = (sp.x - o.x) * (o.kind === "end" ? o.dir : 1);
-            o.ltx = o.kind === "end" ? (toward > 0 ? 0.9 : -0.3) : brfClamp((sp.x - o.x) / 100, -1, 1);
-            o.lty = -0.1;
-        } else { o.ltx = (Math.random() - 0.5) * 1.2; o.lty = Math.random() < 0.4 ? 0.8 : 0.1; }
-    }
-    o.lx += (o.ltx - o.lx) * Math.min(1, ds * 4);
-    o.ly += (o.lty - o.ly) * Math.min(1, ds * 4);
-    o.blinkT -= ds;
-    if (o.blinkT <= 0) { o.blink = 0.14; o.blinkT = 2.5 + Math.random() * 3.5; }
-    if (o.blink > 0) o.blink = Math.max(0, o.blink - ds);
-    if (o.slamT > 0) {
-        o.slamT += ds;
-        if (!o.slamHit && o.slamT >= 0.38) {
-            o.slamHit = true; b.tshake = 1; b.shake = Math.max(b.shake, 7);
-            try { if (typeof npcHitPool !== "undefined") npcHitPool.play(0.9); } catch (e) { }
-        }
-        if (o.slamT > 1.0) { o.slamT = 0; o.slamHit = false; }
-    }
-}
-
-function updatePoliceBriefing(dt) {
-    const b = briefing;
-    if (!b || !briefingActive) return;
-    try {
-        const ds = Math.min(dt, 4) / 60;
-        b.time += ds;
-        // tweens
-        for (let i = b.tw.length - 1; i >= 0; i--) {
-            const tw = b.tw[i]; tw.t += ds;
-            const u = brfClamp(tw.t / tw.dur, 0, 1);
-            b.v[tw.k] = brfLerp(tw.a, tw.to, brfEase(u));
-            if (u >= 1) { tw.done = true; b.tw.splice(i, 1); }
-        }
-        // dialogue line + cues
-        if (b.line && b.line.t < b.line.dur + b.line.gap) {
-            b.line.t += ds;
-            for (const cu of b.line.cues) if (!cu.done && b.line.t >= cu.t) { cu.done = true; cu.fn(b); }
-        }
-        const boxT = b.line && b.line.t < b.line.dur ? 1 : 0;
-        b.boxA += (boxT - b.boxA) * Math.min(1, ds * 10);
-        // briefcase sliding across the table
-        if (b.caseSlide) {
-            const s = b.caseSlide; s.t += ds;
-            const u = brfClamp(s.t / s.dur, 0, 1), e = 1 - Math.pow(1 - u, 3);
-            b.caseObj.u = brfLerp(s.u0, s.u1, e);
-            if (u >= 1) b.caseSlide = null;
-        }
-        if (b.caseOn) b.caseT += ds;
-        b.tshake = Math.max(0, b.tshake - ds * 2.2);
-        b.shake = Math.max(0, b.shake - ds * 14);
-        for (const id in b.off) brfUpdateOfficial(b, b.off[id], ds);
-        // camera
-        if (b.follow) {
-            const h = brfHeadPos(b.off[b.follow.id]);
-            b.camT.x = h.x + (320 - h.x) * 0.2;
-            b.camT.y = h.y + b.follow.dy / b.follow.z;
-        }
-        const k = 1 - Math.exp(-b.camT.rate * ds * 2.2);
-        b.cam.x += (b.camT.x - b.cam.x) * k;
-        b.cam.y += (b.camT.y - b.cam.y) * k;
-        b.cam.z += (b.camT.z - b.cam.z) * k;
-        if (b.pz) brfUpdatePuzzle(b, ds);
-        // director
-        let guard = 0;
-        while (briefing === b && b.si < b.steps.length && guard++ < 40) {
-            const st = b.steps[b.si];
-            if (!st.begun) { st.begun = true; st.t = 0; if (st.start) st.start(b, st); }
-            else st.t += ds;
-            if (briefing !== b) return;
-            if (!st.done || st.done(b, st)) { if (st.end) st.end(b); b.si++; } else break;
-        }
-    } catch (err) {
-        console.error("[Briefing] aborted:", err);
-        finishPoliceBriefing();
-    }
-}
-
-// ---------------- draw ----------------
-function drawPoliceBriefing(c) {
-    const b = briefing;
-    if (!b || !briefingActive) return;
-    try {
-        const W = GAME_WIDTH, H = GAME_HEIGHT, v = b.v;
-        c.fillStyle = "#000"; c.fillRect(0, 0, W, H);
-        if (v.black < 1) {
-            const sw = b.sway, sx = Math.sin(b.time * 0.9) * 1.1 * sw, sy = Math.cos(b.time * 0.7) * 0.8 * sw;
-            const shx = (Math.random() - 0.5) * b.shake, shy = (Math.random() - 0.5) * b.shake;
-            c.save();
-            c.translate(W / 2 + shx, H / 2 + shy); c.scale(b.cam.z, b.cam.z); c.translate(-b.cam.x - sx, -b.cam.y - sy);
-            brfDrawRoom(c, b);
-            c.restore();
-            if (v.caseA > 0.01) brfDrawCaseScene(c, b, v.caseA);
-            if (v.dim > 0.01) { c.fillStyle = "rgba(0,0,0," + v.dim + ")"; c.fillRect(0, 0, W, H); }
-            const vg = c.createRadialGradient(W / 2, H / 2, 150, W / 2, H / 2, 420);
-            vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,0.5)");
-            c.fillStyle = vg; c.fillRect(0, 0, W, H);
-            if (v.bars > 0.01) { const bh = 16 * v.bars; c.fillStyle = "#000"; c.fillRect(0, 0, W, bh); c.fillRect(0, H - bh, W, bh); }
-            brfDrawDialogue(c, b);
-        }
-        if (v.black > 0.001) { c.fillStyle = "rgba(0,0,0," + v.black + ")"; c.fillRect(0, 0, W, H); }
-        if (v.intro > 0.01) {
-            c.save(); c.globalAlpha = v.intro;
-            c.fillStyle = "#fff"; c.font = "italic 24px Georgia, 'Times New Roman', serif";
-            c.textAlign = "center"; c.textBaseline = "middle";
-            c.fillText("At the intelligence office...", W / 2, H / 2);
-            c.restore();
-        }
-    } catch (err) {
-        console.error("[Briefing] draw error:", err);
-        if (++b.drawErrors > 3) finishPoliceBriefing();
-    }
-}
-
-// ---------------- start / finish ----------------
-function startPoliceBriefing(onDone) {
-    // Can never start twice.
-    if (briefingActive || briefing) return;
-    if (typeof openingCutsceneActive !== "undefined" && openingCutsceneActive) return;
-
-    gameActive = false;
+    // Same entry housekeeping startOpeningCutscene performs.
     showFullMap = false;
     fullMapAnimating = false;
     playerPhoneOpen = false;
     if (typeof closePlayerPhone === "function") closePlayerPhone();
-    try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (e) { }
+    gameActive = false;
 
-    const b = briefing = {
-        time: 0, v: { black: 1, intro: 0, dim: 0, caseA: 0, bars: 0 }, tw: [],
-        cam: { x: 320, y: 180, z: 1 }, camT: { x: 320, y: 180, z: 1, rate: 1 }, follow: null,
-        sway: 0.4, shake: 0, tshake: 0, off: {}, speaker: 0, line: null, boxA: 0,
-        caseObj: { u: 0.9, v: 0.45 }, caseSlide: null, caseOn: false, caseT: 0, caseHidden: false,
-        pz: null, steps: [], si: 0, room: null, onDone: onDone, finished: false, drawErrors: 0, keyFn: null
-    };
-    BRF_DEFS.forEach(d => { b.off[d.id] = brfMakeOfficial(d); });
-    b.room = brfRenderRoom();
-    b.steps = brfBuildSteps(b);
-    briefingActive = true;
+    camera.angle = 0;
+    camera.targetAngle = 0;
+    player.ispassenger = true;            // the player is not part of this scene
+    isInsideHouse = true;                 // existing indoor mode (outdoor layers off)
+    sbCameraZoom = 0.8;
 
-    b.keyFn = brfOnKey;
-    ["keydown", "keyup", "keypress"].forEach(t => window.addEventListener(t, b.keyFn, true));
-    const gc = document.getElementById("gameContainer");
-    if (gc) gc.classList.add("opening-cutscene");     // same HUD hiding as the SUV cutscene
+    if (gc) gc.classList.add("opening-cutscene");     // existing class: hides gameplay controls
+    if (joy) joy.style.display = "none";              // so it cannot sit on top of the keypad
+
+    pb.gen = pbScript(pb);
+    policeBriefingActive = true;
 
     if (typeof resizeCanvas === "function") resizeCanvas();
     updatePoliceBriefing(0);
     if (typeof drawGame === "function") drawGame();
 }
 
-function brfTeardown(b) {
-    if (b.keyFn) {
-        ["keydown", "keyup", "keypress"].forEach(t => window.removeEventListener(t, b.keyFn, true));
-        b.keyFn = null;
+function finishPoliceBriefing() {
+    const pb = policeBriefing;
+    if (!pb) return;
+
+    // Drop every reference first: nothing can run or draw after this point.
+    policeBriefing = null;
+    policeBriefingActive = false;
+    pb.gen = null;
+    pb.tweens.length = 0;
+    pb.officials.length = 0;
+    pb.drawOrder.length = 0;
+
+    window.sbCutsceneCamFocus = null;
+    delete window.sbCutsceneZoom;
+    sbCameraZoom = 1;                      // the opening cutscene starts from the normal zoom
+
+    isInsideHouse = pb.snap.isInsideHouse;
+    player.ispassenger = pb.snap.ispassenger;
+    camera.angle = pb.snap.camAngle;
+    camera.targetAngle = pb.snap.camTargetAngle;
+
+    const joy = document.getElementById("joystickZone");
+    if (joy) joy.style.display = pb.snap.joyDisplay;
+
+    // Clean handoff to the untouched opening cutscene.
+    startOpeningCutscene();
+
+    // If it could not start (no overlay element) it already resumed the game.
+    if (!openingCutsceneActive) {
+        const gc = document.getElementById("gameContainer");
+        if (gc) gc.classList.remove("opening-cutscene");
     }
-    brfDestroyPuzzle(b);
-    b.tw.length = 0; b.steps.length = 0; b.line = null; b.caseSlide = null;
-    const st = document.getElementById("sbBrfStyle");
-    if (st && st.parentNode) st.parentNode.removeChild(st);
-    if (b.room) { b.room.cv.width = 0; b.room.cv.height = 0; b.room = null; }
 }
 
-function finishPoliceBriefing() {
-    const b = briefing;
-    if (!b || b.finished) return;
-    b.finished = true;
-    brfTeardown(b);
-    briefing = null;
-    briefingActive = false;
-    const gc = document.getElementById("gameContainer");
-    if (gc) gc.classList.remove("opening-cutscene");  // the next cutscene re-adds it synchronously
-    const cb = b.onDone;
-    if (typeof cb === "function") {
-        try { cb(); } catch (err) { console.error("[Briefing] hand-over failed:", err); gameActive = true; }
+// ============================================================
+// PER-FRAME (called from updateGame while policeBriefingActive)
+// ============================================================
+function updatePoliceBriefing(dt) {
+    const pb = policeBriefing;
+    if (!pb || !policeBriefingActive) return;
+
+    try {
+        const sec = dt / 60;
+        pb.t += sec;
+
+        // Script runner: the script yields seconds to wait, or a function to wait on.
+        pb.waitSec -= sec;
+        if (pb.until && pb.until()) pb.until = null;
+        let guard = 0;
+        while (!pb.finished && pb.waitSec <= 0 && !pb.until && guard++ < 40) {
+            const r = pb.gen.next();
+            if (r.done) { pb.finished = true; break; }
+            if (typeof r.value === "number") pb.waitSec = r.value;
+            else if (typeof r.value === "function") pb.until = r.value;
+        }
+
+        pbStepTweens(pb, sec);
+        pbStepPuzzle(pb, sec);
+        for (let i = 0; i < 5; i++) pbAnimOfficial(pb, i, sec);
+        pb.shake *= Math.exp(-sec / 0.22);
+        pbCamStep(pb, sec);
+
+        if (pb.finished) finishPoliceBriefing();
+    } catch (err) {
+        // Never leave the player stuck in a broken cinematic.
+        console.error("[Police briefing] aborted:", err);
+        finishPoliceBriefing();
+    }
+}
+
+// ============================================================
+// SCRIPT
+// ============================================================
+function* pbSay(pb, id, text, opt) {
+    opt = opt || {};
+    const n = pb.officials[id - 1];
+    const chunks = (typeof synChunk === "function") ? synChunk(text, 46) : [text];
+    const durs = chunks.map(c => Math.max(1.5, Math.min(4.2, 1.0 + c.length * 0.045)));
+    const total = durs.reduce((a, b) => a + b, 0);
+
+    pb.speaker = id;
+    pb.addr = opt.to || 0;
+    if (opt.cam) pbCam(pb, opt.cam[0], opt.cam[1], opt.cam[2], opt.cam[3]);
+    else pbFrameSpeaker(pb, id);
+    if (opt.kind) pbGesture(pb, id, opt.kind, total + 0.4);
+
+    for (let k = 0; k < chunks.length; k++) {
+        n.say(chunks[k], Math.ceil(durs[k] * 60) + 60);
+        yield durs[k];
+    }
+    n.speechText = null;
+    n.speechTimer = 0;
+    pb.speaker = 0;
+    pb.addr = 0;
+    yield (opt.gap === undefined ? 0.35 : opt.gap);
+}
+
+function pbGesture(pb, id, kind, dur) {
+    pb.act[id] = { kind: kind, t: 0, dur: dur, hit: false };
+}
+
+function* pbScript(pb) {
+    const B = pb.briefcase;
+
+    // ---- opening: black screen + title card --------------------------
+    yield 0.7;
+    pbTween(pb, pb, "titleAlpha", 1, 1.3);
+    yield 3.3;
+    pbTween(pb, pb, "titleAlpha", 0, 1.0);
+    yield 1.6;
+
+    // ---- fade into the room: establishing shot, then towards the table
+    pbTween(pb, pb, "black", 0, 1.8);
+    yield 2.4;
+    pbCam(pb, 360, 244, 1.02, 2.6);
+    yield 2.8;
+
+    // ---- first discussion ---------------------------------------------
+    yield* pbSay(pb, 1, "Three months. Victor's Syndicate is still growing.");
+    yield* pbSay(pb, 2, "We've arrested twelve of his men. It changes nothing.", { to: 3 });
+    yield* pbSay(pb, 3, "Because you keep catching his soldiers, not their commander.", { to: 2 });
+    yield* pbSay(pb, 2, "And what's your brilliant plan?", { to: 3 });
+    yield* pbSay(pb, 3, "Maybe stop letting Victor know about our raids before we do.", { to: 2, kind: "sarcasm" });
+    yield* pbSay(pb, 4, "Enough. His network controls weapons, stolen cars and black-market operations. He's practically running a second government.");
+
+    // the briefcase is presented: it slides to the middle of the table
+    pbTween(pb, B, "x", 378, 1.6);
+    pbTween(pb, B, "y", 252, 1.6);
+    pbTween(pb, B, "a", 0, 1.6);
+    yield* pbSay(pb, 5, "Then perhaps this will help. We recovered a briefcase from one of Victor's couriers.");
+
+    pb.lookAt = B;                                   // everybody looks at the case
+    yield* pbSay(pb, 1, "Open it. Now.", { cam: [330, 250, 1.45, 1.0] });
+
+    // ---- puzzle (dialogue is paused until it is solved) ---------------
+    pbCam(pb, B.x, B.y, 1.9, 1.2);
+    pb.puz = {
+        open: true, openT: 0, alpha: 0, closeT: 0,
+        digits: "", locked: false, solved: false, done: false,
+        wrongT: 0, okT: 0, pressed: null, pressT: 0
+    };
+    yield () => pb.puz.done;
+
+    // ---- briefcase reveal ---------------------------------------------
+    pbCam(pb, B.x, B.y, 3.3, 1.1);
+    yield 1.5;
+    pbCam(pb, B.x, B.y - 16, 3.3, 1.3);              // the camera drifts to the interior
+    pbTween(pb, B, "lid", 1, 1.9);
+    yield 2.3;
+    pbTween(pb, B, "paper", 1, 0.9);
+    yield 3.6;                                       // hold on the paper
+    pbTween(pb, B, "alpha", 0, 0.8);
+    yield 0.9;
+    B.visible = false;
+    pb.lookAt = null;
+    pbCam(pb, 360, 244, 1.02, 1.3);
+    yield 1.7;
+
+    // ---- remaining dialogue --------------------------------------------
+    pbGesture(pb, 2, "angry", 2.6);
+    yield* pbSay(pb, 2, "You've got to be kidding me.");
+    yield* pbSay(pb, 3, "Three months of work... for a laughing face.", { kind: "sarcasm" });
+    yield* pbSay(pb, 4, "He's laughing at us.", { kind: "frustrated" });
+    yield* pbSay(pb, 2, "I'M GOING TO\u2014", { kind: "slam", gap: 0.1 });
+    for (let id = 2; id <= 5; id++) pbGesture(pb, id, "flinch", 2.2);
+    yield* pbSay(pb, 1, "SILENCE!", { kind: "order", gap: 0.2 });
+    yield 1.2;                                       // a brief, tense pause
+    yield* pbSay(pb, 1, "Victor thinks this is a joke. Let's see how he laughs when we come knocking.");
+
+    // ---- ending: slow pull-away, fade to black, then the SUV cutscene ----
+    yield 0.9;
+    pbCam(pb, 360, 236, 0.78, 2.6);
+    yield 0.8;
+    pbTween(pb, pb, "black", 1, 2.4);
+    yield 2.9;
+}
+
+// ============================================================
+// OFFICIALS: gestures, reactions, small idle movements
+// (uses the existing NPC drawing; only hand pose / head turn / lean are driven)
+// ============================================================
+function pbSlam(pb) {
+    pb.shake = 1;
+    if (typeof storyThud === "function") storyThud(1.0);
+    if (typeof sbTriggerCameraShake === "function") sbTriggerCameraShake(3.4, 0, 1);
+}
+
+function pbAnimOfficial(pb, i, sec) {
+    const n = pb.officials[i];
+    const id = i + 1;
+    const T = pb.t;
+    const seat = PB_SEATS[i];
+    const rt = pb.rt[i];
+
+    // target pose (hands in units of the NPC size, relative to the seated body)
+    const br = Math.sin(T * 1.6 + i * 2.1);
+    const w = {
+        lx: -0.36, ly: -0.74 + br * 0.012,
+        rx: 0.36, ry: -0.74 + br * 0.012,
+        lean: 0.01 * br, sway: 0, head: 0
+    };
+
+    // speaking: a free hand gestures, small nods
+    if (pb.speaker === id) {
+        const s = T * 4.4 + i * 1.3;
+        w.rx = 0.40 + 0.12 * Math.sin(s * 0.8);
+        w.ry = -0.55 + 0.16 * Math.sin(s * 0.55 + 1.2);
+        w.lean += 0.03 + 0.015 * Math.sin(s);
+        w.head += 0.07 * Math.sin(s * 1.1);
+    }
+
+    const A = pb.act[id];
+    let fast = false;
+    if (A) {
+        A.t += sec;
+        const env = Math.max(0, Math.min(1, A.t / 0.25, (A.dur - A.t) / 0.4));
+        const mx = (a, b) => a + (b - a) * env;
+
+        switch (A.kind) {
+            case "sarcasm":        // open palms, tilting head: "oh, really?"
+                w.lx = mx(w.lx, -0.84); w.ly = mx(w.ly, -0.44 + 0.05 * Math.sin(A.t * 3));
+                w.rx = mx(w.rx, 0.84);  w.ry = mx(w.ry, -0.44 + 0.05 * Math.sin(A.t * 3 + 1));
+                w.sway += env * 0.13 * Math.sin(A.t * 3.0);
+                w.head += env * 0.20 * Math.sin(A.t * 2.4);
+                w.lean = mx(w.lean, -0.02);
+                break;
+            case "frustrated":     // rubbing the forehead, shaking the head
+                w.rx = mx(w.rx, 0.27 + 0.04 * Math.sin(A.t * 9));
+                w.ry = mx(w.ry, -0.14 + 0.03 * Math.cos(A.t * 9));
+                w.lx = mx(w.lx, -0.40); w.ly = mx(w.ly, -0.80);
+                w.lean = mx(w.lean, 0.06);
+                w.head += env * 0.22 * Math.sin(A.t * 5.0);
+                break;
+            case "angry":          // fists on the table, leaning in
+                w.lx = mx(w.lx, -0.42); w.ly = mx(w.ly, -0.86);
+                w.rx = mx(w.rx, 0.42);  w.ry = mx(w.ry, -0.86);
+                w.lean = mx(w.lean, 0.10);
+                w.head += env * 0.10 * Math.sin(A.t * 13);
+                break;
+            case "order":          // leans forward, hand up: restoring order
+                w.rx = mx(w.rx, 0.34); w.ry = mx(w.ry, -1.04);
+                w.lx = mx(w.lx, -0.40); w.ly = mx(w.ly, -0.88);
+                w.lean = mx(w.lean, 0.17);
+                break;
+            case "flinch":         // everyone else pulls back a little
+                w.lx = mx(w.lx, -0.30); w.ly = mx(w.ly, -0.60);
+                w.rx = mx(w.rx, 0.30);  w.ry = mx(w.ry, -0.60);
+                w.lean = mx(w.lean, -0.06);
+                break;
+            case "slam": {         // wind up, then both hands hit the table
+                const t = A.t;
+                const r = Math.max(0, Math.min(1, (A.dur - t) / 0.5));   // release
+                let sl;
+                if (t < 0.5) {
+                    const e = Math.min(1, t / 0.45);
+                    sl = { lx: -0.36 - 0.26 * e, ly: -0.74 + 0.44 * e, rx: 0.36 + 0.26 * e, ry: -0.74 + 0.44 * e, lean: 0.05 * e };
+                } else {
+                    const rattle = t > 0.58 ? 0.015 * Math.sin(t * 38) * Math.exp(-(t - 0.58) * 3) : 0;
+                    sl = { lx: -0.54, ly: -1.0, rx: 0.54, ry: -1.0, lean: 0.20 + rattle };
+                    fast = true;
+                }
+                w.lx += (sl.lx - w.lx) * r; w.ly += (sl.ly - w.ly) * r;
+                w.rx += (sl.rx - w.rx) * r; w.ry += (sl.ry - w.ry) * r;
+                w.lean += (sl.lean - w.lean) * r;
+                if (t >= 0.58 && !A.hit) { A.hit = true; pbSlam(pb); }
+                break;
+            }
+        }
+        if (A.t >= A.dur) delete pb.act[id];
+    }
+
+    // smooth towards the target pose
+    const kArm = 1 - Math.exp(-sec / (fast ? 0.045 : 0.09));
+    const kBody = 1 - Math.exp(-sec / 0.18);
+    const P = n.briefingPose;
+    P.l.x += (w.lx - P.l.x) * kArm; P.l.y += (w.ly - P.l.y) * kArm;
+    P.r.x += (w.rx - P.r.x) * kArm; P.r.y += (w.ry - P.r.y) * kArm;
+    n.briefingLean += (w.lean - n.briefingLean) * kBody;
+
+    // who this official is looking at: the person they address, the speaker,
+    // or the briefcase while it is on the table
+    let target = null;
+    if (pb.speaker === id) { if (pb.addr) target = pb.officials[pb.addr - 1]; }
+    else if (pb.speaker) target = pb.officials[pb.speaker - 1];
+    else if (pb.lookAt) target = pb.lookAt;
+
+    let want = 0;
+    if (target) {
+        const ang = Math.atan2(target.y - n.y, target.x - n.x) + Math.PI / 2;
+        want = Math.max(-1.25, Math.min(1.25, synAngleDiff(ang, seat.face)));
+    }
+    rt.look += (want - rt.look) * (1 - Math.exp(-sec / 0.30));
+    rt.sway += (w.sway - rt.sway) * kBody;
+
+    n.angle = seat.face + rt.look * 0.3 + rt.sway;                       // torso turns a little
+    n.briefingHeadTurn = rt.look * 0.7 + 0.06 * Math.sin(T * 0.8 + i * 1.9) + w.head;   // head more
+}
+
+// ============================================================
+// DRAWING - everything below draws into the existing ctx, inside the
+// existing camera transform set up by drawGame().
+// ============================================================
+
+// ---- scene props: documents ----------------------------------------
+function pbPaper(c, x, y, w, h, r) {
+    c.save();
+    c.translate(x, y); c.rotate(r);
+    c.fillStyle = "rgba(0,0,0,0.22)"; c.fillRect(-w / 2 + 1, -h / 2 + 2, w, h);
+    c.fillStyle = "#f3f1ea"; c.fillRect(-w / 2, -h / 2, w, h);
+    c.strokeStyle = "rgba(60,60,70,0.35)"; c.lineWidth = 0.8;
+    for (let ly = -h / 2 + 4; ly < h / 2 - 2; ly += 3.6) {
+        c.beginPath(); c.moveTo(-w / 2 + 3, ly); c.lineTo(w / 2 - 3 - ((ly * 7) % 6 + 6) % 6, ly); c.stroke();
+    }
+    c.restore();
+}
+
+function pbPhoto(c, x, y, r) {
+    c.save();
+    c.translate(x, y); c.rotate(r);
+    c.fillStyle = "rgba(0,0,0,0.25)"; c.fillRect(-9, -6.5, 20, 15);
+    c.fillStyle = "#f4f4f0"; c.fillRect(-10, -7.5, 20, 15);
+    c.fillStyle = "#2a3440"; c.fillRect(-8.5, -6, 17, 12);
+    c.fillStyle = "#8896a6";
+    c.beginPath(); c.arc(0, -1.5, 2.6, 0, Math.PI * 2); c.fill();
+    c.beginPath(); c.ellipse(0, 4.2, 4.6, 2.6, 0, Math.PI, 0); c.fill();
+    c.restore();
+}
+
+function pbFolder(c, x, y, w, h, r) {
+    c.save();
+    c.translate(x, y); c.rotate(r);
+    c.fillStyle = "rgba(0,0,0,0.25)"; c.fillRect(-w / 2 + 1.5, -h / 2 + 2, w, h);
+    c.fillStyle = "#c9a35b"; c.fillRect(-w / 2, -h / 2 - 3, w * 0.38, 4);   // tab
+    c.fillStyle = "#d9b36c"; c.fillRect(-w / 2, -h / 2, w, h);
+    c.strokeStyle = "#a8823f"; c.lineWidth = 1; c.strokeRect(-w / 2, -h / 2, w, h);
+    c.fillStyle = "rgba(255,255,255,0.35)"; c.fillRect(-w / 2 + 4, -h / 2 + 5, w * 0.5, 2);
+    c.restore();
+}
+
+function pbMug(c, x, y) {
+    c.fillStyle = "rgba(0,0,0,0.25)"; c.beginPath(); c.arc(x + 1.5, y + 2, 5, 0, Math.PI * 2); c.fill();
+    c.fillStyle = "#f2f2f2"; c.beginPath(); c.arc(x, y, 5, 0, Math.PI * 2); c.fill();
+    c.fillStyle = "#4b2e1a"; c.beginPath(); c.arc(x, y, 3.6, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = "#f2f2f2"; c.lineWidth = 1.6;
+    c.beginPath(); c.arc(x + 6, y, 2.4, -1.2, 1.2); c.stroke();
+}
+
+function pbDrawDocs(c, j) {
+    pbFolder(c, 224, 250 + j, 34, 24, -0.12);          // in front of 1
+    pbPaper(c, 262, 214 + j, 26, 20, 0.15);            // 2
+    pbPaper(c, 316, 222 + j, 24, 18, -0.10);
+    pbPhoto(c, 288, 234 + j, 0.2);
+    pbMug(c, 402, 206 + j);                            // 4
+    pbFolder(c, 446, 216 + j, 30, 22, 0.08);
+    pbPhoto(c, 482, 228 + j, 0.35);
+    pbPaper(c, 268, 290 + j, 26, 20, -0.12);           // 3
+    pbPhoto(c, 318, 284 + j, -0.25);
+    c.fillStyle = "#101114"; c.save(); c.translate(300, 298 + j); c.rotate(0.5); c.fillRect(-7, -1, 14, 2); c.restore();
+    pbMug(c, 484, 292 + j);                            // 5
+    pbPaper(c, 398, 296 + j, 24, 18, 0.1);
+    pbPhoto(c, 326, 246 + j, -0.2);                    // centre of the table
+    pbPhoto(c, 332, 270 + j, 0.28);
+    pbPhoto(c, 418, 262 + j, 0.1);
+}
+
+function pbWindow(c, x, y, w, h) {
+    c.fillStyle = "#8d99a6"; c.fillRect(x - 4, y - 4, w + 8, h + 8);
+    const g = c.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, "#0b1830"); g.addColorStop(1, "#1d3557");
+    c.fillStyle = g; c.fillRect(x, y, w, h);
+    c.fillStyle = "rgba(255,214,130,0.85)";
+    for (let k = 0; k < 10; k++) {
+        c.fillRect(x + 6 + ((k * 37) % (w - 14)), y + h - 8 - ((k * 11) % 20), 3, 3);
+    }
+    c.fillStyle = "#8d99a6";
+    c.fillRect(x + w / 2 - 1.5, y, 3, h); c.fillRect(x, y + h / 2 - 1.5, w, 3);
+    c.fillStyle = "rgba(255,255,255,0.06)";
+    c.beginPath(); c.moveTo(x + 8, y + h); c.lineTo(x + 30, y); c.lineTo(x + 44, y); c.lineTo(x + 22, y + h); c.fill();
+    c.fillStyle = "#b4bcc6"; c.fillRect(x - 6, y + h + 4, w + 12, 5);
+}
+
+function pbCabinet(c, x, y) {
+    c.fillStyle = "rgba(0,0,0,0.3)"; c.fillRect(x + 3, y + 4, 56, 40);
+    c.fillStyle = "#6b7785"; c.fillRect(x, y, 56, 40);
+    c.fillStyle = "#8795a3"; c.fillRect(x, y, 56, 5);
+    c.strokeStyle = "rgba(0,0,0,0.35)"; c.lineWidth = 1.5;
+    for (let k = 0; k < 3; k++) { c.strokeRect(x + 3, y + 8 + k * 10, 50, 9); }
+    c.fillStyle = "#c9d1d9";
+    for (let k = 0; k < 3; k++) { c.fillRect(x + 23, y + 11 + k * 10, 10, 2.5); }
+}
+
+function pbDrawChair(c, s) {
+    c.save();
+    c.translate(s.x, s.y); c.rotate(s.face);
+    c.fillStyle = "rgba(0,0,0,0.28)"; pbRR(c, -17, -12, 36, 36, 8); c.fill();
+    c.fillStyle = "#1b232c"; pbRR(c, -18, -16, 36, 34, 9); c.fill();
+    c.strokeStyle = "rgba(255,255,255,0.12)"; c.lineWidth = 1.5; c.stroke();
+    c.fillStyle = "#141a21"; pbRR(c, -20, 13, 40, 9, 4); c.fill();          // backrest (behind the person)
+    c.fillStyle = "#10151b";
+    pbRR(c, -23, -8, 5, 22, 2); c.fill();                                   // armrests
+    pbRR(c, 18, -8, 5, 22, 2); c.fill();
+    c.restore();
+}
+
+// ---- the office: floor, walls, furniture, table, documents --------------
+function drawPoliceBriefingRoom(ctx) {
+    const pb = policeBriefing;
+    const W = PB_ROOM.w, H = PB_ROOM.h, T = PB_TABLE;
+
+    // beyond the room
+    ctx.fillStyle = "#0b0e13";
+    ctx.fillRect(-900, -700, W + 1800, H + 1400);
+
+    // floor (same tile language as the dealership floor)
+    ctx.fillStyle = "#2c3e50";
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+    ctx.lineWidth = 2;
+    for (let x = 0; x <= W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y <= H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+    // rug under the table
+    ctx.fillStyle = "#223140"; pbRR(ctx, 150, 140, 420, 220, 14); ctx.fill();
+    ctx.strokeStyle = "rgba(0, 188, 212, 0.35)"; ctx.lineWidth = 2; pbRR(ctx, 158, 148, 404, 204, 10); ctx.stroke();
+
+    // north wall
+    ctx.fillStyle = "#3d4b5c"; ctx.fillRect(0, 0, W, 78);
+    ctx.fillStyle = "#2a3542"; ctx.fillRect(0, 70, W, 8);
+    const sh = ctx.createLinearGradient(0, 78, 0, 104);
+    sh.addColorStop(0, "rgba(0,0,0,0.35)"); sh.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = sh; ctx.fillRect(0, 78, W, 26);
+    pbWindow(ctx, 150, 14, 100, 48);
+    pbWindow(ctx, 470, 14, 100, 48);
+
+    // investigation board (photos + red string)
+    ctx.fillStyle = "#5a3d24"; ctx.fillRect(306, 8, 108, 58);
+    ctx.fillStyle = "#b5895a"; ctx.fillRect(310, 12, 100, 50);
+    const pins = [[322, 26], [352, 22], [384, 28], [334, 46], [372, 48], [398, 44]];
+    ctx.strokeStyle = "#c0392b"; ctx.lineWidth = 1;
+    ctx.beginPath();
+    pins.forEach((p, k) => { if (k === 0) ctx.moveTo(p[0], p[1]); else ctx.lineTo(p[0], p[1]); });
+    ctx.stroke();
+    pins.forEach(p => {
+        ctx.fillStyle = "#f4f4f0"; ctx.fillRect(p[0] - 7, p[1] - 6, 14, 11);
+        ctx.fillStyle = "#2a3440"; ctx.fillRect(p[0] - 5.5, p[1] - 4.5, 11, 8);
+        ctx.fillStyle = "#c0392b"; ctx.beginPath(); ctx.arc(p[0], p[1] - 6, 1.6, 0, Math.PI * 2); ctx.fill();
+    });
+
+    // furniture along the walls
+    pbCabinet(ctx, 30, 92);
+    pbCabinet(ctx, 634, 92);
+    ctx.fillStyle = "rgba(0,0,0,0.3)"; ctx.fillRect(27, 372, 62, 44);
+    ctx.fillStyle = "#4a3a2a"; ctx.fillRect(24, 368, 62, 44);                // side table
+    ctx.fillStyle = "#1c1f25"; ctx.fillRect(32, 374, 16, 14);                // coffee machine
+    ctx.fillStyle = "#c0392b"; ctx.fillRect(36, 378, 4, 3);
+    pbMug(ctx, 62, 384); pbMug(ctx, 62, 398);
+    ctx.fillStyle = "#6b4a2f"; ctx.fillRect(330, H - 16, 60, 16);            // door
+    ctx.fillStyle = "#c9a227"; ctx.fillRect(378, H - 10, 6, 3);
+    ctx.fillStyle = "#7a4a2a"; ctx.beginPath(); ctx.arc(690, 402, 14, 0, Math.PI * 2); ctx.fill();   // plant
+    ctx.fillStyle = "#2e8b57";
+    for (let k = 0; k < 7; k++) {
+        const a = k * 0.9;
+        ctx.beginPath(); ctx.arc(690 + Math.cos(a) * 8, 402 + Math.sin(a) * 8, 8, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // room outline (dealership convention)
+    ctx.strokeStyle = "#111111"; ctx.lineWidth = 12; ctx.strokeRect(0, 0, W, H);
+
+    // chairs, then the table
+    for (let i = 0; i < PB_SEATS.length; i++) pbDrawChair(ctx, PB_SEATS[i]);
+
+    ctx.fillStyle = "rgba(0,0,0,0.35)"; pbRR(ctx, T.x + 5, T.y + 8, T.w, T.h, 10); ctx.fill();
+    ctx.fillStyle = "#3b2616"; pbRR(ctx, T.x, T.y, T.w, T.h, 10); ctx.fill();
+    ctx.fillStyle = "#6e4b2e"; pbRR(ctx, T.x + 4, T.y + 4, T.w - 8, T.h - 8, 8); ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.12)"; ctx.lineWidth = 1;
+    for (let k = 0; k < 9; k++) {
+        const gy = T.y + 14 + k * 11;
+        ctx.beginPath(); ctx.moveTo(T.x + 12, gy); ctx.lineTo(T.x + T.w - 12 - (k % 3) * 20, gy + (k % 2 ? 1.5 : -1.5)); ctx.stroke();
+    }
+    ctx.strokeStyle = "rgba(255, 235, 200, 0.14)"; ctx.lineWidth = 1.5;
+    pbRR(ctx, T.x + 7, T.y + 7, T.w - 14, T.h - 14, 6); ctx.stroke();
+
+    // papers, photographs, folders (they jump when a hand slams the table)
+    const jolt = pb ? pb.shake * Math.sin(pb.t * 55) * 1.6 : 0;
+    pbDrawDocs(ctx, jolt);
+
+    // warm light pool from the lamp above the table
+    const lg = ctx.createRadialGradient(360, 250, 20, 360, 250, 330);
+    lg.addColorStop(0, "rgba(255, 238, 200, 0.14)");
+    lg.addColorStop(1, "rgba(255, 238, 200, 0)");
+    ctx.fillStyle = lg;
+    ctx.fillRect(0, 0, W, H);
+}
+
+// ---- the officials: the normal NPC.draw --------------------------------
+function drawPoliceBriefingActors(ctx) {
+    const pb = policeBriefing;
+    if (!pb) return;
+    for (let i = 0; i < pb.drawOrder.length; i++) pb.drawOrder[i].draw(ctx);
+}
+
+// ---- briefcase -----------------------------------------------------------
+function pbDrawCasePaper(c, p) {
+    c.save();
+    c.globalAlpha *= p;
+    c.translate(0, 4 * (1 - p));
+    c.rotate(-0.04);
+    c.fillStyle = "rgba(0,0,0,0.25)"; c.fillRect(-17, -11, 36, 25);
+    c.fillStyle = "#fbfaf5"; c.fillRect(-18, -12.5, 36, 25);
+    c.strokeStyle = "rgba(0,0,0,0.18)"; c.lineWidth = 0.7; c.strokeRect(-18, -12.5, 36, 25);
+    c.font = "21px 'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif";
+    c.textAlign = "center"; c.textBaseline = "middle";
+    c.fillStyle = "#000000";
+    c.fillText("\uD83D\uDE02", 0, 1);
+    c.restore();
+}
+
+function pbDrawCase(c, b) {
+    const W = PB_CASE_W, H = PB_CASE_H;
+    const th = b.lid * Math.PI * 0.93;           // lid angle, hinged on the north edge
+    const cosT = Math.cos(th);
+
+    c.save();
+    c.globalAlpha = Math.max(0, Math.min(1, b.alpha));
+    c.translate(b.x, b.y);
+    c.rotate(b.a);
+
+    c.fillStyle = "rgba(0,0,0,0.32)"; pbRR(c, -W / 2 + 2, -H / 2 + 3, W, H, 4); c.fill();
+    c.fillStyle = "#0b0c0e"; pbRR(c, -9, H / 2 - 1, 18, 4, 2); c.fill();      // carry handle
+
+    c.fillStyle = "#15171b"; pbRR(c, -W / 2, -H / 2, W, H, 4); c.fill();       // base shell
+
+    if (b.lid > 0.02) {                                                         // interior lining
+        c.fillStyle = "#3b1a22"; pbRR(c, -W / 2 + 3, -H / 2 + 3, W - 6, H - 6, 2); c.fill();
+        c.strokeStyle = "rgba(255,255,255,0.10)"; c.lineWidth = 0.8;
+        if (c.setLineDash) c.setLineDash([2, 2]);
+        pbRR(c, -W / 2 + 5, -H / 2 + 5, W - 10, H - 10, 2); c.stroke();
+        if (c.setLineDash) c.setLineDash([]);
+        if (b.paper > 0.01) pbDrawCasePaper(c, Math.min(1, b.paper));           // the only content
+    }
+
+    if (cosT >= 0) {
+        const h = Math.max(0.5, H * cosT);                                      // lid, outer face
+        c.fillStyle = "#1c1f25"; pbRR(c, -W / 2, -H / 2, W, h, 4); c.fill();
+        if (h > 8) {
+            c.strokeStyle = "rgba(255,255,255,0.10)"; c.lineWidth = 1;
+            pbRR(c, -W / 2 + 2, -H / 2 + 2, W - 4, h - 4, 3); c.stroke();
+            c.fillStyle = "rgba(255,255,255,0.05)"; c.fillRect(-W / 2 + 3, -H / 2 + 3, W - 6, Math.min(5, h * 0.2));
+        }
+        if (cosT > 0.3) {                                                       // clasps + dials on the front edge
+            c.fillStyle = "#c9a227";
+            c.fillRect(-W * 0.30 - 4, -H / 2 + h - 6, 8, 5);
+            c.fillRect(W * 0.30 - 4, -H / 2 + h - 6, 8, 5);
+            c.fillStyle = "#b0b6bd";
+            for (let k = -1; k <= 1; k++) { c.beginPath(); c.arc(k * 6, -H / 2 + h - 4, 1.7, 0, Math.PI * 2); c.fill(); }
+        }
     } else {
-        gameActive = true;
+        const h = H * -cosT;                                                    // lid, inner face (beyond the hinge)
+        c.fillStyle = "#2a1218"; pbRR(c, -W / 2, -H / 2 - h, W, h, 4); c.fill();
+        if (h > 8) {
+            c.strokeStyle = "rgba(255,255,255,0.08)"; c.lineWidth = 0.8;
+            pbRR(c, -W / 2 + 3, -H / 2 - h + 3, W - 6, h - 6, 2); c.stroke();
+        }
+        c.fillStyle = "rgba(0,0,0,0.35)"; c.fillRect(-W / 2, -H / 2 - 1.5, W, 3);   // hinge shadow
+    }
+    c.restore();
+}
+
+// ---- top layer inside the camera transform: briefcase + speech bubbles ----
+function drawPoliceBriefingTopLayer(ctx) {
+    const pb = policeBriefing;
+    if (!pb) return;
+
+    if (pb.briefcase.visible) pbDrawCase(ctx, pb.briefcase);
+
+    for (let i = 0; i < pb.officials.length; i++) {
+        const n = pb.officials[i];
+        if (!n.speechText) continue;
+        ctx.save();
+        ctx.translate(n.x, n.y);
+        ctx.rotate(n.angle);              // drawSpeechBubble counter-rotates it upright
+        n.drawSpeechBubble(ctx);
+        ctx.restore();
+    }
+}
+
+// ============================================================
+// LOCK PUZZLE
+// ============================================================
+function pbStepPuzzle(pb, sec) {
+    const z = pb.puz;
+    if (!z) return;
+    if (z.open) z.openT = Math.min(1, z.openT + sec / 0.35);
+    if (z.pressT > 0) z.pressT -= sec;
+    if (z.wrongT > 0) z.wrongT = Math.max(0, z.wrongT - sec);
+    if (z.solved) {
+        z.okT += sec;
+        z.closeT = Math.max(0, Math.min(1, (z.okT - 1.0) / 0.4));
+        if (z.okT >= 1.45 && !z.done) { z.done = true; z.open = false; }
+    }
+    z.alpha = z.openT * (1 - z.closeT);
+}
+
+function pbPuzzleAction(pb, id) {
+    const z = pb.puz;
+    if (!z || !z.open || z.locked || z.openT < 0.85) return;
+
+    z.pressed = id;
+    z.pressT = 0.14;
+
+    if (id === "submit") {
+        if (z.digits === PB_PASSWORD) {
+            z.locked = true;               // disables every further input
+            z.solved = true;
+            z.okT = 0;
+            z.wrongT = 0;
+        } else {
+            z.wrongT = 0.8;                // digits flash red, puzzle stays open, input kept
+        }
+        return;
+    }
+
+    z.wrongT = 0;
+    if (id === "remove") z.digits = z.digits.slice(0, -1);
+    else if (id === "clear") z.digits = "";
+    else if (/^[0-9]$/.test(id) && z.digits.length < PB_MAX_DIGITS) z.digits += id;
+}
+
+// Called from the existing window keydown listener (important.js).
+// Returns true when the briefing consumed the key.
+function policeBriefingKey(e) {
+    if (!policeBriefingActive || !policeBriefing) return false;
+    if (e.ctrlKey || e.metaKey || e.altKey) return true;         // never reaches the game; browser shortcuts still work
+
+    const pb = policeBriefing, z = pb.puz;
+    const live = z && z.open && !z.locked && z.openT >= 0.85;
+
+    if (live) {
+        if (/^[0-9]$/.test(e.key)) {
+            e.preventDefault();
+            if (!e.repeat) pbPuzzleAction(pb, e.key);
+            return true;
+        }
+        if (e.key === "Backspace") { e.preventDefault(); pbPuzzleAction(pb, "remove"); return true; }
+        if (e.key === "Escape") { e.preventDefault(); if (!e.repeat) pbPuzzleAction(pb, "clear"); return true; }
+        if (e.key === "Enter") { e.preventDefault(); if (!e.repeat) pbPuzzleAction(pb, "submit"); return true; }
+    }
+
+    // keep Space / arrows / H etc. from scrolling the page or reaching the game
+    if (e.code === "Space" || (e.key && e.key.indexOf("Arrow") === 0)) e.preventDefault();
+    return true;
+}
+
+// Called from the existing canvas pointerdown listener (mouse + touch).
+function policeBriefingPointer(x, y) {
+    if (!policeBriefingActive || !policeBriefing) return false;
+    const pb = policeBriefing, z = pb.puz;
+    if (z && z.open && !z.locked && z.openT >= 0.85) {
+        for (let i = 0; i < PB_LAYOUT.keys.length; i++) {
+            const k = PB_LAYOUT.keys[i];
+            if (x >= k.x && x <= k.x + k.w && y >= k.y && y <= k.y + k.h) {
+                pbPuzzleAction(pb, k.id);
+                break;
+            }
+        }
+    }
+    return true;                                   // taps never reach the game underneath
+}
+
+function pbWrapText(c, text, maxW) {
+    const words = text.split(" ");
+    const lines = [];
+    let line = "";
+    words.forEach(w => {
+        const t = line ? line + " " + w : w;
+        if (line && c.measureText(t).width > maxW) { lines.push(line); line = w; }
+        else line = t;
+    });
+    if (line) lines.push(line);
+    return lines;
+}
+
+function pbDrawNote(c, n) {
+    c.save();
+    c.translate(n.x + n.w / 2, n.y + n.h / 2);
+    c.rotate(0.07);
+
+    c.fillStyle = "rgba(0,0,0,0.38)"; c.fillRect(-n.w / 2 + 3, -n.h / 2 + 4, n.w, n.h);
+    c.fillStyle = "#f4ecc6"; c.fillRect(-n.w / 2, -n.h / 2, n.w, n.h);
+    c.fillStyle = "#dcd29f";                                                    // folded corner
+    c.beginPath(); c.moveTo(n.w / 2, n.h / 2 - 14); c.lineTo(n.w / 2 - 14, n.h / 2); c.lineTo(n.w / 2, n.h / 2); c.closePath(); c.fill();
+    c.strokeStyle = "rgba(0,0,0,0.25)"; c.lineWidth = 1; c.strokeRect(-n.w / 2, -n.h / 2, n.w, n.h);
+
+    c.fillStyle = "#2b3a7a";
+    c.font = "italic bold 11.5px 'Segoe Print','Bradley Hand','Comic Sans MS',Arial,sans-serif";
+    c.textAlign = "left"; c.textBaseline = "alphabetic";
+    const lines = pbWrapText(c, PB_NOTE_TEXT, n.w - 24);
+    lines.forEach((ln, k) => c.fillText(ln, -n.w / 2 + 12, -n.h / 2 + 30 + k * 15));
+
+    c.fillStyle = "#c0392b"; c.beginPath(); c.arc(0, -n.h / 2 + 8, 5, 0, Math.PI * 2); c.fill();   // pin
+    c.fillStyle = "rgba(255,255,255,0.55)"; c.beginPath(); c.arc(-1.5, -n.h / 2 + 6.5, 1.6, 0, Math.PI * 2); c.fill();
+    c.restore();
+}
+
+function pbDrawPuzzle(c, pb) {
+    const z = pb.puz;
+    const L = PB_LAYOUT, P = L.panel;
+    const a = Math.max(0, Math.min(1, z.alpha));
+    if (a <= 0.001) return;
+
+    // dim the room behind the lock
+    c.fillStyle = "rgba(5, 8, 12, " + (0.55 * a) + ")";
+    c.fillRect(0, 0, canvas.width, canvas.height);
+
+    c.save();
+    c.globalAlpha = a;
+    const sc = 0.92 + 0.08 * z.openT;
+    c.translate(canvas.width / 2, canvas.height / 2);
+    c.scale(sc, sc);
+    c.translate(-canvas.width / 2, -canvas.height / 2);
+
+    // panel
+    c.fillStyle = "rgba(18, 22, 28, 0.97)"; pbRR(c, P.x, P.y, P.w, P.h, 12); c.fill();
+    c.strokeStyle = "#ffffff"; c.lineWidth = 3; c.stroke();
+    c.save();
+    pbRR(c, P.x, P.y, P.w, P.h, 12); c.clip();
+    c.fillStyle = "#f1c40f"; c.fillRect(P.x, P.y, P.w, 26);
+    c.restore();
+    c.fillStyle = "#111111"; c.font = "bold 13px Arial"; c.textBaseline = "middle"; c.textAlign = "left";
+    c.fillText("SECURE CASE LOCK", P.x + 12, P.y + 14);
+    c.textAlign = "right"; c.font = "bold 9px Arial";
+    c.fillText("CLASSIFIED", P.x + P.w - 12, P.y + 14);
+
+    // input bar
+    const B = L.bar;
+    const wrongE = 0.8 - z.wrongT;
+    const wrongOn = z.wrongT > 0 && Math.floor(wrongE / 0.12) % 2 === 0;
+    const okOn = z.solved && z.okT < 1.0 && (z.okT % 0.5) < 0.25;      // two green flashes
+    const shakeX = z.wrongT > 0 ? Math.sin(wrongE * 60) * 4 * (z.wrongT / 0.8) : 0;
+
+    c.save();
+    c.translate(shakeX, 0);
+    c.fillStyle = okOn ? "#27ae60" : "#07090c"; pbRR(c, B.x, B.y, B.w, B.h, 5); c.fill();
+    c.strokeStyle = wrongOn ? "#e74c3c" : (okOn ? "#2ecc71" : "#ffffff"); c.lineWidth = 2; c.stroke();
+    c.font = "bold 20px 'Courier New', monospace";
+    c.textAlign = "center"; c.textBaseline = "middle";
+    c.fillStyle = wrongOn ? "#e74c3c" : "#ffffff";                     // digits are shown, never masked
+    for (let k = 0; k < z.digits.length; k++) {
+        c.fillText(z.digits[k], B.x + 20 + k * 27, B.y + B.h / 2 + 1);
+    }
+    if (!z.locked && z.digits.length < PB_MAX_DIGITS && Math.floor(performance.now() / 450) % 2 === 0) {
+        c.fillStyle = "rgba(255,255,255,0.7)";
+        c.fillRect(B.x + 13 + z.digits.length * 27 + 7, B.y + 8, 2, B.h - 16);
+    }
+    c.restore();
+
+    // keys
+    c.font = "bold 15px Arial";
+    for (let i = 0; i < L.keys.length; i++) {
+        const k = L.keys[i];
+        const pressed = z.pressed === k.id && z.pressT > 0;
+        let fill = "#2c3e50", txt = "#ffffff", label = k.id;
+        if (k.id === "remove") { fill = "#8a5a12"; label = "REMOVE"; }
+        else if (k.id === "clear") { fill = "#7b241c"; label = "CLEAR"; }
+        else if (k.id === "submit") { fill = "#2ecc71"; txt = "#0b1f12"; label = "SUBMIT"; }
+
+        c.globalAlpha = a * (z.locked && !z.solved ? 0.5 : (z.solved ? 0.55 : 1));
+        const oy = pressed ? 1 : 0;
+        c.fillStyle = fill; pbRR(c, k.x, k.y + oy, k.w, k.h, 6); c.fill();
+        if (pressed) { c.fillStyle = "rgba(255,255,255,0.28)"; pbRR(c, k.x, k.y + oy, k.w, k.h, 6); c.fill(); }
+        c.strokeStyle = "#ffffff"; c.lineWidth = 1.5; pbRR(c, k.x, k.y + oy, k.w, k.h, 6); c.stroke();
+        c.fillStyle = txt;
+        c.font = (k.id.length > 1 ? "bold 12px Arial" : "bold 16px Arial");
+        c.textAlign = "center"; c.textBaseline = "middle";
+        c.fillText(label, k.x + k.w / 2, k.y + k.h / 2 + 1 + oy);
+    }
+    c.globalAlpha = a;
+
+    // footer
+    c.fillStyle = "rgba(255,255,255,0.45)"; c.font = "9px Arial"; c.textAlign = "center"; c.textBaseline = "middle";
+    c.fillText("8-DIGIT ACCESS CODE", P.x + P.w / 2, P.y + P.h - 26);
+    c.fillText("ENTER \u2022 BACKSPACE \u2022 ESC", P.x + P.w / 2, P.y + P.h - 13);
+
+    // the clue, pinned to the side of the interface
+    pbDrawNote(c, L.note);
+
+    c.restore();
+}
+
+// ============================================================
+// SCREEN-SPACE OVERLAY (end of drawGame): lock puzzle, black fade, title card
+// ============================================================
+function drawPoliceBriefingOverlay(ctx) {
+    const pb = policeBriefing;
+    if (!pb) return;
+
+    if (pb.puz && pb.puz.open) pbDrawPuzzle(ctx, pb);
+
+    if (pb.black > 0.001) {
+        ctx.fillStyle = "rgba(0, 0, 0, " + Math.min(1, pb.black) + ")";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    if (pb.titleAlpha > 0.001) {
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, pb.titleAlpha);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 22px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("At the intelligence office...", canvas.width / 2, canvas.height / 2);
+        ctx.restore();
     }
 }
