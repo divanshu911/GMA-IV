@@ -1,4 +1,4 @@
-console.log("streetbound-main14-syndicate-polish");
+console.log("streetbound-main15-police-briefing-hooks");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
@@ -2332,6 +2332,12 @@ nearbyCarEntities.forEach(entry => {
 
         
 function updateGame(dt) {
+    // Police intelligence briefing (storyline.js): self-contained scene plays before the opening cutscene.
+    if (typeof briefingActive !== 'undefined' && briefingActive) {
+        if (typeof updatePoliceBriefing === 'function') updatePoliceBriefing(dt);
+        return;
+    }
+
     // River ambience: spatial river sound (fades out when not outdoors / paused).
     if (typeof updateRiverAmbience === 'function') updateRiverAmbience(dt);
 
@@ -3318,6 +3324,12 @@ function drawGame() {
   ctx.imageSmoothingEnabled = true;
 
   syncGameplayButtonsWithFullMap();
+
+  // Police intelligence briefing owns the whole screen while it plays.
+  if (typeof briefingActive !== 'undefined' && briefingActive) {
+      if (typeof drawPoliceBriefing === 'function') drawPoliceBriefing(ctx);
+      return;
+  }
 
   if (
     (typeof showFullMap !== 'undefined' && showFullMap) ||

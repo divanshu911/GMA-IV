@@ -2,7 +2,7 @@
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-console.log("streetbound-core12-storyline-extracted");
+console.log("streetbound-core13-police-briefing-entry");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
@@ -1575,7 +1575,13 @@ startBtn.addEventListener('click', () => {
         // startOpeningCutscene() marks both gma_has_played and the new
         // story key immediately, so a refresh mid-intro never replays it.
         // Existing players (gma_has_played already true) still see it once.
-        startOpeningCutscene();
+        // The police intelligence briefing plays first and hands over to the
+        // existing opening cutscene when it ends (storyline.js).
+        if (typeof startPoliceBriefing === "function") {
+            startPoliceBriefing(startOpeningCutscene);
+        } else {
+            startOpeningCutscene();
+        }
 
         return;
     }
