@@ -3222,11 +3222,19 @@ function finishPoliceBriefing() {
     const joy = document.getElementById("joystickZone");
     if (joy) joy.style.display = pb.snap.joyDisplay;
 
-    // Clean handoff to the untouched opening cutscene.
-    startOpeningCutscene();
+    // Handoff: Police Briefing -> daytime city montage (citymontage.js) -> untouched
+    // opening cutscene. The montage calls startOpeningCutscene() itself when it ends
+    // or is skipped. If citymontage.js is missing or fails to start, go straight to it.
+    let montageRunning = false;
+    try {
+        if (typeof startCityMontage === "function") montageRunning = startCityMontage();
+    } catch (err) {
+        console.error("[Police briefing] city montage failed:", err);
+    }
+    if (!montageRunning) startOpeningCutscene();
 
     // If it could not start (no overlay element) it already resumed the game.
-    if (!openingCutsceneActive) {
+    if (!montageRunning && !openingCutsceneActive) {
         const gc = document.getElementById("gameContainer");
         if (gc) gc.classList.remove("opening-cutscene");
     }

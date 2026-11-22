@@ -2385,6 +2385,8 @@ function sbHit(r, x, y) {
 window.addEventListener('keydown', e => {
 // Police briefing: puzzle keys; every other key is kept away from the game.
     if (typeof policeBriefingKey === 'function' && policeBriefingKey(e)) return;
+// City montage: no key reaches the game.
+    if (typeof cityMontageKey === 'function' && cityMontageKey(e)) return;
 // ESC = Close first-time control settings panel
     if (e.key === 'Escape' || e.code === 'Escape') {
         if (firstTimeControlsOpen) {
@@ -2579,6 +2581,8 @@ canvas.addEventListener('pointerdown', (e) => {
 
 // Police briefing: lock-puzzle buttons; taps never reach the game underneath.
 if (typeof policeBriefingPointer === 'function' && policeBriefingPointer(mouseX, mouseY)) return;
+// City montage: taps never reach the game underneath (the SKIP button is a DOM button).
+if (typeof cityMontagePointer === 'function' && cityMontagePointer(mouseX, mouseY)) return;
 
 if (showFullMap || fullMapAnimating) {
     if (showFullMap && !fullMapAnimating) {

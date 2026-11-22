@@ -2348,6 +2348,12 @@ function updateGame(dt) {
         return;
     }
 
+    // Daytime city montage (citymontage.js): fully scripted, the world stays frozen.
+    if (typeof cityMontageActive !== 'undefined' && cityMontageActive) {
+        if (typeof updateCityMontage === 'function') updateCityMontage(dt);
+        return;
+    }
+
     // Syndicate visit (storyline.js): scripted scene runs while the world is frozen.
     if (typeof syndicateMeetingActive !== 'undefined' && syndicateMeetingActive) {
         if (typeof updateSyndicateMeeting === 'function') updateSyndicateMeeting(dt);
@@ -3857,6 +3863,10 @@ if (!isInsideHouse && !isInsideDealership) {
 if (typeof policeBriefingActive !== "undefined" && policeBriefingActive) {
     drawPoliceBriefingTopLayer(ctx);
 }
+// City montage: taxi sign, passenger and speech bubbles (same camera transform).
+if (typeof cityMontageActive !== "undefined" && cityMontageActive) {
+    drawCityMontageTopLayer(ctx);
+}
 ctx.restore();
 
 
@@ -4003,6 +4013,7 @@ if (!isInsideHouse && !isInsideDealership) {
 
  // Hide canvas HUD during opening intro and Syndicate meeting (same freeze).
  if (!openingCutsceneActive &&
+     !(typeof cityMontageActive !== "undefined" && cityMontageActive) &&
      !(typeof policeBriefingActive !== "undefined" && policeBriefingActive) &&
      !(typeof syndicateMeetingActive !== "undefined" && syndicateMeetingActive)) {
   if (lastMoneyCounterValue === null) {
@@ -4417,6 +4428,11 @@ ctx.restore();
     // Police briefing: fades, title card, dim and the briefcase lock (screen space).
     if (typeof policeBriefingActive !== "undefined" && policeBriefingActive) {
         drawPoliceBriefingOverlay(ctx);
+    }
+
+    // City montage: fade to / from black (screen space).
+    if (typeof cityMontageActive !== "undefined" && cityMontageActive) {
+        drawCityMontageOverlay(ctx);
     }
 
 }
