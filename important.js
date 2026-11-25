@@ -2,7 +2,7 @@
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-console.log("streetbound-core12-storyline-extracted");
+console.log("streetbound-core13-x-dismiss-invite");
 // ============================================================
 // VIEWPORT SYSTEM  (the single authority for game size/scale)
 //
@@ -543,6 +543,21 @@ function dismissCurrentMessage() {
     showPreviousMessage();
 }
 
+// ONE entry point for the message viewer's x: the on-screen x button (pointerdown) and
+// the keyboard X key both call this, so they can never diverge.
+function activatePhoneMessageClose() {
+    if (openingCutsceneActive) return;
+    dismissCurrentMessage();
+}
+
+// True only while a still-actionable race invitation is on screen in the Messages viewer.
+function isRaceInvitationVisible() {
+    if (!playerPhoneOpen || phoneMessages.mode !== "message") return false;
+    const layer = phoneEl("phoneCutsceneMessage");
+    if (!layer || layer.style.display === "none") return false;
+    return isRaceInviteActionable(phoneMessages.history[phoneMessages.cursor]);
+}
+
 // Called by the race manager's ACCEPT button after its own logic ran.
 function returnFromRaceInfo() {
     if (phoneMessages.mode !== "raceInfo") {
@@ -605,8 +620,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (messageClose) {
         messageClose.addEventListener("pointerdown", e => {
             e.preventDefault();
-            if (openingCutsceneActive) return;
-            dismissCurrentMessage();
+            activatePhoneMessageClose();
         });
     }
 
@@ -2487,6 +2501,18 @@ if (e.key === 'p' || e.key === 'P') {
     togglePlayerPhone();
     return;
 }
+
+    // X = Dismiss the visible race invitation (same action as its x button).
+    // Does nothing (and swallows nothing) when no invitation is visible.
+    if (e.key === 'x' || e.key === 'X') {
+        if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+        const xt = e.target;
+        if (xt && (xt.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(xt.tagName))) return;
+        if (!isRaceInvitationVisible()) return;
+        e.preventDefault();
+        activatePhoneMessageClose();
+        return;
+    }
 
     // F = Main interaction buttons only
     if (e.key === 'f' || e.key === 'F') {

@@ -1,4 +1,4 @@
-console.log("streetbound-storyline16-police-briefing");
+console.log("streetbound-storyline17-puzzle-reveal-home-skip");
 // ===== OPENING CUTSCENE & STORYLINE =====
 
 // ============================================================
@@ -712,7 +712,7 @@ e.boss.cutsceneArmed = false;
     storyAt(H(43.3), () => storyClearText());
 
     // set up the aftermath while still black
-    storyAt(H(43.0), () => {
+    const placeAftermath = () => {
         const f = FLOOR();
         s.pBase.x = f.x;
         s.pBase.y = f.y;
@@ -732,7 +732,8 @@ e.boss.cutsceneArmed = false;
         e.boss.x = CX();
         e.boss.y = 436;
         faceAll();
-    });
+    };
+    storyAt(H(43.0), placeAftermath);
     storyAt(H(43.4), () => storyBlack(false));
 
     say(43.6, boss, "Hey! Now stop.", 1.6);
@@ -764,6 +765,16 @@ e.boss.cutsceneArmed = false;
     leave(() => e.thugs[0], 65.3, false);
     leave(() => e.thugs[1], 65.7, false);
     leave(() => e.thugs[2], 66.2, true);
+
+    // Skip option for the home confrontation (Victor's dialogue + beating + aftermath + debt speech).
+    // Window: from Victor's first line until the moment the gang starts walking out.
+    s.homeSkip = {
+        from: H(6.6),
+        to: H(64.8),
+        used: false,
+        place: placeAftermath,
+        faceBoss: () => storyFace(e.boss, s.pBase.x, s.pBase.y)
+    };
 
     // he stays on the floor for a moment, then speaks
     storyAt(H(70.0), () => storySay(player, "I have to do something...", 2.8));
@@ -1083,6 +1094,98 @@ function storyIntroCardsAbort() {
 }
 
 // ============================================================
+// HOME CONFRONTATION SKIP
+// A DOM button (touch + mouse) that only exists while Victor's dialogue in the
+// house is playing. Tapping it fast-forwards to the moment the gang starts to
+// leave; everything after that (departure, "I have to do something...", the
+// title card, debt / finishOpeningCutscene) runs untouched.
+// ============================================================
+let storyHomeSkipEl = null;
+
+function storyHomeSkipRemoveButton() {
+    if (storyHomeSkipEl && storyHomeSkipEl.parentNode) storyHomeSkipEl.parentNode.removeChild(storyHomeSkipEl);
+    storyHomeSkipEl = null;
+}
+
+function storyHomeSkipCreateButton() {
+    const host = document.getElementById("gameContainer") || document.body;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.id = "storyHomeSkip";
+    b.textContent = "SKIP \u25B8\u25B8";
+    b.setAttribute("aria-label", "Skip the confrontation");
+    b.style.cssText = [
+        "position:fixed",
+        "top:calc(10px + env(safe-area-inset-top, 0px))",
+        "right:calc(12px + env(safe-area-inset-right, 0px))",
+        "z-index:2147483000",
+        "min-width:84px", "min-height:44px", "padding:0 16px",
+        "font:bold 14px Arial,sans-serif", "letter-spacing:1px",
+        "color:#fff", "background:rgba(0,0,0,0.45)",
+        "border:1px solid rgba(255,255,255,0.55)", "border-radius:22px",
+        "opacity:0.75", "cursor:pointer", "touch-action:manipulation", "pointer-events:auto",
+        "-webkit-tap-highlight-color:transparent", "user-select:none"
+    ].join(";");
+    const fire = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        storySkipHomeDialogue(storyIntro);       // always the live cutscene; a second call is a no-op
+    };
+    b.addEventListener("pointerdown", fire);
+    b.addEventListener("click", fire);
+    host.appendChild(b);
+    storyHomeSkipEl = b;
+}
+
+function storyHomeSkipSync(s) {
+    const k = s.homeSkip;
+    const inWindow = !!k && !k.used && s.scene === "house" &&
+        s.t >= k.from && s.t < k.to - 0.3 && !storyIntroCardsPending(s);
+    if (inWindow) {
+        if (!storyHomeSkipEl || !storyHomeSkipEl.isConnected) storyHomeSkipCreateButton();
+    } else if (storyHomeSkipEl) {
+        storyHomeSkipRemoveButton();
+    }
+}
+
+function storySkipHomeDialogue(s) {
+    const k = s && s.homeSkip;
+    if (!k || k.used || storyIntro !== s || !openingCutsceneActive) return;
+    if (s.scene !== "house" || s.t < k.from || s.t >= k.to) return;
+    if (storyIntroCardsPending(s)) return;
+
+    k.used = true;                                   // can only ever fire once
+    storyHomeSkipRemoveButton();
+
+    // Drop the timeline events between now and the departure. Their effects are applied
+    // directly below: no dialogue, punches, thuds or blackout steps are replayed.
+    while (s.next < s.events.length && s.events[s.next].t < k.to) s.next++;
+
+    s.tremble = false;
+    s.pMove = null;
+    storyBlack(false);                               // blackout of the beating, if it is up
+    storyClearText();                                // "One minute later..." text, if shown
+    if (typeof sbCameraShakeStrength === "number") sbCameraShakeStrength = 0;
+
+    // Same placement the timeline applies after the beating (existing function).
+    k.place();
+    k.faceBoss();                                    // as at "Five thousand dollars!"
+
+    // No bubble or timer may survive the skipped dialogue.
+    player.speechText = null;
+    player.speechTimer = 0;
+    (s.e.gang || []).forEach(n => {
+        n.speechText = null;
+        n.speechTimer = 0;
+        n.path = null;
+        n.pathDone = null;
+    });
+
+    // The next frame fires the existing leave() events, so the walk-out starts naturally.
+    s.t = k.to - 0.05;
+}
+
+// ============================================================
 // PER-FRAME
 // ============================================================
 function updateOpeningCutscene(dt) {
@@ -1106,6 +1209,9 @@ function updateOpeningCutscene(dt) {
 
         // Watch for the story states that trigger an introduction card.
         if (storyIntro === s) storyIntroCardsWatch(s);
+
+        // Skip button of the home confrontation (shown only inside its window).
+        if (storyIntro === s) storyHomeSkipSync(s);
     } catch (err) {
         // Never leave the player stuck in a broken cinematic.
         console.error("[Story intro] aborted:", err);
@@ -1529,6 +1635,7 @@ function finishOpeningCutscene() {
     if (!openingCutsceneActive) return;
 
     storyIntroCardsAbort();             // hide any card, restore zoom / camera focus
+    storyHomeSkipRemoveButton();        // the home-confrontation skip button never outlives the cutscene
 
     const s = storyIntro;
     storyIntro = null;                  // stops the timeline immediately
@@ -3029,6 +3136,8 @@ window.StreetBoundSyndicate = {
 const PB_PASSWORD = "05071947";                        // kept as a string: leading zero
 const PB_NOTE_TEXT = "I was born on 5 july in the year india gained independence: don't forget dd-mm-yyyy";
 const PB_MAX_DIGITS = 8;
+const PB_REVEAL_DELAY = 15;                            // seconds the puzzle must stay open before the reveal option shows
+const PB_REVEAL_TEXT = "Only for brainless people";
 const PB_ROOM = { w: 720, h: 440 };
 const PB_TABLE = { x: 200, y: 190, w: 320, h: 120 };   // centre (360, 250)
 const PB_SIZE = 32;                                    // NPC size used for the officials
@@ -3065,6 +3174,7 @@ const PB_LAYOUT = (function () {
         panel: { x: 170, y: 24, w: 300, h: 312 },
         bar: { x: 190, y: 60, w: 260, h: 34 },
         note: { x: 456, y: 116, w: 164, h: 112 },
+        reveal: { x: 474, y: 244, w: 146, h: 34 },       // under the clue note, clear of the panel (right edge 470)
         keys: keys
     };
 })();
@@ -3206,6 +3316,9 @@ function finishPoliceBriefing() {
     policeBriefing = null;
     policeBriefingActive = false;
     pb.gen = null;
+    if (pb.puz) {                          // the reveal timer can never keep running
+        pb.puz.open = false; pb.puz.openSec = 0; pb.puz.revealReady = false; pb.puz.revealA = 0;
+    }
     pb.tweens.length = 0;
     pb.officials.length = 0;
     pb.drawOrder.length = 0;
@@ -3345,7 +3458,8 @@ function* pbScript(pb) {
     pb.puz = {
         open: true, openT: 0, alpha: 0, closeT: 0,
         digits: "", locked: false, solved: false, done: false,
-        wrongT: 0, okT: 0, pressed: null, pressT: 0
+        wrongT: 0, okT: 0, pressed: null, pressT: 0,
+        openSec: 0, revealReady: false, revealA: 0, revealed: false   // password reveal option
     };
     yield () => pb.puz.done;
 
@@ -3799,12 +3913,22 @@ function pbStepPuzzle(pb, sec) {
     const z = pb.puz;
     if (!z) return;
     if (z.open) z.openT = Math.min(1, z.openT + sec / 0.35);
+    // Reveal timer: counts only while the puzzle is open and unsolved (frame-driven, so it
+    // never runs while the puzzle is closed or the game is not updating the briefing).
+    if (z.open && !z.solved && !z.locked) {
+        z.openSec += sec;
+        if (!z.revealReady && z.openSec >= PB_REVEAL_DELAY) z.revealReady = true;
+    }
+    if (z.revealReady) z.revealA = Math.min(1, z.revealA + sec / 0.4);
     if (z.pressT > 0) z.pressT -= sec;
     if (z.wrongT > 0) z.wrongT = Math.max(0, z.wrongT - sec);
     if (z.solved) {
         z.okT += sec;
         z.closeT = Math.max(0, Math.min(1, (z.okT - 1.0) / 0.4));
-        if (z.okT >= 1.45 && !z.done) { z.done = true; z.open = false; }
+        if (z.okT >= 1.45 && !z.done) {
+            z.done = true; z.open = false;
+            z.openSec = 0; z.revealReady = false; z.revealA = 0;      // timer fully reset on close
+        }
     }
     z.alpha = z.openT * (1 - z.closeT);
 }
@@ -3832,6 +3956,13 @@ function pbPuzzleAction(pb, id) {
     if (id === "remove") z.digits = z.digits.slice(0, -1);
     else if (id === "clear") z.digits = "";
     else if (/^[0-9]$/.test(id) && z.digits.length < PB_MAX_DIGITS) z.digits += id;
+}
+
+// Tapping the reveal option shows the code; it never fills the input, the player still types it.
+function pbRevealPassword(pb) {
+    const z = pb.puz;
+    if (!z || !z.open || z.locked || z.openT < 0.85 || !z.revealReady || z.revealed) return;
+    z.revealed = true;
 }
 
 // Called from the existing window keydown listener (important.js).
@@ -3864,12 +3995,19 @@ function policeBriefingPointer(x, y) {
     if (!policeBriefingActive || !policeBriefing) return false;
     const pb = policeBriefing, z = pb.puz;
     if (z && z.open && !z.locked && z.openT >= 0.85) {
+        let hitKey = false;
         for (let i = 0; i < PB_LAYOUT.keys.length; i++) {
             const k = PB_LAYOUT.keys[i];
             if (x >= k.x && x <= k.x + k.w && y >= k.y && y <= k.y + k.h) {
                 pbPuzzleAction(pb, k.id);
+                hitKey = true;
                 break;
             }
+        }
+        const rv = PB_LAYOUT.reveal;
+        if (!hitKey && z.revealReady && !z.revealed && z.revealA > 0.5 &&
+            x >= rv.x && x <= rv.x + rv.w && y >= rv.y && y <= rv.y + rv.h) {
+            pbRevealPassword(pb);
         }
     }
     return true;                                   // taps never reach the game underneath
@@ -3992,6 +4130,39 @@ function pbDrawPuzzle(c, pb) {
     // the clue, pinned to the side of the interface
     pbDrawNote(c, L.note);
 
+    // optional password reveal (appears after PB_REVEAL_DELAY seconds, tap only)
+    if (z.revealReady && z.revealA > 0.001) pbDrawReveal(c, z, a);
+
+    c.restore();
+}
+
+function pbDrawReveal(c, z, a) {
+    const R = PB_LAYOUT.reveal;
+    c.save();
+    c.globalAlpha = a * Math.max(0, Math.min(1, z.revealA)) * (z.locked && !z.solved ? 0.5 : 1);
+
+    c.fillStyle = "rgba(18, 22, 28, 0.97)"; pbRR(c, R.x, R.y, R.w, R.h, 6); c.fill();
+    c.lineWidth = 1.5;
+    c.textAlign = "center"; c.textBaseline = "middle";
+
+    if (!z.revealed) {
+        // same dark panel + yellow accent as the lock header, so it reads as part of the puzzle UI
+        c.strokeStyle = "#f1c40f"; pbRR(c, R.x, R.y, R.w, R.h, 6); c.stroke();
+        c.fillStyle = "#f1c40f";
+        let fs = 11;
+        c.font = "bold " + fs + "px Arial";
+        while (fs > 8 && c.measureText(PB_REVEAL_TEXT).width > R.w - 14) {
+            fs -= 0.5;
+            c.font = "bold " + fs + "px Arial";
+        }
+        c.fillText(PB_REVEAL_TEXT, R.x + R.w / 2, R.y + R.h / 2 + 1);
+    } else {
+        c.strokeStyle = "#2ecc71"; pbRR(c, R.x, R.y, R.w, R.h, 6); c.stroke();
+        c.fillStyle = "rgba(255,255,255,0.55)"; c.font = "bold 8px Arial";
+        c.fillText("ACCESS CODE", R.x + R.w / 2, R.y + 9);
+        c.fillStyle = "#2ecc71"; c.font = "bold 18px 'Courier New', monospace";
+        c.fillText(PB_PASSWORD, R.x + R.w / 2, R.y + 23);
+    }
     c.restore();
 }
 

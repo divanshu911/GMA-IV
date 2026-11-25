@@ -1,4 +1,4 @@
-console.log("streetbound-gameplay11");
+console.log("streetbound-gameplay12-taxi-hud-messages");
 
 const JOB_LOCATION_CHECK_INTERVAL = 15;
 
@@ -22,6 +22,13 @@ function isWithinJobLocationRadiusCached(owner, key, x, y, centerX, centerY, rad
     return cached.inside;
 }
 // --- 6. MISSION / TAXI SYSTEM MANAGER ---
+
+// HUD message card layout, in the logical 640x360 canvas (canvas.width is always logical).
+//   left:       right edge of the money / clock / taxi-timer column (taxi box ends at x=200) + gap
+//   rightClear: distance from the canvas right edge that stays free for the minimap
+//               (18 padding + 64 radius = centre 82 from the edge; rings/glow reach ~82 more) + gap
+//   top:        just below the "WANTED" text
+const TAXI_MSG = { top: 48, left: 208, rightClear: 172, padL: 19, padR: 12, padY: 9, maxLines: 3 };
 
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -114,6 +121,130 @@ updateMessage(dt) {
         }
     }
 }
+
+  // Wraps the message into the free band between the left HUD column and the minimap.
+  // Cached per text / band, so measureText only runs when the message changes.
+  getMessageLayout(ctx) {
+    const left = TAXI_MSG.left;
+    const right = Math.max(left + 160, canvas.width - TAXI_MSG.rightClear);
+    const key = this.messageText + "|" + left + "|" + right;
+
+    if (this._msgLayout && this._msgLayout.key === key) return this._msgLayout;
+
+    const maxTextW = (right - left) - TAXI_MSG.padL - TAXI_MSG.padR;
+
+    const wrap = (text) => {
+      const out = [];
+      let line = "";
+      const words = String(text).split(" ");
+      for (let i = 0; i < words.length; i++) {
+        let word = words[i];
+        // a single word wider than the card is split by characters
+        while (ctx.measureText(word).width > maxTextW && word.length > 1) {
+          let cut = word.length - 1;
+          while (cut > 1 && ctx.measureText(word.slice(0, cut)).width > maxTextW) cut--;
+          if (line) { out.push(line); line = ""; }
+          out.push(word.slice(0, cut));
+          word = word.slice(cut);
+        }
+        const t = line ? line + " " + word : word;
+        if (line && ctx.measureText(t).width > maxTextW) { out.push(line); line = word; }
+        else line = t;
+      }
+      if (line) out.push(line);
+      return out;
+    };
+
+    let size = 13;
+    let lines = [];
+    ctx.save();
+    for (;;) {
+      ctx.font = "bold " + size + "px Arial";
+      lines = wrap(this.messageText);
+      if (lines.length <= TAXI_MSG.maxLines || size <= 11) break;
+      size--;
+    }
+    if (lines.length > TAXI_MSG.maxLines) {
+      lines = lines.slice(0, TAXI_MSG.maxLines);
+      let last = lines[TAXI_MSG.maxLines - 1];
+      while (last.length > 1 && ctx.measureText(last + "\u2026").width > maxTextW) last = last.slice(0, -1);
+      lines[TAXI_MSG.maxLines - 1] = last + "\u2026";
+    }
+
+    let widest = 0;
+    for (let i = 0; i < lines.length; i++) widest = Math.max(widest, ctx.measureText(lines[i]).width);
+    ctx.restore();
+
+    const lineH = size + 4;
+    const w = Math.min(right - left, Math.max(120, Math.ceil(widest) + TAXI_MSG.padL + TAXI_MSG.padR));
+    const h = lines.length * lineH + TAXI_MSG.padY * 2;
+
+    this._msgLayout = {
+      key: key,
+      lines: lines,
+      font: "bold " + size + "px Arial",
+      lineH: lineH,
+      w: w,
+      h: h,
+      x: Math.round((left + right) / 2 - w / 2),   // centred inside the free band
+      y: TAXI_MSG.top
+    };
+    return this._msgLayout;
+  }
+
+  // Same visual language as the money / clock / debt cards: dark gradient, rounded corners,
+  // soft shadow, thin highlight, and a coloured accent bar.
+  drawMessageCard(ctx) {
+    const L = this.getMessageLayout(ctx);
+    const x = L.x, y = L.y, w = L.w, h = L.h, r = 8;
+
+    const path = () => {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    };
+
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 2;
+
+    const body = ctx.createLinearGradient(0, y, 0, y + h);
+    body.addColorStop(0, "#33373d");
+    body.addColorStop(1, "#202327");
+    ctx.fillStyle = body;
+    path();
+    ctx.fill();
+
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+
+    ctx.strokeStyle = "rgba(255,255,255,0.12)";
+    ctx.lineWidth = 1;
+    path();
+    ctx.stroke();
+
+    // accent bar (taxi yellow, like the TIME LEFT text)
+    ctx.fillStyle = "#f1c40f";
+    ctx.fillRect(x + 8, y + 7, 3, h - 14);
+
+    ctx.fillStyle = "#f2f4f5";
+    ctx.font = L.font;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.shadowColor = "rgba(0,0,0,0.55)";
+    ctx.shadowBlur = 2;
+    ctx.shadowOffsetY = 1;
+
+    const textCx = x + TAXI_MSG.padL + (w - TAXI_MSG.padL - TAXI_MSG.padR) / 2;
+    for (let i = 0; i < L.lines.length; i++) {
+      ctx.fillText(L.lines[i], textCx, y + TAXI_MSG.padY + L.lineH * (i + 0.5) + 1);
+    }
+  }
 
   // Search a limited area once per pickup. Prefer walkable grass
   // beside the road and close to an unwalkable boundary.
@@ -573,13 +704,7 @@ const nextY = p.y + (pdy / distance) * step;
     ctx.globalAlpha *= opacity;
     ctx.translate(0, offsetY);
 
-    ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
-    ctx.fillRect(canvas.width / 2 - 250, 40, 500, 45);
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 16px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText(this.messageText, canvas.width / 2, 68);
+    this.drawMessageCard(ctx);
 
     ctx.restore();
     }
