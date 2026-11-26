@@ -1,4 +1,4 @@
-console.log("streetbound-entities-police-briefing");
+console.log("streetbound-entities-npc-stuck-fix");
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -1023,6 +1023,41 @@ function findNPCReactionPath(
 
     return [];
 }
+// ============================================================
+// NPC STUCK / SPINNING FIX - helpers
+// A "healthy" road point is a ROAD pixel with road all around it.
+// The collision map has thousands of tiny isolated ROAD slivers
+// (white lot outlines, repaired specks, tree/building edges).
+// An NPC that ends up on one of those has no valid heading left.
+// ============================================================
+function npcIsHealthyRoad(x, y, radius = 12) {
+    if (typeof isRoadColor !== "function") return false;
+    if (!isRoadColor(x, y)) return false;
+
+    for (let k = 0; k < 8; k++) {
+        const a = k * (Math.PI / 4);
+        if (!isRoadColor(x + Math.cos(a) * radius, y + Math.sin(a) * radius)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Spiral outward (pixel space) for the nearest healthy road point.
+function npcFindHealthyRoadNear(x, y, maxRadius = 640) {
+    for (let r = 16; r <= maxRadius; r += 16) {
+        const steps = Math.max(8, Math.floor((r * Math.PI * 2) / 16));
+        const offset = Math.random() * Math.PI * 2;
+        for (let i = 0; i < steps; i++) {
+            const a = offset + (i / steps) * Math.PI * 2;
+            const px = x + Math.cos(a) * r;
+            const py = y + Math.sin(a) * r;
+            if (npcIsHealthyRoad(px, py, 12)) return { x: px, y: py };
+        }
+    }
+    return null;
+}
+
 class NPC extends Pedestrian {
   constructor(id, x, y, shirt, hair, skin, isPolice = false) {
     let shirtColor = isPolice ? "#0b1d3a" : shirt;
@@ -1070,6 +1105,17 @@ this.fleePathRepathTimer = 0;
 // Off-road recovery pathfinding properties
 this.recoveryPath = null;
 this.recoveryPathIndex = 0;
+
+// Stuck / spinning fix state
+this.roadTrapped = false;      // standing on a ROAD sliver with no way out
+this.recoveryStallTimer = 0;
+this.recoveryStalls = 0;
+this.recoveryLastX = 0;
+this.recoveryLastY = 0;
+this.wanderCheckTimer = 0;
+this.wanderCheckX = 0;
+this.wanderCheckY = 0;
+this.wanderBlockedTimer = 0;
   }
 update(dt) {
 if (this.isPassenger && !this.isTaxiWaiting) return;
@@ -1558,7 +1604,18 @@ this.walkTimer +=
     // ============================================================
     // EXISTING OFF-ROAD RECOVERY
     // ============================================================
+    // A tiny isolated ROAD sliver does not count as "on the road":
+    // roadTrapped keeps the NPC in recovery until it reaches real road.
+    if (
+        this.roadTrapped &&
+        npcIsHealthyRoad(this.x, this.y, 12)
+    ) {
+        this.roadTrapped = false;
+        this.recoveryStalls = 0;
+    }
+
     const currentlyOnRoad =
+        !this.roadTrapped &&
         typeof isRoadColor === "function" &&
         isRoadColor(
             this.x,
@@ -1621,9 +1678,10 @@ this.walkTimer +=
                                 );
 
                             if (
-                                isRoadColor(
+                                npcIsHealthyRoad(
                                     testWorld.x,
-                                    testWorld.y
+                                    testWorld.y,
+                                    12
                                 )
                             ) {
                                 targetRoadCell =
@@ -1638,6 +1696,14 @@ this.walkTimer +=
                     if (targetRoadCell) break;
                 }
 
+                if (!targetRoadCell) {
+                    targetRoadCell =
+                        npcFindHealthyRoadNear(
+                            this.x,
+                            this.y
+                        );
+                }
+
                 if (targetRoadCell) {
                     this.recoveryPath =
                         navigationSystem.findPath(
@@ -1648,6 +1714,60 @@ this.walkTimer +=
                         );
 
                     this.recoveryPathIndex = 0;
+                }
+            }
+        }
+
+        // ----------------------------------------------------
+        // Recovery watchdog: if the NPC makes no progress
+        // (blocked waypoint line, no path, ...) re-plan, and
+        // finally hop it to the nearest healthy road.
+        // ----------------------------------------------------
+        this.recoveryStallTimer += dt;
+
+        if (this.recoveryStallTimer >= 60) {
+            const moved = Math.hypot(
+                this.x - this.recoveryLastX,
+                this.y - this.recoveryLastY
+            );
+
+            this.recoveryStallTimer = 0;
+            this.recoveryLastX = this.x;
+            this.recoveryLastY = this.y;
+
+            if (moved < 6) {
+                this.recoveryStalls++;
+                this.recoveryPath = null;
+                this.recoveryPathIndex = 0;
+
+                if (this.recoveryStalls >= 3) {
+                    const safe =
+                        npcFindHealthyRoadNear(
+                            this.x,
+                            this.y
+                        );
+
+                    if (safe) {
+                        const hop = Math.hypot(
+                            safe.x - this.x,
+                            safe.y - this.y
+                        );
+
+                        const visible =
+                            typeof isEntityOnScreen === "function" &&
+                            isEntityOnScreen(this, 150);
+
+                        // Off-screen: always safe to relocate.
+                        // On-screen: only a short, unobtrusive hop.
+                        if (!visible || hop <= 70) {
+                            this.x = safe.x;
+                            this.y = safe.y;
+                            this.roadTrapped = false;
+                            this.recoveryStalls = 0;
+                            this.changeDirTimer = 0;
+                            return;
+                        }
+                    }
                 }
             }
         }
@@ -1697,16 +1817,18 @@ this.walkTimer +=
                     ) *
                     moveDist;
 
-                if (
-                    typeof isWalkableColor ===
-                        "function" &&
-                    isWalkableColor(
-                        nextX,
-                        nextY,
-                        this.size
-                    )
-                ) {
+                // NPC x/y is the body CENTRE, so test the centre
+                // pixel (isWalkableColor samples +size/2 down-right,
+                // which is the player's top-left convention and left
+                // NPCs frozen against walls / even inside them).
+                // Axis-separated fallback lets the NPC slide past
+                // corners instead of freezing against them.
+                if (isGrassOrRoad(nextX, nextY)) {
                     this.x = nextX;
+                    this.y = nextY;
+                } else if (isGrassOrRoad(nextX, this.y)) {
+                    this.x = nextX;
+                } else if (isGrassOrRoad(this.x, nextY)) {
                     this.y = nextY;
                 }
 
@@ -1721,6 +1843,10 @@ this.walkTimer +=
     } else {
         this.recoveryPath = null;
         this.recoveryPathIndex = 0;
+        this.recoveryStallTimer = 0;
+        this.recoveryStalls = 0;
+        this.recoveryLastX = this.x;
+        this.recoveryLastY = this.y;
     }
 
     // ------------------------------------------------------------
@@ -1740,6 +1866,32 @@ this.walkTimer +=
             150 +
             Math.random() *
                 200;
+    }
+
+    // Trap watchdog: an NPC that barely moves for ~2.5 s while it
+    // should be walking is stuck on a ROAD sliver / pocket. Send it
+    // through recovery to a healthy road point.
+    this.wanderCheckTimer += dt;
+
+    if (this.wanderCheckTimer >= 150) {
+        const travelled = Math.hypot(
+            this.x - this.wanderCheckX,
+            this.y - this.wanderCheckY
+        );
+
+        this.wanderCheckTimer = 0;
+        this.wanderCheckX = this.x;
+        this.wanderCheckY = this.y;
+
+        if (travelled < 12 && this.speed > 0) {
+            this.roadTrapped = true;
+            this.recoveryPath = null;
+            this.recoveryPathIndex = 0;
+            this.recoveryStallTimer = 0;
+            this.recoveryLastX = this.x;
+            this.recoveryLastY = this.y;
+            return;
+        }
     }
 
     let nextX =
@@ -1771,13 +1923,30 @@ this.walkTimer +=
             this.speed *
             dt *
             0.25;
+        this.wanderBlockedTimer = 0;
     } else {
-        this.angle =
-            Math.random() *
-            Math.PI *
-            2;
+        // Blocked. The old code re-rolled a random angle on EVERY
+        // blocked frame, which looks like endless spinning when no
+        // heading is free. Pick a heading that really has road
+        // ahead; if none exists keep the current angle (no spin)
+        // and let the trap watchdog above relocate the NPC.
+        let found = false;
+        const startAngle = Math.random() * Math.PI * 2;
 
-        this.changeDirTimer = 40;
+        for (let k = 0; k < 12; k++) {
+            const a = startAngle + k * (Math.PI / 6);
+            const probeX = this.x + Math.cos(a - Math.PI / 2) * 4;
+            const probeY = this.y + Math.sin(a - Math.PI / 2) * 4;
+
+            if (isRoadColor(probeX, probeY)) {
+                this.angle = a;
+                found = true;
+                break;
+            }
+        }
+
+        this.changeDirTimer = found ? 40 : 10;
+        this.wanderBlockedTimer += dt;
     }
 }
                   
