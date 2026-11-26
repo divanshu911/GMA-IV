@@ -1,4 +1,4 @@
-console.log("streetbound-main15-police-briefing");
+console.log("streetbound-main16-sandbox-montage-start");
 // --- 1. AUDIO & STATE ---
 let lastMoneyCounterValue = null;
 let moneyCounterFlashColor = "#2ecc71";
@@ -2335,28 +2335,9 @@ function updateGame(dt) {
     // River ambience: spatial river sound (fades out when not outdoors / paused).
     if (typeof updateRiverAmbience === 'function') updateRiverAmbience(dt);
 
-    // Story intro: the world stays frozen, the cutscene drives itself.
-    if (typeof openingCutsceneActive !== 'undefined' && openingCutsceneActive) {
-        if (typeof updateOpeningCutscene === 'function') updateOpeningCutscene(dt);
-        return;
-    }
-
-    // Police intelligence briefing (storyline.js): scripted indoor scene that plays
-    // before the opening cutscene; the world stays frozen, the briefing drives itself.
-    if (typeof policeBriefingActive !== 'undefined' && policeBriefingActive) {
-        if (typeof updatePoliceBriefing === 'function') updatePoliceBriefing(dt);
-        return;
-    }
-
     // Daytime city montage (citymontage.js): fully scripted, the world stays frozen.
     if (typeof cityMontageActive !== 'undefined' && cityMontageActive) {
         if (typeof updateCityMontage === 'function') updateCityMontage(dt);
-        return;
-    }
-
-    // Syndicate visit (storyline.js): scripted scene runs while the world is frozen.
-    if (typeof syndicateMeetingActive !== 'undefined' && syndicateMeetingActive) {
-        if (typeof updateSyndicateMeeting === 'function') updateSyndicateMeeting(dt);
         return;
     }
 
@@ -2365,9 +2346,6 @@ function updateGame(dt) {
     if (typeof updateDayNight === 'function') {
         updateDayNight(dt);
     }
-
-    // Debt countdown, Mickey contact, reminders, meeting scheduling (storyline.js).
-    if (typeof updateSyndicateStory === 'function') updateSyndicateStory(dt);
 
     if (
         typeof raceEventManager !== "undefined" &&
@@ -3780,9 +3758,7 @@ ctx.translate(
 );
 
   // Map / Floor rendering
-  if (typeof policeBriefingActive !== 'undefined' && policeBriefingActive) {
-      drawPoliceBriefingRoom(ctx);           // storyline.js: office, table, chairs, documents
-  } else if (isInsideHouse) {
+  if (isInsideHouse) {
       if (houseImage.complete && houseMapWidth > 0) ctx.drawImage(houseImage, 0, 0, houseMapWidth, houseMapHeight);
   } else if (isInsideDealership) {
       let dW = dealershipMapWidth || 800;
@@ -3832,14 +3808,6 @@ if (!isInsideHouse && !isInsideDealership) {
     }
 });
       
-  } else if (typeof openingCutsceneActive !== 'undefined' && openingCutsceneActive) {
-      // Story intro inside the house: the world loop skips NPCs indoors.
-      npcs.forEach(npc => npc.draw(ctx));
-  }
-
-  // Police briefing officials: real NPC instances, drawn with NPC.draw (storyline.js).
-  if (typeof policeBriefingActive !== 'undefined' && policeBriefingActive) {
-      drawPoliceBriefingActors(ctx);
   }
 
   // Police roadblock barricades (world space, same transform as cars).
@@ -3851,18 +3819,6 @@ if (!isInsideHouse && !isInsideDealership) {
   drawExhaustParticles(ctx);
   drawDebrisParticles(ctx);
 
-  if (
-    typeof openingCutsceneActive !== "undefined" &&
-    openingCutsceneActive &&
-    typeof drawOpeningCutsceneProps === "function"
-) {
-    drawOpeningCutsceneProps(ctx);
-}
-
-// Police briefing: briefcase and speech bubbles (same camera transform).
-if (typeof policeBriefingActive !== "undefined" && policeBriefingActive) {
-    drawPoliceBriefingTopLayer(ctx);
-}
 // City montage: taxi sign, passenger and speech bubbles (same camera transform).
 if (typeof cityMontageActive !== "undefined" && cityMontageActive) {
     drawCityMontageTopLayer(ctx);
@@ -3887,38 +3843,6 @@ ctx.restore();
   }
 }
 
-// Indoor cutscene speech bubbles: drawn after the player so they appear above the player.
-if (
-    typeof openingCutsceneActive !== "undefined" &&
-    openingCutsceneActive &&
-    isInsideHouse
-) {
-    ctx.save();
-    ctx.translate(
-        canvas.width / 2 + cameraFeedback.shakeX,
-        canvas.height / 2 + cameraFeedback.shakeY
-    );
-    ctx.scale(cameraFeedback.zoom, cameraFeedback.zoom);
-    ctx.rotate(-camera.angle);
-    const indoorCamTarget = window.sbCutsceneCamFocus || player;
-    ctx.translate(
-        -indoorCamTarget.x - (indoorCamTarget.size || player.size) / 2,
-        -indoorCamTarget.y - (indoorCamTarget.size || player.size) / 2
-    );
-
-    npcs.forEach(npc => {
-        if (!npc || !npc.speechText || npc.isInjured) return;
-
-        ctx.save();
-        ctx.translate(npc.x, npc.y);
-        ctx.rotate(npc.angle);
-        npc.drawSpeechBubble(ctx);
-        ctx.restore();
-    });
-
-    ctx.restore();
-}
-    
 // Ray occlusion + object glow data for this frame (headlights & building lights).
 if (!isInsideHouse && !isInsideDealership && typeof updateObjectLighting === 'function') {
     updateObjectLighting();
@@ -3953,16 +3877,6 @@ if (!isInsideHouse && !isInsideDealership && typeof drawNightOverlay === 'functi
 
     drawLocationBoardText(ctx);
 
-    // Cutscene speech bubbles: topmost world layer (over cars, props,
-    // the player and the night overlay), same camera transform.
-    if (
-        typeof openingCutsceneActive !== "undefined" &&
-        openingCutsceneActive &&
-        typeof drawOpeningCutsceneSpeech === "function"
-    ) {
-        drawOpeningCutsceneSpeech(ctx);
-    }
-
     ctx.restore();
  }   
     
@@ -3992,10 +3906,6 @@ if (!isInsideHouse && !isInsideDealership) {
     // the same camera transform as vehicles and lights.
     drawPoliceBullets(ctx);
 
-    if (typeof openingCutsceneActive !== 'undefined' && openingCutsceneActive && typeof drawOpeningCutsceneGlow === 'function') {
-        drawOpeningCutsceneGlow(ctx);
-    }
-
     cars.forEach(car => {
         if (isEntityOnScreen(car)) {
             car.drawLights(ctx);
@@ -4011,11 +3921,8 @@ if (!isInsideHouse && !isInsideDealership) {
 }
 
 
- // Hide canvas HUD during opening intro and Syndicate meeting (same freeze).
- if (!openingCutsceneActive &&
-     !(typeof cityMontageActive !== "undefined" && cityMontageActive) &&
-     !(typeof policeBriefingActive !== "undefined" && policeBriefingActive) &&
-     !(typeof syndicateMeetingActive !== "undefined" && syndicateMeetingActive)) {
+ // Hide canvas HUD during the city montage (scripted, world frozen).
+ if (!(typeof cityMontageActive !== "undefined" && cityMontageActive)) {
   if (lastMoneyCounterValue === null) {
     lastMoneyCounterValue = player.money;
 } else if (player.money !== lastMoneyCounterValue) {
@@ -4076,7 +3983,6 @@ ctx.textAlign = "left";
       navigationManager.draw(ctx);
   }
   if (typeof drawClock === 'function') drawClock();
-  if (typeof drawSyndicateDebtHUD === 'function') drawSyndicateDebtHUD(ctx);
 
 if (player && player.wanted) {
     ctx.save();
@@ -4423,11 +4329,6 @@ ctx.restore();
     );
 
     ctx.restore();
-    }
-
-    // Police briefing: fades, title card, dim and the briefcase lock (screen space).
-    if (typeof policeBriefingActive !== "undefined" && policeBriefingActive) {
-        drawPoliceBriefingOverlay(ctx);
     }
 
     // City montage: fade to / from black (screen space).

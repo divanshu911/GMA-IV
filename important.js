@@ -1,4 +1,4 @@
-//63525256-police-briefing
+//63525256-sandbox-montage-start
 // ===== GLOBAL CANVAS & STATE (Declared first so both files can use them!) =====
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -546,7 +546,6 @@ function dismissCurrentMessage() {
 // ONE entry point for the message viewer's x: the on-screen x button (pointerdown) and
 // the keyboard X key both call this, so they can never diverge.
 function activatePhoneMessageClose() {
-    if (openingCutsceneActive) return;
     dismissCurrentMessage();
 }
 
@@ -591,9 +590,6 @@ function retireRaceMessages() {
 
 // Always puts the phone on its home screen.
 function resetPhoneToHome(force) {
-    // The opening cutscene drives the phone/message layer itself.
-    if (openingCutsceneActive && !force) return;
-
     if (phoneMessages.mode === "closed" && !force) return;
 
     phoneMessages.mode = "closed";
@@ -612,7 +608,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (messagesApp) {
         messagesApp.addEventListener("pointerdown", e => {
             e.preventDefault();
-            if (!playerPhoneOpen || openingCutsceneActive) return;
+            if (!playerPhoneOpen) return;
             openMessagesApp();
         });
     }
@@ -1576,49 +1572,60 @@ startBtn.addEventListener('click', () => {
 
     showFullMap = false;
 
-    /*
-     * hasPlayedBefore was calculated when the loading screen
-     * initialized, so this remains true only for the first
-     * actual play.
-     */
-    if (!hasSeenStoryIntro()) {
-
-        // Freeze the actual game during the introduction.
-        gameActive = false;
-
-        // startOpeningCutscene() marks both gma_has_played and the new
-        // story key immediately, so a refresh mid-intro never replays it.
-        // Existing players (gma_has_played already true) still see it once.
-        // The police briefing (storyline.js) plays first and then calls
-        // startOpeningCutscene() itself.
-        if (typeof startPoliceBriefing === "function") {
-            startPoliceBriefing();
-        } else {
-            startOpeningCutscene();
-        }
-
-        return;
-    }
+    // Old story-mode storage keys are never read any more; remove them.
+    if (typeof purgeObsoleteStoryStorage === "function") purgeObsoleteStoryStorage();
 
     // ========================================================
-    // RETURNING PLAYER — NORMAL GAME START
+    // STARTUP SEQUENCE (every new session, no saved flags involved):
+    //   START GAME -> city montage (citymontage.js) -> sandbox gameplay
+    // The montage hands over to beginSandboxGameplay() itself when it ends
+    // or is skipped. If it cannot start, gameplay begins immediately.
     // ========================================================
+    gameActive = false;
 
-    gameActive = true;
-
-    if (typeof taxiManager !== 'undefined') {
-        taxiManager.setMessage(
-            "Tap SPACE for desktop controls",
-            300
-        );
+    let montageHandlesStart = false;
+    if (typeof startCityMontage === "function") {
+        montageHandlesStart = startCityMontage();
     }
+    if (!montageHandlesStart) {
+        beginSandboxGameplay();
+    }
+});
 
-    // Gameplay tips (phone / minimap) are now scheduled phone messages.
-    // The desktop-controls tip above intentionally stays a direct HUD message.
+// ----------------------------------------------------
+// SANDBOX GAMEPLAY START (runs exactly once per page load)
+// Called when the city montage finishes or is skipped, or directly if the
+// montage could not start. Hands normal control to the player.
+// ----------------------------------------------------
+let sandboxGameplayStarted = false;
+
+function beginSandboxGameplay() {
+    if (sandboxGameplayStarted) return;
+    sandboxGameplayStarted = true;
+
+    const gameContainerEl = document.getElementById("gameContainer");
+    if (gameContainerEl) gameContainerEl.classList.remove("opening-cutscene");
+
+    try { localStorage.setItem("gma_has_played", "true"); } catch (e) {}
+
+    // Gameplay tips (phone / minimap) are scheduled phone messages.
+    // The desktop-controls tip below intentionally stays a direct HUD message.
     scheduleGameplayTips();
 
-    localStorage.setItem("gma_has_played", "true");
-});
+    // Only players who never picked a control mode see the chooser.
+    if (typeof hasConfiguredControls === "function" &&
+        !hasConfiguredControls() &&
+        typeof openFirstTimeControlsPanel === "function") {
+        openFirstTimeControlsPanel();      // keeps gameActive false until it closes
+    } else {
+        gameActive = true;
+        if (typeof taxiManager !== 'undefined') {
+            taxiManager.setMessage("Tap SPACE for desktop controls", 300);
+        }
+    }
+
+    if (typeof drawGame === "function") drawGame();
+}
 // --- 3. DYNAMIC RESIZE FUNCTION ---
 
 function resizeCanvas() {
@@ -2110,8 +2117,8 @@ function sbSetJoystickZoneInteractive(enabled) {
 
 // ============================================================
 // FIRST-PLAY CONTROL MODE PANEL
-// Shown once after the opening cutscene finishes (first play only;
-// returning players skip the cutscene via gma_has_played). Does NOT
+// Shown after the city montage finishes or is skipped, only for players who
+// never picked a control mode (beginSandboxGameplay). Does NOT
 // open the minimap. Canvas is CSS-blurred; the panel + X stay sharp.
 // ============================================================
 
@@ -2397,8 +2404,6 @@ function sbHit(r, x, y) {
 // <<< SB CONTROL MODE END
 
 window.addEventListener('keydown', e => {
-// Police briefing: puzzle keys; every other key is kept away from the game.
-    if (typeof policeBriefingKey === 'function' && policeBriefingKey(e)) return;
 // City montage: no key reaches the game.
     if (typeof cityMontageKey === 'function' && cityMontageKey(e)) return;
 // ESC = Close first-time control settings panel
@@ -2414,7 +2419,7 @@ window.addEventListener('keydown', e => {
         e.preventDefault();
 
         // Don't interrupt the first-play control chooser.
-        if (firstTimeControlsOpen || openingCutsceneActive) return;
+        if (firstTimeControlsOpen) return;
 
         const desktopControlsModal =
             document.getElementById('desktopControlsModal');
@@ -2437,7 +2442,7 @@ window.addEventListener('keydown', e => {
     // H = Open / close full map
 if (e.key === 'h' || e.key === 'H') {
     e.preventDefault();
-    if (firstTimeControlsOpen || openingCutsceneActive) return;
+    if (firstTimeControlsOpen) return;
     if (showFullMap && !fullMapAnimating && mapSettingsOpen) {
         mapSettingsOpen = false;
         return;
@@ -2605,8 +2610,6 @@ window.addEventListener('blur', () => {
 canvas.addEventListener('pointerdown', (e) => {
   const { x: mouseX, y: mouseY } = clientToLogical(e.clientX, e.clientY);
 
-// Police briefing: lock-puzzle buttons; taps never reach the game underneath.
-if (typeof policeBriefingPointer === 'function' && policeBriefingPointer(mouseX, mouseY)) return;
 // City montage: taps never reach the game underneath (the SKIP button is a DOM button).
 if (typeof cityMontagePointer === 'function' && cityMontagePointer(mouseX, mouseY)) return;
 

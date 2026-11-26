@@ -1,4 +1,4 @@
-console.log("streetbound-gameplay12-taxi-hud-messages");
+console.log("streetbound-gameplay13-montage-save-guard");
 
 const JOB_LOCATION_CHECK_INTERVAL = 15;
 
@@ -1626,7 +1626,8 @@ if (sleepBtn) {
 }
 
 setInterval(() => {
-    if (typeof player !== 'undefined' && !isInsideHouse && !isInsideDealership && !openingCutsceneActive) {
+    if (typeof player !== 'undefined' && !isInsideHouse && !isInsideDealership &&
+        !(typeof cityMontageActive !== 'undefined' && cityMontageActive)) {
         localStorage.setItem("gma_player_x", player.x.toFixed(2));
         localStorage.setItem("gma_player_y", player.y.toFixed(2));
 

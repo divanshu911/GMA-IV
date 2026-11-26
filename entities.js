@@ -1,4 +1,4 @@
-console.log("streetbound-entities-npc-stuck-fix");
+console.log("streetbound-entities-sandbox-cleanup");
 // --- 1. ENHANCE PEDESTRIAN BASE CLASS WITH SPEECH BUBBLES ---
 class Pedestrian {
   constructor(x, y, size, shirtColor, hairColor, skinColor) {
@@ -321,55 +321,6 @@ class Pedestrian {
       ctx.restore();
     }
 
-        // Mafia boss: tailored suit, burgundy shirt and gold details
-if (this.isStoryBoss) {
-    const s = this.size;
-
-    ctx.save();
-
-    // Burgundy shirt visible beneath the jacket
-    ctx.fillStyle = "#641f32";
-    ctx.beginPath();
-    ctx.ellipse(0, s * 0.07, s * 0.19, s * 0.14, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Left suit lapel
-    ctx.fillStyle = "#30333b";
-    ctx.beginPath();
-    ctx.moveTo(-s * 0.27, -s * 0.08);
-    ctx.lineTo(-s * 0.07, s * 0.03);
-    ctx.lineTo(-s * 0.16, s * 0.23);
-    ctx.closePath();
-    ctx.fill();
-
-    // Right suit lapel
-    ctx.beginPath();
-    ctx.moveTo(s * 0.27, -s * 0.08);
-    ctx.lineTo(s * 0.07, s * 0.03);
-    ctx.lineTo(s * 0.16, s * 0.23);
-    ctx.closePath();
-    ctx.fill();
-
-    // Gold tie pin / tie detail
-    ctx.fillStyle = "#d6ad55";
-    ctx.beginPath();
-    ctx.moveTo(0, s * 0.04);
-    ctx.lineTo(-s * 0.055, s * 0.12);
-    ctx.lineTo(0, s * 0.23);
-    ctx.lineTo(s * 0.055, s * 0.12);
-    ctx.closePath();
-    ctx.fill();
-
-    // Gold collar chain
-    ctx.strokeStyle = "#d6ad55";
-    ctx.lineWidth = Math.max(1, s * 0.035);
-    ctx.beginPath();
-    ctx.moveTo(-s * 0.15, s * 0.13);
-    ctx.quadraticCurveTo(0, s * 0.25, s * 0.15, s * 0.13);
-    ctx.stroke();
-
-    ctx.restore();
-}
 
     // 3. Draw Head (optional scripted head turn: only the nose moves, since
     // the head is a circle; the torso keeps its own heading)
@@ -547,15 +498,7 @@ this.drawBaseBody(
     punchProgress
 );
 
-    // During the opening cutscene, speech bubbles are drawn
-// separately after all world objects to prevent occlusion.
-if (
-    !(typeof openingCutsceneActive !== "undefined" &&
-      openingCutsceneActive &&
-      !(typeof isInsideHouse !== "undefined" && isInsideHouse))
-) {
     this.drawSpeechBubble(ctx);
-}
 
 ctx.restore();
   }
@@ -2044,11 +1987,9 @@ if (isFiring) {
     }
 }
 
-    // During the opening cutscene the bubble is drawn once, upright, in
-    // the top layer (drawOpeningCutsceneSpeech) so nothing covers it.
-    // (topLayerSpeech: the police briefing draws its own bubbles in the top layer.)
-    if (!this.topLayerSpeech &&
-        !(typeof openingCutsceneActive !== "undefined" && openingCutsceneActive)) {
+    // topLayerSpeech: a scripted scene (e.g. the city montage) draws this NPC's
+    // bubble itself in a top layer, so it is skipped here.
+    if (!this.topLayerSpeech) {
         this.drawSpeechBubble(ctx);
     }
 ctx.restore();

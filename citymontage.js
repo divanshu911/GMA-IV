@@ -1,25 +1,25 @@
-console.log("StreetBound city montage loaded");
+console.log("StreetBound city montage loaded (sandbox start)");
 
 // ============================================================
 // DAYTIME CITY MONTAGE (about 110 s)
 // ------------------------------------------------------------
-// Plays between the police briefing and the existing nighttime SUV opening
-// cutscene:   finishPoliceBriefing() -> startCityMontage() -> startOpeningCutscene()
+// The first cinematic of every new game session:
+//   START GAME -> startCityMontage() -> beginSandboxGameplay() (important.js)
+// It never depends on saved flags, so it plays on every page load.
 //
 // It is a stand-alone, fully scripted state, modelled on the way the opening
-// cutscene and the police briefing already work:
+// cutscene system worked:
 //
 //   * updateGame() calls updateCityMontage() and returns, so no normal gameplay
 //     system (jobs, rent, hunger, wanted level, races, debt clock ...) advances.
 //   * The ordinary world arrays (cars / npcs / angryDrivers / playerCar) are set
-//     aside and replaced by montage-only arrays, exactly as startOpeningCutscene
-//     does. They are put back untouched before the opening cutscene starts.
+//     aside and replaced by montage-only arrays. They are put back untouched
+//     before sandbox gameplay starts.
 //   * Cars are the real Car class and pedestrians the real NPC class, drawn by
 //     the normal drawGame loop. Their movement is scripted here (kinematic, along
 //     road polylines that were checked against CollisionMap2.png), never by the
 //     random AI, so the sequence is identical on every playthrough.
-//   * Camera: the existing window.sbCutsceneCamFocus / window.sbCutsceneZoom hooks
-//     (the same ones the police briefing uses). The hidden player is parked on the
+//   * Camera: the existing window.sbCutsceneCamFocus / window.sbCutsceneZoom hooks. The hidden player is parked on the
 //     camera focus every frame, because several draw passes use the player as the
 //     camera target; its real position is restored afterwards.
 //   * Speech: NPC.say() / NPC.drawSpeechBubble(); bubbles are drawn in a top layer.
@@ -541,7 +541,6 @@ function cmSkip(m) {
 function startCityMontage() {
     // Never twice. Returns true when the caller must NOT start the cutscene itself.
     if (cityMontageActive || cityMontage || cityMontagePlayed) return true;
-    if (typeof openingCutsceneActive !== "undefined" && openingCutsceneActive) return true;
     if (typeof Car !== "function" || typeof NPC !== "function") return false;
     cityMontagePlayed = true;
 
@@ -581,7 +580,7 @@ function startCityMontage() {
         angryDrivers = [];
         playerCar = null;
 
-        // daytime, without saving the clock (restored before the night cutscene)
+        // daytime, without saving the clock (restored when the montage ends)
         if (typeof storySetTime === "function") storySetTime(CM_DAY_HOUR);
         else { gameSeconds = (CM_DAY_HOUR / 24) * DAY_LENGTH; lastTimeSave = gameSeconds; }
 
@@ -601,8 +600,8 @@ function startCityMontage() {
         if (typeof drawGame === "function") drawGame();
         return true;
     } catch (err) {
-        console.error("[City montage] could not start, going straight to the opening cutscene:", err);
-        cmFinish(m, "error", true);        // restores everything, does NOT start the cutscene
+        console.error("[City montage] could not start, going straight to sandbox gameplay:", err);
+        cmFinish(m, "error", true);        // restores everything; the caller (false return) starts gameplay
         return false;
     }
 }
@@ -653,11 +652,15 @@ function cmFinish(m, reason, noHandoff) {
         return;
     }
 
-    // 6. the existing nighttime SUV cutscene (it guards itself against a second start)
-    startOpeningCutscene();
-    if (!openingCutsceneActive) {
+    // 6. normal sandbox gameplay. cmFinish runs once per montage (m.done guard) and
+    //    beginSandboxGameplay() has its own once-only guard, so skip and natural
+    //    completion can never start gameplay twice.
+    if (typeof beginSandboxGameplay === "function") {
+        beginSandboxGameplay();
+    } else {
         const gc = document.getElementById("gameContainer");
         if (gc) gc.classList.remove("opening-cutscene");
+        gameActive = true;
     }
 }
 
