@@ -28,7 +28,21 @@ function isWithinJobLocationRadiusCached(owner, key, x, y, centerX, centerY, rad
 //   rightClear: distance from the canvas right edge that stays free for the minimap
 //               (18 padding + 64 radius = centre 82 from the edge; rings/glow reach ~82 more) + gap
 //   top:        just below the "WANTED" text
-const TAXI_MSG = { top: 48, left: 208, rightClear: 172, padL: 19, padR: 12, padY: 9, maxLines: 3 };
+//   padL:       left padding reserves room for the category icon + gap before text
+const TAXI_MSG = { top: 48, left: 208, rightClear: 172, padL: 32, padR: 12, padY: 9, maxLines: 3, iconSize: 14 };
+
+// Category colours for the small left-side notification icons.
+const TAXI_MSG_ICON_COLORS = {
+    police:   "#5dade2",
+    money:    "#2ecc71",
+    vehicle:  "#95a5a6",
+    race:     "#f1c40f",
+    job:      "#3498db",
+    warning:  "#e67e22",
+    home:     "#9b59b6",
+    crime:    "#e74c3c",
+    info:     "#bdc3c7"
+};
 
 class TaxiJobManager {
   constructor(depotX, depotY) {
@@ -49,12 +63,13 @@ class TaxiJobManager {
     this.hasPassenger = false;
 
     this.messageText = "";
-this.messageTimer = 0;
+    this.messageCategory = "info";
+    this.messageTimer = 0;
 
-this.messageQueue = [];
-this.messageAnimationState = "hidden";
-this.messageAnimationTimer = 0;
-this.messageAnimationDuration = 12;
+    this.messageQueue = [];
+    this.messageAnimationState = "hidden";
+    this.messageAnimationTimer = 0;
+    this.messageAnimationDuration = 12;
     this.pickupCooldown = 0;
     this.warnedOutOfTaxi = false;
 
@@ -64,70 +79,318 @@ this.messageAnimationDuration = 12;
     this.lastTaxiX = 0;
     this.lastTaxiY = 0;
   }
-    startMessage(text, duration = 180) {
+
+  // Infer a notification category from message text when callers
+  // do not pass an explicit category to setMessage().
+  inferMessageCategory(text) {
+    const t = String(text || "").toLowerCase();
+
+    if (
+      /police|siren|wanted|arrest|chase|chased|reinforcement|surrender|officer|cop\b|escape/.test(t)
+    ) {
+      return "police";
+    }
+    if (
+      /assault|hit\s*&\s*run|hit and run|crime|stolen|theft|illegal|black market/.test(t)
+    ) {
+      return "crime";
+    }
+    if (
+      /race|checkpoint|finish|prize|trophy|racer|grid|lap\b/.test(t)
+    ) {
+      return "race";
+    }
+    if (
+      /home|house|evict|sleep|property|welcome home/.test(t)
+    ) {
+      return "home";
+    }
+    if (
+      /taxi|truck|cargo|job|mission|passenger|customer|depot|delivery|goods|rental/.test(t)
+    ) {
+      return "job";
+    }
+    if (
+      /\$|money|earn|paid|pay|sold|buy|bought|price|cost|fee|penalty|worth|cash|wallet/.test(t)
+    ) {
+      return "money";
+    }
+    if (
+      /car\b|vehicle|tyre|tire|engine|park|drive|driving|jack|dealership/.test(t)
+    ) {
+      return "vehicle";
+    }
+    if (
+      /warning|warn|danger|careful|don't|dont|failed|fail|injured|wasted|hospital|damage/.test(t)
+    ) {
+      return "warning";
+    }
+    return "info";
+  }
+
+  // Draw a compact category icon at (cx, cy) with the given size.
+  // Icons are stroke-based so they stay sharp at small sizes.
+  drawMessageIcon(ctx, category, cx, cy, size) {
+    const color = TAXI_MSG_ICON_COLORS[category] || TAXI_MSG_ICON_COLORS.info;
+    const s = size * 0.5;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = Math.max(1.2, size * 0.12);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    switch (category) {
+      case "police": {
+        // Shield
+        ctx.beginPath();
+        ctx.moveTo(0, -s * 0.95);
+        ctx.lineTo(s * 0.75, -s * 0.55);
+        ctx.lineTo(s * 0.75, s * 0.15);
+        ctx.quadraticCurveTo(s * 0.75, s * 0.75, 0, s * 0.95);
+        ctx.quadraticCurveTo(-s * 0.75, s * 0.75, -s * 0.75, s * 0.15);
+        ctx.lineTo(-s * 0.75, -s * 0.55);
+        ctx.closePath();
+        ctx.stroke();
+        // small star / badge mark
+        ctx.beginPath();
+        ctx.moveTo(0, -s * 0.35);
+        ctx.lineTo(s * 0.18, s * 0.05);
+        ctx.lineTo(-s * 0.18, s * 0.05);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
+      case "money": {
+        // Circle with dollar sign
+        ctx.beginPath();
+        ctx.arc(0, 0, s * 0.85, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.font = "bold " + Math.round(size * 0.72) + "px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("$", 0, 0.5);
+        break;
+      }
+      case "vehicle": {
+        // Simple car side profile
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.9, s * 0.15);
+        ctx.lineTo(-s * 0.7, -s * 0.15);
+        ctx.lineTo(-s * 0.25, -s * 0.45);
+        ctx.lineTo(s * 0.35, -s * 0.45);
+        ctx.lineTo(s * 0.75, -s * 0.1);
+        ctx.lineTo(s * 0.9, s * 0.15);
+        ctx.closePath();
+        ctx.stroke();
+        // Wheels
+        ctx.beginPath();
+        ctx.arc(-s * 0.4, s * 0.35, s * 0.22, 0, Math.PI * 2);
+        ctx.arc(s * 0.4, s * 0.35, s * 0.22, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      }
+      case "race": {
+        // Trophy cup
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.45, -s * 0.7);
+        ctx.lineTo(s * 0.45, -s * 0.7);
+        ctx.lineTo(s * 0.3, s * 0.15);
+        ctx.quadraticCurveTo(0, s * 0.4, -s * 0.3, s * 0.15);
+        ctx.closePath();
+        ctx.stroke();
+        // Base
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.2, s * 0.15);
+        ctx.lineTo(-s * 0.2, s * 0.45);
+        ctx.lineTo(s * 0.2, s * 0.45);
+        ctx.lineTo(s * 0.2, s * 0.15);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.35, s * 0.55);
+        ctx.lineTo(s * 0.35, s * 0.55);
+        ctx.stroke();
+        // Handles
+        ctx.beginPath();
+        ctx.arc(-s * 0.45, -s * 0.25, s * 0.28, Math.PI * 0.5, Math.PI * 1.5);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(s * 0.45, -s * 0.25, s * 0.28, Math.PI * 1.5, Math.PI * 0.5);
+        ctx.stroke();
+        break;
+      }
+      case "job": {
+        // Briefcase
+        ctx.beginPath();
+        if (typeof ctx.roundRect === "function") {
+          ctx.roundRect(-s * 0.85, -s * 0.35, s * 1.7, s * 1.05, s * 0.12);
+        } else {
+          ctx.rect(-s * 0.85, -s * 0.35, s * 1.7, s * 1.05);
+        }
+        ctx.stroke();
+        // Handle
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.3, -s * 0.35);
+        ctx.lineTo(-s * 0.3, -s * 0.65);
+        ctx.lineTo(s * 0.3, -s * 0.65);
+        ctx.lineTo(s * 0.3, -s * 0.35);
+        ctx.stroke();
+        // Latch
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.15, s * 0.15);
+        ctx.lineTo(s * 0.15, s * 0.15);
+        ctx.stroke();
+        break;
+      }
+      case "warning": {
+        // Alert triangle
+        ctx.beginPath();
+        ctx.moveTo(0, -s * 0.95);
+        ctx.lineTo(s * 0.9, s * 0.75);
+        ctx.lineTo(-s * 0.9, s * 0.75);
+        ctx.closePath();
+        ctx.stroke();
+        // Exclamation
+        ctx.beginPath();
+        ctx.moveTo(0, -s * 0.35);
+        ctx.lineTo(0, s * 0.15);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(0, s * 0.4, s * 0.1, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case "home": {
+        // House
+        ctx.beginPath();
+        ctx.moveTo(0, -s * 0.9);
+        ctx.lineTo(s * 0.85, -s * 0.1);
+        ctx.lineTo(s * 0.85, s * 0.8);
+        ctx.lineTo(-s * 0.85, s * 0.8);
+        ctx.lineTo(-s * 0.85, -s * 0.1);
+        ctx.closePath();
+        ctx.stroke();
+        // Door
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.22, s * 0.8);
+        ctx.lineTo(-s * 0.22, s * 0.2);
+        ctx.lineTo(s * 0.22, s * 0.2);
+        ctx.lineTo(s * 0.22, s * 0.8);
+        ctx.stroke();
+        break;
+      }
+      case "crime": {
+        // Handcuffs (two linked rings)
+        ctx.beginPath();
+        ctx.arc(-s * 0.4, 0, s * 0.45, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(s * 0.4, 0, s * 0.45, 0, Math.PI * 2);
+        ctx.stroke();
+        // Link
+        ctx.beginPath();
+        ctx.moveTo(-s * 0.05, 0);
+        ctx.lineTo(s * 0.05, 0);
+        ctx.stroke();
+        break;
+      }
+      default: {
+        // Info circle with "i"
+        ctx.beginPath();
+        ctx.arc(0, 0, s * 0.85, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(0, -s * 0.4, s * 0.12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(0, -s * 0.1);
+        ctx.lineTo(0, s * 0.45);
+        ctx.stroke();
+        break;
+      }
+    }
+
+    ctx.restore();
+  }
+
+  startMessage(text, duration = 180, category) {
     this.messageText = text;
+    this.messageCategory =
+      category && TAXI_MSG_ICON_COLORS[category]
+        ? category
+        : this.inferMessageCategory(text);
     this.messageTimer = duration;
     this.messageAnimationState = "enter";
     this.messageAnimationTimer = 0;
-}
+    // Invalidate layout cache when text or category changes.
+    this._msgLayout = null;
+  }
 
-setMessage(text, duration = 180) {
+  // Optional third argument: category string ("police", "money", "vehicle",
+  // "race", "job", "warning", "home", "crime", "info"). When omitted the
+  // category is inferred from the message text.
+  setMessage(text, duration = 180, category) {
     // Discard any pending notifications.
     this.messageQueue.length = 0;
 
     // Immediately replace the current message and animate it in.
-    this.startMessage(text, duration);
-}
-updateMessage(dt) {
+    this.startMessage(text, duration, category);
+  }
+
+  updateMessage(dt) {
     const animationDuration = this.messageAnimationDuration;
 
     if (this.messageAnimationState === "enter") {
-        this.messageAnimationTimer += dt;
+      this.messageAnimationTimer += dt;
 
-        if (this.messageAnimationTimer >= animationDuration) {
-            this.messageAnimationState = "hold";
-            this.messageAnimationTimer = 0;
-        }
-        return;
+      if (this.messageAnimationTimer >= animationDuration) {
+        this.messageAnimationState = "hold";
+        this.messageAnimationTimer = 0;
+      }
+      return;
     }
 
     if (this.messageAnimationState === "hold") {
-        this.messageTimer -= dt;
+      this.messageTimer -= dt;
 
-        if (this.messageTimer <= 0) {
-            this.messageAnimationState = "exit";
-            this.messageAnimationTimer = 0;
-        }
-        return;
+      if (this.messageTimer <= 0) {
+        this.messageAnimationState = "exit";
+        this.messageAnimationTimer = 0;
+      }
+      return;
     }
 
     if (this.messageAnimationState === "exit") {
-        this.messageAnimationTimer += dt;
+      this.messageAnimationTimer += dt;
 
-        if (this.messageAnimationTimer >= animationDuration) {
-            const nextMessage = this.messageQueue.shift();
+      if (this.messageAnimationTimer >= animationDuration) {
+        const nextMessage = this.messageQueue.shift();
 
-            if (nextMessage) {
-                this.startMessage(
-                    nextMessage.text,
-                    nextMessage.duration
-                );
-            } else {
-                this.messageText = "";
-                this.messageTimer = 0;
-                this.messageAnimationState = "hidden";
-                this.messageAnimationTimer = 0;
-            }
+        if (nextMessage) {
+          this.startMessage(
+            nextMessage.text,
+            nextMessage.duration,
+            nextMessage.category
+          );
+        } else {
+          this.messageText = "";
+          this.messageCategory = "info";
+          this.messageTimer = 0;
+          this.messageAnimationState = "hidden";
+          this.messageAnimationTimer = 0;
         }
+      }
     }
-}
+  }
 
   // Wraps the message into the free band between the left HUD column and the minimap.
   // Cached per text / band, so measureText only runs when the message changes.
   getMessageLayout(ctx) {
     const left = TAXI_MSG.left;
     const right = Math.max(left + 160, canvas.width - TAXI_MSG.rightClear);
-    const key = this.messageText + "|" + left + "|" + right;
+    const key = this.messageText + "|" + left + "|" + right + "|" + (this.messageCategory || "info");
 
     if (this._msgLayout && this._msgLayout.key === key) return this._msgLayout;
 
@@ -228,9 +491,17 @@ updateMessage(dt) {
     path();
     ctx.stroke();
 
-    // accent bar (taxi yellow, like the TIME LEFT text)
-    ctx.fillStyle = "#f1c40f";
-    ctx.fillRect(x + 8, y + 7, 3, h - 14);
+    // Category icon (replaces the old yellow accent bar)
+    const iconSize = TAXI_MSG.iconSize;
+    const iconCx = x + 8 + iconSize / 2;
+    const iconCy = y + h / 2;
+    this.drawMessageIcon(
+      ctx,
+      this.messageCategory || "info",
+      iconCx,
+      iconCy,
+      iconSize
+    );
 
     ctx.fillStyle = "#f2f4f5";
     ctx.font = L.font;
