@@ -1,4 +1,4 @@
-console.log("streetbound-storyline19-sandbox-reusable-cinematics");
+console.log("streetbound-storyline20-player-history");
 // ===== REUSABLE CINEMATIC HELPERS =====
 //
 // The mandatory storyline (police briefing, SUV ambush, Victor's home meeting,
@@ -568,3 +568,772 @@ function storyIntroCardsAbort() {
     storyCardHide();
 }
 
+
+// ============================================================
+// PLAYER HISTORY & BEHAVIOUR RECOGNITION
+// Foundation for the future Dynamic Story Director.
+//
+// 1. READ     - builds one profile from statistics the game already saves
+//               (taxi jobs, money, owned cars, crime cases) plus a few
+//               lifetime counters that did not exist before.
+// 2. REMEMBER - a bounded (50) list of recent meaningful events.
+// 3. ANALYSE  - behaviour scores (0..1) + a short natural-language summary,
+//               printed to the console once, after the game has loaded.
+//
+// Nothing here edits another system. Events are detected by watching
+// existing game state a few times per second (never per frame) and the
+// only thing written to localStorage is ONE new key:
+//     streetbound_player_history_v1
+// Existing saves (gma_*) are only ever READ.
+//
+// Existing data reused (not duplicated):
+//   gma_taxi_missions_completed / player.taxiMissionsCompleted  -> taxi jobs
+//   gma_player_money / player.money                             -> current money
+//   gma_player_cars / playerCars + carPrices                    -> owned vehicles
+//   playerHitRunCases / playerCarStealCases / playerAssaultCases-> ACTIVE crime cases
+//
+// Note: the three crime-case counters are reset to 0 on every arrest, so
+// they are not lifetime totals. Lifetime crimes are therefore counted here
+// (new key) by watching those counters go up.
+// ============================================================
+(function () {
+    "use strict";
+
+    if (window.StreetBoundHistory) return;
+
+    const HISTORY_KEY = "streetbound_player_history_v1";
+    const HISTORY_VERSION = 1;
+    const MAX_EVENTS = 50;
+
+    const POLL_MS = 250;                  // state watcher interval (not per frame)
+    const DEFAULT_DEDUPE_MS = 4000;       // same event + same detail inside this window = ignored
+    const ESCAPE_MIN_CHASE_MS = 3000;     // a chase must last this long to count as an escape
+    const ESCAPE_MIN_GAP_MS = 10000;      // at most one escape per 10 s
+
+    const MIN_ACTIVITY = 5;               // below this: "undetermined"
+    const MIXED_ACTIVITY = 8;             // enough activity to call someone "mixed"
+    const TENDENCY_MIN = 0.4;             // score needed to be reported as a tendency
+    const LIFETIME_WEIGHT = 0.8;          // lifetime totals vs. recent events
+    const RECENT_WEIGHT = 0.2;
+
+    const BEHAVIOURS = [
+        "law_abiding", "criminal", "aggressive", "competitive",
+        "professional_driver", "wealthy", "reckless_driver"
+    ];
+
+    // Behaviours of the same family describe the same kind of player, so they
+    // never make someone "mixed" on their own.
+    const FAMILY = {
+        criminal: "crime", aggressive: "crime", reckless_driver: "crime",
+        professional_driver: "work", law_abiding: "work",
+        competitive: "racing", wealthy: "wealth"
+    };
+
+    // ---------------- small safe helpers ----------------
+    function num(v) {
+        const n = Number(v);
+        return (Number.isFinite(n) && n > 0) ? n : 0;
+    }
+
+    function lsGet(key) {
+        try { return localStorage.getItem(key); } catch (e) { return null; }
+    }
+
+    function lsSet(key, value) {
+        try { localStorage.setItem(key, value); return true; } catch (e) { return false; }
+    }
+
+    function sat(x, k) {                  // 0..1, linear up to k
+        return x <= 0 ? 0 : Math.min(1, x / k);
+    }
+
+    function plural(n, one, many) {
+        return n + " " + (n === 1 ? one : (many || one + "s"));
+    }
+
+    function listJoin(parts) {
+        if (parts.length <= 1) return parts.join("");
+        return parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1];
+    }
+
+    function money(n) {
+        return "$" + Math.round(n).toLocaleString("en-US");
+    }
+
+    function hash(str) {                  // stable seed: same data -> same wording
+        let h = 7;
+        for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+        return h;
+    }
+
+    function pick(list, seed, salt) {
+        return list[(seed + (salt || 0) * 7) % list.length];
+    }
+
+    // ---------------- readers for EXISTING game data ----------------
+    function readTaxiJobs() {
+        let best = num(parseInt(lsGet("gma_taxi_missions_completed") || "0", 10));
+        if (typeof player !== "undefined" && player) {
+            best = Math.max(best, num(player.taxiMissionsCompleted));
+        }
+        return Math.floor(best);
+    }
+
+    function readMoney() {
+        if (typeof player !== "undefined" && player && Number.isFinite(Number(player.money))) {
+            return Number(player.money);
+        }
+        const saved = Number(lsGet("gma_player_money"));
+        return Number.isFinite(saved) ? saved : null;
+    }
+
+    function readCrimeCounts() {          // null = counter not available
+        return {
+            hitRun: (typeof playerHitRunCases !== "undefined") ? num(playerHitRunCases) : null,
+            carSteal: (typeof playerCarStealCases !== "undefined") ? num(playerCarStealCases) : null,
+            assault: (typeof playerAssaultCases !== "undefined") ? num(playerAssaultCases) : null
+        };
+    }
+
+    function readOwnedCars() {
+        return (typeof playerCars !== "undefined" && Array.isArray(playerCars))
+            ? playerCars.filter(c => c && c.type)
+            : [];
+    }
+
+    function carValue(type) {
+        return (typeof carPrices !== "undefined" && carPrices && Number.isFinite(carPrices[type]))
+            ? carPrices[type]
+            : 0;
+    }
+
+    function inGameHour() {
+        if (typeof gameSeconds !== "undefined" && typeof DAY_LENGTH !== "undefined" &&
+            Number.isFinite(gameSeconds) && DAY_LENGTH > 0) {
+            return Math.round((((gameSeconds / DAY_LENGTH) * 24) % 24) * 10) / 10;
+        }
+        return null;
+    }
+
+    // ---------------- persistent store (new key only) ----------------
+    function emptyStore() {
+        return {
+            v: HISTORY_VERSION,
+            sessions: 0,
+            counters: {
+                truckJobs: 0, arrests: 0, escapes: 0,
+                racesWon: 0, racesLost: 0, raceEarnings: 0,
+                hitRun: 0, carSteal: 0, assault: 0,
+                carsPurchased: 0, carSpend: 0, blackMarketSales: 0
+            },
+            events: []
+        };
+    }
+
+    function sanitizeStore(raw) {
+        const out = emptyStore();
+        if (!raw || typeof raw !== "object") return out;
+
+        out.sessions = Math.floor(num(raw.sessions));
+
+        const rc = (raw.counters && typeof raw.counters === "object") ? raw.counters : {};
+        Object.keys(out.counters).forEach(k => { out.counters[k] = num(rc[k]); });
+
+        if (Array.isArray(raw.events)) {
+            raw.events.forEach(e => {
+                if (!e || typeof e.type !== "string" || !Number.isFinite(Number(e.t))) return;
+                out.events.push({
+                    type: e.type.slice(0, 40),
+                    t: Number(e.t),
+                    h: Number.isFinite(Number(e.h)) ? Number(e.h) : null,
+                    s: Math.floor(num(e.s)),
+                    d: (e.d && typeof e.d === "object") ? e.d : null
+                });
+            });
+            out.events = out.events.slice(-MAX_EVENTS);
+        }
+        return out;
+    }
+
+    let store = emptyStore();
+
+    // returns true when the stored data was missing or unreadable (needs seeding)
+    function loadStore() {
+        const raw = lsGet(HISTORY_KEY);
+
+        if (raw === null) {
+            store = emptyStore();
+            return true;
+        }
+
+        try {
+            store = sanitizeStore(JSON.parse(raw));
+            return false;
+        } catch (e) {
+            console.warn("[History] Stored history was unreadable; starting a fresh history.");
+            if (lsGet(HISTORY_KEY + "_corrupt_backup") === null) {
+                lsSet(HISTORY_KEY + "_corrupt_backup", String(raw).slice(0, 20000));
+            }
+            store = emptyStore();
+            return true;
+        }
+    }
+
+    function saveStore() {
+        lsSet(HISTORY_KEY, JSON.stringify(store));
+    }
+
+    // First ever run (old saves): crimes that are already on record count as committed.
+    function seedFromExistingSave() {
+        const cc = readCrimeCounts();
+        store.counters.hitRun = Math.max(store.counters.hitRun, cc.hitRun || 0);
+        store.counters.carSteal = Math.max(store.counters.carSteal, cc.carSteal || 0);
+        store.counters.assault = Math.max(store.counters.assault, cc.assault || 0);
+    }
+
+    // ---------------- A. unified profile ----------------
+    function recentStats() {
+        const r = { jobs: 0, crimes: 0, assault: 0, hitRun: 0, races: 0, arrests: 0, purchases: 0 };
+        store.events.forEach(e => {
+            switch (e.type) {
+                case "taxi_job": case "truck_job": r.jobs++; break;
+                case "crime_hit_run": r.hitRun++; r.crimes++; break;
+                case "crime_car_steal": r.crimes++; break;
+                case "crime_assault": r.assault++; r.crimes++; break;
+                case "black_market_sale": r.crimes++; break;
+                case "arrest": r.arrests++; r.crimes++; break;
+                case "race_won": case "race_lost": r.races++; break;
+                case "vehicle_purchase": r.purchases++; break;
+            }
+        });
+        return r;
+    }
+
+    function getProfile() {
+        const c = store.counters;
+        const owned = readOwnedCars();
+        let ownedValue = 0;
+        owned.forEach(car => { ownedValue += carValue(car.type); });
+
+        const taxiJobs = readTaxiJobs();
+        const crimesTotal = c.hitRun + c.carSteal + c.assault;
+        const racesEntered = c.racesWon + c.racesLost;
+
+        return {
+            sessions: store.sessions,
+            taxiJobs: taxiJobs,
+            truckJobs: c.truckJobs,
+            jobs: taxiJobs + c.truckJobs,
+            crimes: { hitRun: c.hitRun, carSteal: c.carSteal, assault: c.assault, total: crimesTotal },
+            arrests: c.arrests,
+            escapes: c.escapes,
+            racesWon: c.racesWon,
+            racesLost: c.racesLost,
+            racesEntered: racesEntered,
+            raceEarnings: c.raceEarnings,
+            carsOwned: owned.length,
+            carsPurchased: Math.max(c.carsPurchased, owned.length),
+            vehicleValue: Math.max(c.carSpend, ownedValue),
+            blackMarketSales: c.blackMarketSales,
+            money: Math.max(0, readMoney() || 0),
+            recent: recentStats(),
+            recentEventCount: store.events.length
+        };
+    }
+
+    // ---------------- C. behaviour analysis ----------------
+    function activityOf(p) {
+        return p.jobs + p.crimes.total + p.arrests + p.escapes +
+            p.racesEntered + p.carsPurchased + p.blackMarketSales;
+    }
+
+    function analyse(p) {
+        const r = p.recent;
+        const crimeUnits = p.crimes.total + p.arrests + p.blackMarketSales;
+        const legit = p.jobs + p.racesEntered;
+        const netWorth = p.money + p.vehicleValue;
+
+        const lifetime = {
+            professional_driver: sat(p.jobs, 20),
+            criminal: sat(crimeUnits, 12),
+            aggressive: sat(p.crimes.assault, 6),
+            competitive: 0.5 * sat(p.racesEntered, 6) + 0.5 * sat(p.racesWon, 4),
+            reckless_driver: sat(p.crimes.hitRun, 6),
+            wealthy: sat(netWorth, 20000),
+            law_abiding: (legit >= MIXED_ACTIVITY) ? sat(legit, 15) * (1 - sat(crimeUnits, 6)) : 0
+        };
+
+        const recent = {
+            professional_driver: sat(r.jobs, 8),
+            criminal: sat(r.crimes, 6),
+            aggressive: sat(r.assault, 3),
+            competitive: sat(r.races, 4),
+            reckless_driver: sat(r.hitRun, 3),
+            wealthy: sat(r.purchases, 2),
+            law_abiding: (r.crimes === 0) ? sat(r.jobs + r.races, 6) : 0
+        };
+
+        const scores = {};
+        BEHAVIOURS.forEach(b => {
+            scores[b] = Math.round(Math.min(1, LIFETIME_WEIGHT * lifetime[b] + RECENT_WEIGHT * recent[b]) * 100) / 100;
+        });
+
+        const activity = activityOf(p);
+        const tendencies = BEHAVIOURS
+            .filter(b => scores[b] >= TENDENCY_MIN)
+            .map(b => ({ name: b, score: scores[b] }))
+            .sort((a, b) => b.score - a.score);
+
+        const activeFamilies = (p.jobs > 0 ? 1 : 0) + (p.racesEntered > 0 ? 1 : 0) + (crimeUnits > 0 ? 1 : 0);
+        // "law_abiding" only describes a clean record, so it never competes with an activity.
+        const activeT = tendencies.filter(t => t.name !== "law_abiding");
+        const tendencyFamilies = new Set(activeT.map(t => FAMILY[t.name])).size;
+        const rival = activeT.length ? activeT.find(t => FAMILY[t.name] !== FAMILY[activeT[0].name]) : null;
+        const noClearLeader = !!rival && (activeT[0].score - rival.score) <= 0.1;
+
+        let state = "undetermined";
+        if (tendencyFamilies >= 3 || noClearLeader ||
+            (tendencies.length === 0 && activity >= MIXED_ACTIVITY && activeFamilies >= 2)) {
+            state = "mixed";
+        } else if (tendencies.length >= 1) {
+            state = "determined";
+        }
+        // Too little data: no clear tendency and not enough activity yet.
+        if (activity < MIN_ACTIVITY && tendencies.length === 0) state = "undetermined";
+
+        return {
+            state: state,
+            activity: activity,
+            scores: scores,
+            tendencies: tendencies,
+            dominant: tendencies.length ? tendencies[0].name : null,
+            secondary: tendencies.length > 1 ? tendencies[1].name : null
+        };
+    }
+
+    // ---------------- personality summary ----------------
+    const OPENERS = {
+        professional_driver: ["a hardworking driver", "a dependable wheelman for hire", "a tireless professional driver"],
+        criminal: ["a notorious troublemaker", "a one-person crime wave", "a career criminal in the making"],
+        aggressive: ["a hothead with quick fists", "a walking bar fight"],
+        competitive: ["a competitive street racer", "a street racer with something to prove"],
+        wealthy: ["a high roller", "a player with deep pockets"],
+        reckless_driver: ["a reckless driver", "a driver who treated traffic laws as optional suggestions"],
+        law_abiding: ["a model citizen", "a suspiciously well-behaved resident"],
+        mixed: ["a mixed character", "a hard-to-pin-down character"]
+    };
+
+    const TAGS = {
+        professional_driver: ["Honest work: a bold strategy in this city.", "Your meter was always running."],
+        criminal: ["Crime may not pay, but you kept collecting.", "The city's insurance companies know your name."],
+        aggressive: ["Conflict resolution is clearly not your strong suit.", "Your fists did most of the talking."],
+        competitive: ["Second place is just the first loser, right?", "The tyres never stood a chance."],
+        wealthy: ["Money looks good on you.", "Somebody is clearly doing something right."],
+        reckless_driver: ["The brake pedal was apparently decorative.", "Bumpers everywhere remember you."],
+        law_abiding: ["Boring? Maybe. Employable? Absolutely.", "A rare breed in this city."],
+        mixed: ["A little of everything, a master of... well, we'll see.", "Hard to pin down, even harder to predict."]
+    };
+
+    function jobsPhrase(p) {
+        const parts = [];
+        if (p.taxiJobs > 0) parts.push(plural(p.taxiJobs, "taxi job"));
+        if (p.truckJobs > 0) parts.push(plural(p.truckJobs, "truck job"));
+        return listJoin(parts);
+    }
+
+    function crimeParts(p) {
+        const parts = [];
+        if (p.crimes.carSteal > 0) parts.push(plural(p.crimes.carSteal, "car theft"));
+        if (p.crimes.hitRun > 0) parts.push(plural(p.crimes.hitRun, "hit-and-run"));
+        if (p.crimes.assault > 0) parts.push(plural(p.crimes.assault, "assault"));
+        return parts;
+    }
+
+    function arrestPhrase(p) {
+        return p.arrests === 1 ? "once" : p.arrests + " times";
+    }
+
+    // One factual sentence for a given behaviour, built only from real data.
+    function factsFor(b, p) {
+        switch (b) {
+            case "professional_driver": {
+                return "You completed " + jobsPhrase(p) + ".";
+            }
+            case "criminal": {
+                const parts = crimeParts(p);
+                if (parts.length && p.arrests > 0) return "You racked up " + listJoin(parts) + " and got arrested " + arrestPhrase(p) + ".";
+                if (parts.length) return "You racked up " + listJoin(parts) + ".";
+                if (p.arrests > 0) return "You got arrested " + arrestPhrase(p) + ".";
+                return "You made a habit of dodgy dealings.";
+            }
+            case "aggressive":
+                return "You were reported for " + plural(p.crimes.assault, "assault") + ".";
+            case "competitive": {
+                if (p.racesWon > 0) {
+                    return "You won " + plural(p.racesWon, "race") +
+                        (p.racesLost > 0 ? " and lost " + p.racesLost : "") +
+                        (p.raceEarnings > 0 ? ", pocketing " + money(p.raceEarnings) + " in prize money" : "") + ".";
+                }
+                return "You entered " + plural(p.racesEntered, "race") + " without a win yet.";
+            }
+            case "wealthy":
+                return "You were holding " + money(p.money) +
+                    (p.carsOwned > 0 ? " and owned " + plural(p.carsOwned, "vehicle") +
+                        (p.vehicleValue > 0 ? " worth about " + money(p.vehicleValue) : "") : "") + ".";
+            case "reckless_driver":
+                return "You left " + plural(p.crimes.hitRun, "hit-and-run scene") + " behind you.";
+            case "law_abiding": {
+                const parts = [];
+                if (p.jobs > 0) parts.push(jobsPhrase(p));
+                if (p.racesEntered > 0) parts.push(plural(p.racesEntered, "race"));
+                return "You put in " + listJoin(parts) + " and kept things legal.";
+            }
+        }
+        return "";
+    }
+
+    function mixedFacts(p) {
+        const parts = [];
+        if (p.taxiJobs > 0 && p.truckJobs > 0) parts.push("worked as a taxi and truck driver");
+        else if (p.taxiJobs > 0) parts.push("worked as a taxi driver");
+        else if (p.truckJobs > 0) parts.push("hauled cargo");
+        if (p.racesEntered > 0) parts.push("took part in street races");
+        const trouble = p.crimes.total + p.arrests + p.blackMarketSales;
+        if (trouble > 0) parts.push(trouble >= 6 ? "got into plenty of trouble" : "occasionally got into trouble");
+        return parts.length ? "You " + listJoin(parts) + "." : "";
+    }
+
+    function closerFor(p, activity, mixed) {
+        const trouble = p.crimes.total + p.arrests + p.blackMarketSales;
+        if (p.arrests >= 3) return "The police certainly know your face.";
+        if (p.arrests >= 1) return "The police have your photo on file.";
+        if (p.escapes >= 3) return "You outran the cops " + p.escapes + " times and they're still bitter about it.";
+        if (!mixed && trouble <= 2 && activity >= MIXED_ACTIVITY) return "You rarely got into trouble with the police.";
+        return "";
+    }
+
+    function generateSummary(p, a) {
+        const seed = hash([p.taxiJobs, p.truckJobs, p.crimes.total, p.arrests, p.escapes,
+            p.racesWon, p.racesLost, p.carsPurchased, p.blackMarketSales].join("|"));
+
+        if (a.state === "undetermined") {
+            const bits = [];
+            if (p.jobs > 0) bits.push(jobsPhrase(p));
+            if (p.racesEntered > 0) bits.push(plural(p.racesEntered, "race"));
+            if (p.crimes.total > 0) bits.push(plural(p.crimes.total, "crime"));
+            if (p.arrests > 0) bits.push(plural(p.arrests, "arrest"));
+
+            if (!bits.length) {
+                return "You're a blank slate. There isn't enough history yet to say whether you're a saint or a menace. " +
+                    "Go drive somewhere and let the city decide.";
+            }
+            return "Early days. So far you've logged " + listJoin(bits) +
+                ", which isn't enough to say what kind of player you are. Keep going and the city will make up its mind.";
+        }
+
+        let text;
+        let lead = "mixed";
+        if (a.state === "mixed") {
+            text = "You were " + pick(OPENERS.mixed, seed) + ". " + mixedFacts(p);
+        } else {
+            // "law_abiding" only describes a clean record, so it leads only when nothing
+            // else applies; otherwise the closing police line already says it.
+            const names = a.tendencies.map(t => t.name);
+            const active = names.filter(n => n !== "law_abiding");
+            const pool = active.length ? active : names;
+            lead = pool[0];
+            text = "You were " + pick(OPENERS[lead], seed) + ". " + factsFor(lead, p);
+            // a second sentence only for a DIFFERENT kind of behaviour (same family = already covered)
+            const other = pool.find(n => FAMILY[n] !== FAMILY[lead]);
+            if (other) {
+                const extra = factsFor(other, p);
+                if (extra) text += " " + extra;
+            }
+        }
+
+        const closer = closerFor(p, a.activity, a.state === "mixed");
+        if (closer) text += " " + closer;
+
+        if (TAGS[lead] && seed % 3 !== 0) text += " " + pick(TAGS[lead], seed, 1);
+
+        return text.replace(/\s+/g, " ").trim();
+    }
+
+    // ---------------- console report ----------------
+    function printHistory(p, a, summary) {
+        console.log("=== YOUR STREETBOUND HISTORY ===");
+        console.log("Previous sessions recorded: " + p.sessions);
+        console.log("--- Statistics ---");
+        console.log("Taxi jobs completed: " + p.taxiJobs);
+        console.log("Truck jobs completed: " + p.truckJobs);
+        console.log("Crimes: " + p.crimes.total + " (hit-and-run " + p.crimes.hitRun +
+            ", car theft " + p.crimes.carSteal + ", assault " + p.crimes.assault + ")");
+        console.log("Arrests: " + p.arrests + " | Police escapes: " + p.escapes);
+        console.log("Races: " + p.racesWon + " won, " + p.racesLost + " lost" +
+            (p.raceEarnings > 0 ? " | Prize money: " + money(p.raceEarnings) : ""));
+        console.log("Vehicles owned: " + p.carsOwned + " (purchased " + p.carsPurchased +
+            ", value " + money(p.vehicleValue) + ") | Black-market sales: " + p.blackMarketSales);
+        console.log("Current money: " + money(p.money));
+        console.log("Recent events remembered: " + p.recentEventCount + "/" + MAX_EVENTS);
+        if (p.sessions === 0) {
+            console.log("(Counters for truck jobs, lifetime crimes, arrests, escapes, races, purchases and " +
+                "black-market sales start from the first launch with this history system.)");
+        }
+
+        console.log("--- Behavioural tendencies ---");
+        if (a.state === "undetermined") {
+            console.log("undetermined (not enough data yet, activity " + a.activity + "/" + MIN_ACTIVITY + ")");
+        } else if (!a.tendencies.length) {
+            console.log("mixed (no single dominant behaviour)");
+        } else {
+            a.tendencies.forEach(t => {
+                console.log(t.name + ": " + Math.round(t.score * 100) + "%");
+            });
+            if (a.state === "mixed") console.log("overall: mixed");
+        }
+        console.log("All scores: " + BEHAVIOURS.map(b => b + " " + Math.round(a.scores[b] * 100) + "%").join(", "));
+
+        console.log("--- Summary ---");
+        console.log(summary);
+
+        if (store.events.length) {
+            console.log("--- Latest events ---");
+            store.events.slice(-5).forEach(e => {
+                console.log(new Date(e.t).toISOString() + "  " + e.type + (e.d ? " " + JSON.stringify(e.d) : ""));
+            });
+        }
+        console.log("================================");
+    }
+
+    // ---------------- B. recent event memory ----------------
+    const lastEventAt = {};
+    let dirty = false;                    // set when the store changed and needs saving
+
+    // Returns true if the event was recorded. Dedupe: same type+detail inside the window is ignored.
+    function recordEvent(type, detail, opts) {
+        opts = opts || {};
+        const now = Date.now();
+
+        if (!opts.noDedupe) {
+            const key = type + "|" + (detail ? JSON.stringify(detail) : "");
+            const gap = opts.minGapMs || DEFAULT_DEDUPE_MS;
+            if (lastEventAt[key] && now - lastEventAt[key] < gap) return false;
+            lastEventAt[key] = now;
+        }
+
+        store.events.push({ type: type, t: now, h: inGameHour(), s: store.sessions, d: detail || null });
+        if (store.events.length > MAX_EVENTS) store.events = store.events.slice(-MAX_EVENTS);
+        dirty = true;
+        return true;
+    }
+
+    // ---------------- state watcher (every POLL_MS, never per frame) ----------------
+    const last = {
+        ready: false,
+        taxi: 0, money: null, truckStage: 0,
+        crimes: { hitRun: null, carSteal: null, assault: null },
+        arrested: false, chasing: false, chaseStart: 0, lastArrestAt: 0,
+        raceState: null, carIds: null, bmReady: false, bmKey: null
+    };
+
+    function establishBaseline() {
+        last.taxi = (typeof player !== "undefined" && player) ? num(player.taxiMissionsCompleted) : 0;
+        last.money = readMoney();
+        last.truckStage = (typeof truckManager !== "undefined" && truckManager && truckManager.isJobActive) ? truckManager.stage : 0;
+        last.crimes = readCrimeCounts();
+        last.arrested = !!(typeof player !== "undefined" && player && player.isBeingArrested);
+        last.chasing = !!(typeof player !== "undefined" && player && player.beingChased);
+        last.chaseStart = Date.now();
+        last.raceState = (window.raceEventManager && window.raceEventManager.state) || null;
+        last.carIds = new Set(readOwnedCars().map(c => String(c.id)));
+        const bm = (typeof blackMarketZone !== "undefined" && blackMarketZone && Array.isArray(blackMarketZone.soldTimes)) ? blackMarketZone : null;
+        last.bmReady = !!bm;
+        last.bmKey = (bm && bm.soldTimes.length) ? bm.soldTimes[bm.soldTimes.length - 1] : null;
+        last.ready = true;
+    }
+
+    function watchTaxi() {
+        if (typeof player === "undefined" || !player) return;
+        const cur = num(player.taxiMissionsCompleted);
+        for (let i = 0; i < Math.min(3, cur - last.taxi); i++) {
+            recordEvent("taxi_job", null, { noDedupe: true });
+        }
+        last.taxi = cur;
+    }
+
+    function watchTruck() {
+        if (typeof truckManager === "undefined" || !truckManager) return;
+        const stage = truckManager.isJobActive ? truckManager.stage : 0;
+        const now = readMoney();
+
+        // Finished from the return stage with a pay-out (a failed job pays a penalty instead).
+        if (last.truckStage === 3 && stage === 0 && now !== null && last.money !== null && now > last.money) {
+            if (recordEvent("truck_job", null)) store.counters.truckJobs++;
+        }
+        last.truckStage = stage;
+    }
+
+    function watchCrimes() {
+        const cur = readCrimeCounts();
+        const map = [
+            ["hitRun", "crime_hit_run"],
+            ["carSteal", "crime_car_steal"],
+            ["assault", "crime_assault"]
+        ];
+        map.forEach(([key, type]) => {
+            if (cur[key] === null) return;
+            if (last.crimes[key] !== null && cur[key] > last.crimes[key]) {
+                const delta = Math.min(10, cur[key] - last.crimes[key]);
+                for (let i = 0; i < delta; i++) {
+                    if (recordEvent(type, null, { noDedupe: true })) store.counters[key]++;
+                }
+            }
+            last.crimes[key] = cur[key];     // also follows the reset to 0 after an arrest
+        });
+    }
+
+    function watchArrestAndChase() {
+        if (typeof player === "undefined" || !player) return;
+        const now = Date.now();
+        const arrested = !!player.isBeingArrested;
+        const chasing = !!player.beingChased;
+
+        if (arrested && !last.arrested) {
+            const cc = readCrimeCounts();
+            const charges = (cc.hitRun || 0) + (cc.carSteal || 0) + (cc.assault || 0);
+            if (recordEvent("arrest", { charges: charges })) store.counters.arrests++;
+            last.lastArrestAt = now;
+        }
+        last.arrested = arrested;
+
+        if (chasing && !last.chasing) last.chaseStart = now;
+
+        if (!chasing && last.chasing) {
+            const surrendered = (typeof isPlayerSurrendered !== "undefined") && !!isPlayerSurrendered;
+            const wasChaseLongEnough = now - last.chaseStart >= ESCAPE_MIN_CHASE_MS;
+            const justArrested = arrested || (now - last.lastArrestAt < 5000);
+
+            if (wasChaseLongEnough && player.wanted === true && !surrendered && !justArrested) {
+                if (recordEvent("police_escape", null, { minGapMs: ESCAPE_MIN_GAP_MS })) store.counters.escapes++;
+            }
+        }
+        last.chasing = chasing;
+    }
+
+    function watchRace() {
+        const rm = window.raceEventManager;
+        if (!rm) return;
+        const st = rm.state || null;
+
+        if (last.raceState === null) { last.raceState = st; return; }
+
+        if (st === "FINISHED" && last.raceState !== "FINISHED") {
+            const place = Number(rm.playerPlace);
+            const prize = num(rm.playerPrize);
+            const won = Number.isFinite(place) && place === 1;
+            const d = { place: Number.isFinite(place) && place >= 1 ? place : null, prize: prize };
+
+            if (recordEvent(won ? "race_won" : "race_lost", d)) {
+                if (won) store.counters.racesWon++; else store.counters.racesLost++;
+                store.counters.raceEarnings += prize;
+            }
+        }
+        last.raceState = st;
+    }
+
+    function watchPurchases() {
+        if (!last.carIds) return;
+        readOwnedCars().forEach(car => {
+            const id = String(car.id);
+            if (last.carIds.has(id)) return;
+            last.carIds.add(id);
+            const price = carValue(car.type);
+            if (recordEvent("vehicle_purchase", { type: car.type, price: price }, { noDedupe: true })) {
+                store.counters.carsPurchased++;
+                store.counters.carSpend += price;
+            }
+        });
+    }
+
+    function watchBlackMarket() {
+        const bm = (typeof blackMarketZone !== "undefined" && blackMarketZone && Array.isArray(blackMarketZone.soldTimes)) ? blackMarketZone : null;
+        if (!bm) return;
+        const key = bm.soldTimes.length ? bm.soldTimes[bm.soldTimes.length - 1] : null;
+
+        // A sale pushes a new newest timestamp; pruning only removes old ones.
+        if (last.bmReady && key !== null && key !== last.bmKey) {
+            if (recordEvent("black_market_sale", null)) store.counters.blackMarketSales++;
+        }
+        last.bmReady = true;
+        last.bmKey = key;
+    }
+
+    let watcherWarned = false;
+
+    function poll() {
+        if (!last.ready) {
+            try { establishBaseline(); } catch (e) { return; }
+        }
+
+        [watchTaxi, watchTruck, watchCrimes, watchArrestAndChase,
+         watchRace, watchPurchases, watchBlackMarket].forEach(fn => {
+            try {
+                fn();
+            } catch (e) {
+                if (!watcherWarned) { watcherWarned = true; console.warn("[History] watcher skipped:", e); }
+            }
+        });
+
+        last.money = readMoney();
+
+        if (dirty) { dirty = false; saveStore(); }
+    }
+
+    // ---------------- start-up ----------------
+    let started = false;
+
+    function start() {
+        if (started) return;
+        started = true;
+
+        try {
+            // 1. saved data is loaded by now (window "load" has fired and all scripts ran)
+            if (loadStore()) seedFromExistingSave();
+
+            // 2-4. read previous history, analyse it, print it
+            const profile = getProfile();
+            const analysis = analyse(profile);
+            const summary = generateSummary(profile, analysis);
+            printHistory(profile, analysis, summary);
+
+            // this launch is now part of history
+            store.sessions += 1;
+            saveStore();
+        } catch (e) {
+            console.warn("[History] could not build the history summary:", e);
+        }
+
+        setInterval(poll, POLL_MS);
+    }
+
+    if (document.readyState === "complete") {
+        setTimeout(start, 0);
+    } else {
+        window.addEventListener("load", () => setTimeout(start, 0));
+    }
+
+    // Read-only API for the future Story Director.
+    window.StreetBoundHistory = {
+        KEY: HISTORY_KEY,
+        getProfile: getProfile,
+        analyse: analyse,
+        generateSummary: generateSummary,
+        getRecentEvents: () => store.events.slice(),
+        recordEvent: (type, detail) => { const ok = recordEvent(String(type), detail || null); if (ok) saveStore(); return ok; },
+        printSummary: () => {
+            const p = getProfile();
+            const a = analyse(p);
+            printHistory(p, a, generateSummary(p, a));
+        }
+    };
+})();
