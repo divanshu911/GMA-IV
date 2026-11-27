@@ -1,4 +1,4 @@
-console.log("streetbound-storyline20-player-history");
+console.log("streetbound-storyline21-behaviour-analyzer-v2");
 // ===== REUSABLE CINEMATIC HELPERS =====
 //
 // The mandatory storyline (police briefing, SUV ambush, Victor's home meeting,
@@ -629,6 +629,84 @@ function storyIntroCardsAbort() {
         competitive: "racing", wealthy: "wealth"
     };
 
+    // ---------------- analyzer v2 configuration ----------------
+    // Every tunable number of the behaviour analysis lives here.
+    // Scores are the STRENGTH OF OBSERVED EVIDENCE (0..1), not statistical probabilities.
+    const ANALYZER_VERSION = 2;
+    const DAY_MS = 86400000;
+    const LEVELS = ["none", "weak", "moderate", "strong"];
+
+    const ANALYZER = {
+        // A trait needs `minEvidence` observations to count as "weak" evidence,
+        // x2 for "moderate", x4 for "strong".
+        evidenceMultiples: { weak: 1, moderate: 2, strong: 4 },
+
+        // minEvidence : lifetime observations needed before the trait may be reported
+        //               (wealthy is measured in dollars, everything else in actions)
+        // recentMin   : raw recent events needed before it counts as a RECENT trait
+        // lifetimeFull / recentFull : amount at which the score reaches 100%
+        traits: {
+            criminal:            { minEvidence: 3,    recentMin: 2, lifetimeFull: 12,    recentFull: 6 },
+            aggressive:          { minEvidence: 2,    recentMin: 2, lifetimeFull: 6,     recentFull: 3 },
+            reckless_driver:     { minEvidence: 2,    recentMin: 2, lifetimeFull: 6,     recentFull: 3 },
+            professional_driver: { minEvidence: 5,    recentMin: 3, lifetimeFull: 20,    recentFull: 8 },
+            competitive:         { minEvidence: 3,    recentMin: 2, lifetimeFull: 6,     recentFull: 4, winsFull: 4 },
+            wealthy:             { minEvidence: 5000, recentMin: 1, lifetimeFull: 20000, recentFull: 2 },
+            law_abiding:         { minEvidence: MIXED_ACTIVITY, recentMin: 3, lifetimeFull: 15, recentFull: 6, crimeFull: 6 }
+        },
+
+        // The "recent" profile is built from the remembered events (max MAX_EVENTS).
+        recent: {
+            minEvents: 8,                  // fewer events -> recent profile is "insufficient_data"
+            minSpanMs: 10 * 60 * 1000,     // ...and they must cover at least this much real time
+            halfLifeDays: 14,              // an event loses half its weight per 14 real days
+            halfLifeSessions: 4            // ...and per 4 game launches
+        },
+
+        // Some events say more about a player than others.
+        eventImportance: {
+            arrest: 1.5, crime_assault: 1.2, crime_hit_run: 1, crime_car_steal: 1,
+            black_market_sale: 1, taxi_job: 1, truck_job: 1.2,
+            race_won: 1.2, race_lost: 1, vehicle_purchase: 1
+        },
+
+        primaryBand: 0.1,                  // traits within 10 points of the top trait are also primary
+        maxPrimary: 2,
+
+        // Both traits of a combination need at least this evidence level.
+        combinationMinLevel: "moderate",
+        combos: [
+            { id: "wealthy_criminal",       traits: ["wealthy", "criminal"],
+              label: "wealthy criminal",    phrase: "a wealthy criminal",
+              assetPhrase: "a criminal with a well-stocked garage" },
+            { id: "violent_troublemaker",   traits: ["criminal", "aggressive"],
+              label: "violent troublemaker", phrase: "a violent troublemaker" },
+            { id: "skilled_driver",         traits: ["professional_driver", "competitive"],
+              label: "skilled driver",      phrase: "a skilled driver" },
+            { id: "successful_entrepreneur", traits: ["wealthy", "professional_driver"],
+              label: "successful entrepreneur", phrase: "a successful entrepreneur",
+              assetPhrase: "an entrepreneur reinvesting in vehicles" }
+        ],
+
+        trend: {
+            minRecentEvents: 10,           // remembered events needed before any trend is claimed
+            minRecentActivity: 6,          // recent jobs + races + crimes
+            minPriorActivity: 10,          // older activity (lifetime minus recent) to compare against
+            minShift: 0.2,                 // change in share of activity (20 points)
+            minTrendUnits: 3,              // recent actions of the kind that is "increasing"
+            lawAbidingMaxRecentCrime: 0,
+            lawAbidingMinRecentLegit: 4
+        },
+
+        // Cash is not the same thing as owning vehicles.
+        wealth: {
+            assetWeight: 0.5,              // vehicles count half as much as cash towards "wealthy"
+            cashLow: 1500, cashHigh: 10000, assetHigh: 15000
+        },
+
+        confidence: { low: MIN_ACTIVITY, moderate: 15, high: 40 }   // total activity thresholds
+    };
+
     // ---------------- small safe helpers ----------------
     function num(v) {
         const n = Number(v);
@@ -792,21 +870,68 @@ function storyIntroCardsAbort() {
     }
 
     // ---------------- A. unified profile ----------------
-    function recentStats() {
+    // Counts the remembered events. With a weight function each event contributes its
+    // weight (age / importance) instead of 1; without one this is the original raw tally.
+    function recentStats(weightOf) {
         const r = { jobs: 0, crimes: 0, assault: 0, hitRun: 0, races: 0, arrests: 0, purchases: 0 };
         store.events.forEach(e => {
+            const w = weightOf ? weightOf(e) : 1;
             switch (e.type) {
-                case "taxi_job": case "truck_job": r.jobs++; break;
-                case "crime_hit_run": r.hitRun++; r.crimes++; break;
-                case "crime_car_steal": r.crimes++; break;
-                case "crime_assault": r.assault++; r.crimes++; break;
-                case "black_market_sale": r.crimes++; break;
-                case "arrest": r.arrests++; r.crimes++; break;
-                case "race_won": case "race_lost": r.races++; break;
-                case "vehicle_purchase": r.purchases++; break;
+                case "taxi_job": case "truck_job": r.jobs += w; break;
+                case "crime_hit_run": r.hitRun += w; r.crimes += w; break;
+                case "crime_car_steal": r.crimes += w; break;
+                case "crime_assault": r.assault += w; r.crimes += w; break;
+                case "black_market_sale": r.crimes += w; break;
+                case "arrest": r.arrests += w; r.crimes += w; break;
+                case "race_won": case "race_lost": r.races += w; break;
+                case "vehicle_purchase": r.purchases += w; break;
             }
         });
         return r;
+    }
+
+    // Weight of one remembered event: importance x age in launches x age in real days.
+    function eventWeight(e) {
+        const R = ANALYZER.recent;
+        const imp = ANALYZER.eventImportance[e.type];
+        const importance = Number.isFinite(imp) ? imp : 1;
+        const ageDays = Math.max(0, (Date.now() - e.t) / DAY_MS);          // clock set back -> age 0
+        const sessionsAgo = e.s > 0 ? Math.max(0, store.sessions - e.s) : 0; // unknown launch -> no penalty
+        return importance * Math.pow(0.5, ageDays / R.halfLifeDays) * Math.pow(0.5, sessionsAgo / R.halfLifeSessions);
+    }
+
+    // Is there enough remembered history to describe "recent" behaviour at all?
+    function recentWindow() {
+        const R = ANALYZER.recent;
+        const ev = store.events;
+        let lo = Infinity, hi = -Infinity;
+        ev.forEach(e => { if (e.t < lo) lo = e.t; if (e.t > hi) hi = e.t; });
+        const spanMs = ev.length ? Math.max(0, hi - lo) : 0;
+
+        let reason = null;
+        if (ev.length < R.minEvents) {
+            reason = "only " + ev.length + " of " + R.minEvents + " events remembered";
+        } else if (spanMs < R.minSpanMs) {
+            reason = "remembered events cover under " + Math.round(R.minSpanMs / 60000) + " minutes of play";
+        }
+        return { events: ev.length, spanMs: spanMs, sufficient: reason === null, reason: reason };
+    }
+
+    function wealthProfile(p) {
+        const W = ANALYZER.wealth;
+        const cash = p.money, assets = p.assetValue;
+        const cashTier = cash >= W.cashHigh ? "high" : (cash >= W.cashLow ? "moderate" : "low");
+        const assetTier = assets <= 0 ? "none" : (assets >= W.assetHigh ? "high" : "modest");
+        let kind = "moderate";
+        if (cashTier === "high") kind = "cash_rich";
+        else if (assetTier === "high" && cashTier === "low") kind = "asset_rich_cash_poor";
+        else if (assetTier === "high") kind = "asset_rich";
+        return {
+            cash: cash, assets: assets, vehicles: p.carsOwned, netWorth: cash + assets,
+            cashTier: cashTier, assetTier: assetTier, kind: kind,
+            racePrizes: p.raceEarnings,
+            lifetimeEarnings: null            // the game does not save total income (only race prizes are tracked)
+        };
     }
 
     function getProfile() {
@@ -819,7 +944,7 @@ function storyIntroCardsAbort() {
         const crimesTotal = c.hitRun + c.carSteal + c.assault;
         const racesEntered = c.racesWon + c.racesLost;
 
-        return {
+        const profile = {
             sessions: store.sessions,
             taxiJobs: taxiJobs,
             truckJobs: c.truckJobs,
@@ -833,12 +958,16 @@ function storyIntroCardsAbort() {
             raceEarnings: c.raceEarnings,
             carsOwned: owned.length,
             carsPurchased: Math.max(c.carsPurchased, owned.length),
-            vehicleValue: Math.max(c.carSpend, ownedValue),
+            vehicleValue: Math.max(c.carSpend, ownedValue),   // what was spent on vehicles (unchanged)
+            assetValue: ownedValue,                           // what the owned vehicles are worth now
             blackMarketSales: c.blackMarketSales,
-            money: Math.max(0, readMoney() || 0),
-            recent: recentStats(),
+            money: Math.max(0, readMoney() || 0),             // cash on hand
+            recent: recentStats(),                            // raw counts of remembered events
+            recentWeighted: recentStats(eventWeight),         // same, weighted by age and importance
             recentEventCount: store.events.length
         };
+        profile.wealth = wealthProfile(profile);
+        return profile;
     }
 
     // ---------------- C. behaviour analysis ----------------
@@ -847,45 +976,154 @@ function storyIntroCardsAbort() {
             p.racesEntered + p.carsPurchased + p.blackMarketSales;
     }
 
-    function analyse(p) {
+    function r2(x) { return Math.round(x * 100) / 100; }
+
+    function levelOf(count, min) {
+        const m = ANALYZER.evidenceMultiples;
+        if (!(min > 0) || count < min * m.weak) return "none";
+        if (count >= min * m.strong) return "strong";
+        if (count >= min * m.moderate) return "moderate";
+        return "weak";
+    }
+
+    function levelRank(l) { return Math.max(0, LEVELS.indexOf(l)); }
+
+    function lowerLevel(a, b) { return levelRank(a) <= levelRank(b) ? a : b; }
+
+    // Lifetime vs. recent crime / job / race activity, and how the mix has changed.
+    function detectTrends(p, win) {
+        const T = ANALYZER.trend;
         const r = p.recent;
+
+        const lifeCrime = p.crimes.total + p.arrests + p.blackMarketSales;
+        const now = { crime: r.crimes, jobs: r.jobs, races: r.races };
+        const prior = {
+            crime: Math.max(0, lifeCrime - now.crime),
+            jobs: Math.max(0, p.jobs - now.jobs),
+            races: Math.max(0, p.racesEntered - now.races)
+        };
+        const nowTotal = now.crime + now.jobs + now.races;
+        const priorTotal = prior.crime + prior.jobs + prior.races;
+        const share = (x, total) => total > 0 ? x / total : 0;
+
+        const detail = {
+            recent: { crime: now.crime, jobs: now.jobs, races: now.races, total: nowTotal },
+            prior: { crime: prior.crime, jobs: prior.jobs, races: prior.races, total: priorTotal }
+        };
+
+        let reason = null;
+        if (!win.sufficient) reason = "recent history: " + win.reason;
+        else if (p.recentEventCount < T.minRecentEvents) reason = "only " + p.recentEventCount + " of " + T.minRecentEvents + " events remembered";
+        else if (nowTotal < T.minRecentActivity) reason = "only " + nowTotal + " recent jobs/races/crimes";
+        else if (priorTotal < T.minPriorActivity) reason = "only " + priorTotal + " earlier jobs/races/crimes to compare with";
+        if (reason) return { state: "insufficient_data", reason: reason, list: [], detail: detail };
+
+        const shift = {
+            crime: share(now.crime, nowTotal) - share(prior.crime, priorTotal),
+            jobs: share(now.jobs, nowTotal) - share(prior.jobs, priorTotal),
+            races: share(now.races, nowTotal) - share(prior.races, priorTotal)
+        };
+        detail.shift = { crime: r2(shift.crime), jobs: r2(shift.jobs), races: r2(shift.races) };
+
+        const list = [];
+        if (shift.crime >= T.minShift && now.crime >= T.minTrendUnits) {
+            list.push("criminal_activity_increasing");
+        }
+        if (shift.crime <= -T.minShift && prior.crime >= T.minTrendUnits) {
+            list.push("criminal_activity_decreasing");
+            if (now.crime <= T.lawAbidingMaxRecentCrime && (now.jobs + now.races) >= T.lawAbidingMinRecentLegit) {
+                list.push("becoming_more_law_abiding");
+            }
+        }
+        if (shift.jobs >= T.minShift && now.jobs >= T.minTrendUnits) list.push("increasing_professional_activity");
+        if (shift.races >= T.minShift && now.races >= T.minTrendUnits) list.push("increasing_racing_activity");
+
+        if (!list.length) list.push("stable");
+        return { state: "ok", reason: null, list: list, detail: detail };
+    }
+
+    function analyse(p) {
+        const C = ANALYZER.traits;
+        const r = p.recent;
+        const rw = p.recentWeighted || p.recent;
+        const win = recentWindow();
+
         const crimeUnits = p.crimes.total + p.arrests + p.blackMarketSales;
         const legit = p.jobs + p.racesEntered;
-        const netWorth = p.money + p.vehicleValue;
+        const wealthValue = p.money + ANALYZER.wealth.assetWeight * p.assetValue;   // cash counts fully, vehicles partly
 
+        // ---- lifetime perspective: cumulative saved statistics ----
         const lifetime = {
-            professional_driver: sat(p.jobs, 20),
-            criminal: sat(crimeUnits, 12),
-            aggressive: sat(p.crimes.assault, 6),
-            competitive: 0.5 * sat(p.racesEntered, 6) + 0.5 * sat(p.racesWon, 4),
-            reckless_driver: sat(p.crimes.hitRun, 6),
-            wealthy: sat(netWorth, 20000),
-            law_abiding: (legit >= MIXED_ACTIVITY) ? sat(legit, 15) * (1 - sat(crimeUnits, 6)) : 0
+            professional_driver: sat(p.jobs, C.professional_driver.lifetimeFull),
+            criminal: sat(crimeUnits, C.criminal.lifetimeFull),
+            aggressive: sat(p.crimes.assault, C.aggressive.lifetimeFull),
+            competitive: 0.5 * sat(p.racesEntered, C.competitive.lifetimeFull) + 0.5 * sat(p.racesWon, C.competitive.winsFull),
+            reckless_driver: sat(p.crimes.hitRun, C.reckless_driver.lifetimeFull),
+            wealthy: sat(wealthValue, C.wealthy.lifetimeFull),
+            law_abiding: (legit >= C.law_abiding.minEvidence)
+                ? sat(legit, C.law_abiding.lifetimeFull) * (1 - sat(crimeUnits, C.law_abiding.crimeFull)) : 0
         };
 
+        // ---- recent perspective: remembered events, weighted by age and importance ----
         const recent = {
-            professional_driver: sat(r.jobs, 8),
-            criminal: sat(r.crimes, 6),
-            aggressive: sat(r.assault, 3),
-            competitive: sat(r.races, 4),
-            reckless_driver: sat(r.hitRun, 3),
-            wealthy: sat(r.purchases, 2),
-            law_abiding: (r.crimes === 0) ? sat(r.jobs + r.races, 6) : 0
+            professional_driver: sat(rw.jobs, C.professional_driver.recentFull),
+            criminal: sat(rw.crimes, C.criminal.recentFull),
+            aggressive: sat(rw.assault, C.aggressive.recentFull),
+            competitive: sat(rw.races, C.competitive.recentFull),
+            reckless_driver: sat(rw.hitRun, C.reckless_driver.recentFull),
+            wealthy: sat(rw.purchases, C.wealthy.recentFull),
+            law_abiding: (r.crimes === 0) ? sat(rw.jobs + rw.races, C.law_abiding.recentFull) : 0
         };
 
-        const scores = {};
+        const evidence = {
+            criminal: crimeUnits, aggressive: p.crimes.assault, reckless_driver: p.crimes.hitRun,
+            professional_driver: p.jobs, competitive: p.racesEntered,
+            wealthy: Math.round(wealthValue), law_abiding: legit
+        };
+        const recentCount = {
+            criminal: r.crimes, aggressive: r.assault, reckless_driver: r.hitRun,
+            professional_driver: r.jobs, competitive: r.races,
+            wealthy: r.purchases, law_abiding: r.jobs + r.races
+        };
+
+        // With too little recent history the blend falls back to lifetime only
+        // (an empty recent window must not drag every score down).
+        const useRecent = win.sufficient;
+        const scores = {}, lifetimeScores = {}, recentScores = {}, traitDetails = {};
         BEHAVIOURS.forEach(b => {
-            scores[b] = Math.round(Math.min(1, LIFETIME_WEIGHT * lifetime[b] + RECENT_WEIGHT * recent[b]) * 100) / 100;
+            lifetimeScores[b] = r2(lifetime[b]);
+            recentScores[b] = r2(recent[b]);
+            const blended = useRecent ? (LIFETIME_WEIGHT * lifetime[b] + RECENT_WEIGHT * recent[b]) : lifetime[b];
+            scores[b] = r2(Math.min(1, blended));
+            traitDetails[b] = {
+                score: scores[b],
+                lifetimeScore: lifetimeScores[b],
+                recentScore: useRecent ? recentScores[b] : null,
+                evidence: evidence[b],
+                level: levelOf(evidence[b], C[b].minEvidence),
+                recentCount: recentCount[b]
+            };
         });
 
-        const activity = activityOf(p);
-        const tendencies = BEHAVIOURS
-            .filter(b => scores[b] >= TENDENCY_MIN)
-            .map(b => ({ name: b, score: scores[b] }))
+        // A trait is only reported once its score AND its minimum evidence are met.
+        const reported = BEHAVIOURS
+            .filter(b => scores[b] >= TENDENCY_MIN && traitDetails[b].level !== "none")
+            .map(b => ({ name: b, score: scores[b], level: traitDetails[b].level }))
             .sort((a, b) => b.score - a.score);
+        const tendencies = reported;
 
+        const lifetimeTraits = BEHAVIOURS
+            .filter(b => lifetimeScores[b] >= TENDENCY_MIN && traitDetails[b].level !== "none")
+            .map(b => ({ name: b, score: lifetimeScores[b], level: traitDetails[b].level }))
+            .sort((a, b) => b.score - a.score);
+        const recentTraits = useRecent ? BEHAVIOURS
+            .filter(b => recentScores[b] >= TENDENCY_MIN && recentCount[b] >= C[b].recentMin)
+            .map(b => ({ name: b, score: recentScores[b], count: recentCount[b] }))
+            .sort((a, b) => b.score - a.score) : [];
+
+        // ---- overall state (same rules as v1, now on evidence-gated tendencies) ----
+        const activity = activityOf(p);
         const activeFamilies = (p.jobs > 0 ? 1 : 0) + (p.racesEntered > 0 ? 1 : 0) + (crimeUnits > 0 ? 1 : 0);
-        // "law_abiding" only describes a clean record, so it never competes with an activity.
         const activeT = tendencies.filter(t => t.name !== "law_abiding");
         const tendencyFamilies = new Set(activeT.map(t => FAMILY[t.name])).size;
         const rival = activeT.length ? activeT.find(t => FAMILY[t.name] !== FAMILY[activeT[0].name]) : null;
@@ -898,16 +1136,70 @@ function storyIntroCardsAbort() {
         } else if (tendencies.length >= 1) {
             state = "determined";
         }
-        // Too little data: no clear tendency and not enough activity yet.
         if (activity < MIN_ACTIVITY && tendencies.length === 0) state = "undetermined";
 
+        // ---- primary / secondary traits ----
+        const primaryTraits = [];
+        if (tendencies.length) {
+            primaryTraits.push(tendencies[0].name);
+            for (let i = 1; i < tendencies.length && primaryTraits.length < ANALYZER.maxPrimary; i++) {
+                if (tendencies[0].score - tendencies[i].score <= ANALYZER.primaryBand) primaryTraits.push(tendencies[i].name);
+            }
+        }
+        const secondaryTraits = tendencies.map(t => t.name).filter(n => primaryTraits.indexOf(n) < 0);
+
+        // ---- combinations (several may coexist) ----
+        const have = {};
+        tendencies.forEach(t => { have[t.name] = t; });
+        const minRank = levelRank(ANALYZER.combinationMinLevel);
+        const combinations = ANALYZER.combos
+            .filter(c => c.traits.every(n => have[n] && levelRank(have[n].level) >= minRank))
+            .map(c => ({
+                id: c.id,
+                label: c.label,
+                traits: c.traits.slice(),
+                strength: Math.min.apply(null, c.traits.map(n => have[n].score)),
+                level: c.traits.map(n => have[n].level).reduce(lowerLevel)
+            }))
+            .sort((a, b) => b.strength - a.strength);
+
+        const trends = detectTrends(p, win);
+
+        // ---- overall evidence strength ----
+        const K = ANALYZER.confidence;
+        const confLevel = activity < K.low ? "insufficient" : (activity < K.moderate ? "low" : (activity < K.high ? "moderate" : "high"));
+
         return {
+            version: ANALYZER_VERSION,
+            // fields that existed in v1 (unchanged meaning)
             state: state,
             activity: activity,
             scores: scores,
             tendencies: tendencies,
             dominant: tendencies.length ? tendencies[0].name : null,
-            secondary: tendencies.length > 1 ? tendencies[1].name : null
+            secondary: tendencies.length > 1 ? tendencies[1].name : null,
+            // v2
+            lifetime: { state: state, activity: activity, scores: lifetimeScores, traits: lifetimeTraits },
+            recent: {
+                state: useRecent ? "ok" : "insufficient_data",
+                reason: win.reason,
+                events: win.events,
+                spanMs: win.spanMs,
+                scores: useRecent ? recentScores : null,
+                traits: recentTraits
+            },
+            traitDetails: traitDetails,
+            primaryTraits: primaryTraits,
+            secondaryTraits: secondaryTraits,
+            combinations: combinations,
+            trends: trends,
+            wealth: p.wealth,
+            confidence: {
+                level: confLevel,
+                activity: activity,
+                recentHistory: useRecent ? "sufficient" : "insufficient_data",
+                note: "Evidence strength from observed actions, not a statistical probability."
+            }
         };
     }
 
@@ -923,6 +1215,14 @@ function storyIntroCardsAbort() {
         mixed: ["a mixed character", "a hard-to-pin-down character"]
     };
 
+    // Wealth wording depends on WHERE the money is: cash in hand vs. vehicles in the garage.
+    const WEALTH_OPENERS = {
+        cash_rich: OPENERS.wealthy,
+        asset_rich: ["a player with a serious garage and healthy savings", "a collector with money to spare"],
+        asset_rich_cash_poor: ["a car collector running on fumes", "a player with a full garage and a thin wallet"],
+        moderate: ["a player who has built up some savings", "a steady earner"]
+    };
+
     const TAGS = {
         professional_driver: ["Honest work: a bold strategy in this city.", "Your meter was always running."],
         criminal: ["Crime may not pay, but you kept collecting.", "The city's insurance companies know your name."],
@@ -932,6 +1232,21 @@ function storyIntroCardsAbort() {
         reckless_driver: ["The brake pedal was apparently decorative.", "Bumpers everywhere remember you."],
         law_abiding: ["Boring? Maybe. Employable? Absolutely.", "A rare breed in this city."],
         mixed: ["A little of everything, a master of... well, we'll see.", "Hard to pin down, even harder to predict."]
+    };
+
+    const WEALTH_TAGS = {
+        asset_rich_cash_poor: ["Plenty of horsepower in the garage, not much in the wallet.", "Your cars are worth more than your bank balance."],
+        asset_rich: ["The garage and the bank account are both looking good."],
+        cash_rich: TAGS.wealthy,
+        moderate: TAGS.wealthy
+    };
+
+    const TREND_SENTENCES = {
+        becoming_more_law_abiding: "Lately you've been keeping your nose clean, a change from your earlier record.",
+        criminal_activity_decreasing: "Your recent record has been cleaner than your history.",
+        criminal_activity_increasing: "Lately you've been leaning harder into crime.",
+        increasing_professional_activity: "Recently you've been putting in more honest work.",
+        increasing_racing_activity: "You've been hitting the racing scene harder lately."
     };
 
     function jobsPhrase(p) {
@@ -951,6 +1266,20 @@ function storyIntroCardsAbort() {
 
     function arrestPhrase(p) {
         return p.arrests === 1 ? "once" : p.arrests + " times";
+    }
+
+    // Cash and vehicle value are always stated separately; vehicles are never "money in hand".
+    function wealthSentence(p) {
+        const w = p.wealth || wealthProfile(p);
+        if (w.assets > 0) {
+            const vehicles = plural(p.carsOwned, "vehicle") + " worth about " + money(w.assets);
+            if (w.kind === "asset_rich_cash_poor") {
+                return "You only had " + money(w.cash) + " in cash, but you own " + vehicles + ", so your wealth is parked in the garage, not the bank.";
+            }
+            return "You were holding " + money(w.cash) + " in cash and own " + vehicles + ".";
+        }
+        if (w.cash > 0) return "You were holding " + money(w.cash) + " in cash.";
+        return "";
     }
 
     // One factual sentence for a given behaviour, built only from real data.
@@ -977,9 +1306,7 @@ function storyIntroCardsAbort() {
                 return "You entered " + plural(p.racesEntered, "race") + " without a win yet.";
             }
             case "wealthy":
-                return "You were holding " + money(p.money) +
-                    (p.carsOwned > 0 ? " and owned " + plural(p.carsOwned, "vehicle") +
-                        (p.vehicleValue > 0 ? " worth about " + money(p.vehicleValue) : "") : "") + ".";
+                return wealthSentence(p);
             case "reckless_driver":
                 return "You left " + plural(p.crimes.hitRun, "hit-and-run scene") + " behind you.";
             case "law_abiding": {
@@ -1012,6 +1339,33 @@ function storyIntroCardsAbort() {
         return "";
     }
 
+    function openerFor(b, p, seed) {
+        if (b === "wealthy") {
+            const w = p.wealth || wealthProfile(p);
+            return pick(WEALTH_OPENERS[w.kind] || WEALTH_OPENERS.moderate, seed);
+        }
+        return pick(OPENERS[b], seed);
+    }
+
+    function comboPhrase(c, p) {
+        const def = ANALYZER.combos.find(x => x.id === c.id);
+        const w = p.wealth || wealthProfile(p);
+        if (def && def.assetPhrase && w.kind === "asset_rich_cash_poor") return def.assetPhrase;
+        return def ? def.phrase : c.label;
+    }
+
+    function trendSentence(a) {
+        if (!a.trends || a.trends.state !== "ok") return "";
+        const list = a.trends.list;
+        // the stronger statement replaces the weaker one: never both
+        const order = ["becoming_more_law_abiding", "criminal_activity_decreasing", "criminal_activity_increasing",
+            "increasing_professional_activity", "increasing_racing_activity"];
+        for (let i = 0; i < order.length; i++) {
+            if (list.indexOf(order[i]) >= 0) return TREND_SENTENCES[order[i]];
+        }
+        return "";
+    }
+
     function generateSummary(p, a) {
         const seed = hash([p.taxiJobs, p.truckJobs, p.crimes.total, p.arrests, p.escapes,
             p.racesWon, p.racesLost, p.carsPurchased, p.blackMarketSales].join("|"));
@@ -1031,9 +1385,33 @@ function storyIntroCardsAbort() {
                 ", which isn't enough to say what kind of player you are. Keep going and the city will make up its mind.";
         }
 
+        const combo = (a.combinations && a.combinations.length) ? a.combinations[0] : null;
+        const wealth = p.wealth || wealthProfile(p);
+        let wealthDone = false;
         let text;
         let lead = "mixed";
-        if (a.state === "mixed") {
+
+        if (combo) {
+            // the combination IS the headline (even for a mixed player); facts come from each underlying family once
+            text = "You were " + comboPhrase(combo, p) + ".";
+            const seenFamily = {};
+            combo.traits.forEach(t => {
+                if (seenFamily[FAMILY[t]]) return;
+                seenFamily[FAMILY[t]] = true;
+                const f = factsFor(t, p);
+                if (f) text += " " + f;
+                if (t === "wealthy") wealthDone = true;
+            });
+            lead = combo.traits.find(t => t !== "wealthy") || combo.traits[0];
+            // a reported trait from a family the combination does not cover is still part of the picture
+            const uncovered = a.tendencies.map(t => t.name).find(n => n !== "law_abiding" && !seenFamily[FAMILY[n]]);
+            if (uncovered) {
+                const extra = factsFor(uncovered, p);
+                if (extra) text += " " + extra;
+                if (uncovered === "wealthy") wealthDone = true;
+                lead = "mixed";          // no single-trait tagline when the picture is mixed
+            }
+        } else if (a.state === "mixed") {
             text = "You were " + pick(OPENERS.mixed, seed) + ". " + mixedFacts(p);
         } else {
             // "law_abiding" only describes a clean record, so it leads only when nothing
@@ -1042,24 +1420,65 @@ function storyIntroCardsAbort() {
             const active = names.filter(n => n !== "law_abiding");
             const pool = active.length ? active : names;
             lead = pool[0];
-            text = "You were " + pick(OPENERS[lead], seed) + ". " + factsFor(lead, p);
+            text = "You were " + openerFor(lead, p, seed) + ". " + factsFor(lead, p);
+            if (lead === "wealthy") wealthDone = true;
             // a second sentence only for a DIFFERENT kind of behaviour (same family = already covered)
             const other = pool.find(n => FAMILY[n] !== FAMILY[lead]);
             if (other) {
                 const extra = factsFor(other, p);
                 if (extra) text += " " + extra;
+                if (other === "wealthy") wealthDone = true;
             }
+        }
+
+        // money: always say what is cash and what is vehicles, once
+        if (!wealthDone && (wealth.cash > 0 || wealth.assets > 0)) {
+            const ws = wealthSentence(p);
+            if (ws) text += " " + ws;
         }
 
         const closer = closerFor(p, a.activity, a.state === "mixed");
         if (closer) text += " " + closer;
 
-        if (TAGS[lead] && seed % 3 !== 0) text += " " + pick(TAGS[lead], seed, 1);
+        const trend = trendSentence(a);
+        if (trend) text += " " + trend;
+
+        const tags = (lead === "wealthy") ? (WEALTH_TAGS[wealth.kind] || TAGS.wealthy) : TAGS[lead];
+        if (tags && seed % 3 !== 0) text += " " + pick(tags, seed, 1);
 
         return text.replace(/\s+/g, " ").trim();
     }
 
+    // ---------------- unified profile for the Story Director ----------------
+    function buildPlayerProfile() {
+        const p = getProfile();
+        const a = analyse(p);
+        const summary = generateSummary(p, a);
+        return {
+            version: ANALYZER_VERSION,
+            generatedAt: Date.now(),
+            stats: p,
+            wealth: a.wealth,
+            lifetime: a.lifetime,
+            recent: a.recent,
+            combined: { scores: a.scores, traitDetails: a.traitDetails },
+            primaryTraits: a.primaryTraits,
+            secondaryTraits: a.secondaryTraits,
+            combinations: a.combinations,
+            trends: a.trends,
+            personality: { state: a.state, dominant: a.dominant, description: summary },
+            confidence: a.confidence
+        };
+    }
+
     // ---------------- console report ----------------
+    function pct(x) { return Math.round(x * 100) + "%"; }
+
+    function traitLine(b, a) {
+        const d = a.traitDetails[b];
+        return b + ": " + pct(d.score) + " (evidence: " + d.level + ")";
+    }
+
     function printHistory(p, a, summary) {
         console.log("=== YOUR STREETBOUND HISTORY ===");
         console.log("Previous sessions recorded: " + p.sessions);
@@ -1072,29 +1491,63 @@ function storyIntroCardsAbort() {
         console.log("Races: " + p.racesWon + " won, " + p.racesLost + " lost" +
             (p.raceEarnings > 0 ? " | Prize money: " + money(p.raceEarnings) : ""));
         console.log("Vehicles owned: " + p.carsOwned + " (purchased " + p.carsPurchased +
-            ", value " + money(p.vehicleValue) + ") | Black-market sales: " + p.blackMarketSales);
-        console.log("Current money: " + money(p.money));
+            ", spent " + money(p.vehicleValue) + ") | Black-market sales: " + p.blackMarketSales);
+        console.log("Cash on hand: " + money(p.money) + " | Vehicle assets: " + money(p.assetValue) +
+            " | Net worth: " + money(p.money + p.assetValue) + " (" + a.wealth.kind + ")");
+        console.log("Lifetime earnings: not tracked by the game" +
+            (p.raceEarnings > 0 ? " (race prizes so far: " + money(p.raceEarnings) + ")" : ""));
         console.log("Recent events remembered: " + p.recentEventCount + "/" + MAX_EVENTS);
         if (p.sessions === 0) {
             console.log("(Counters for truck jobs, lifetime crimes, arrests, escapes, races, purchases and " +
                 "black-market sales start from the first launch with this history system.)");
         }
 
-        console.log("--- Behavioural tendencies ---");
+        console.log("--- Lifetime profile ---");
         if (a.state === "undetermined") {
             console.log("undetermined (not enough data yet, activity " + a.activity + "/" + MIN_ACTIVITY + ")");
-        } else if (!a.tendencies.length) {
-            console.log("mixed (no single dominant behaviour)");
         } else {
-            a.tendencies.forEach(t => {
-                console.log(t.name + ": " + Math.round(t.score * 100) + "%");
-            });
-            if (a.state === "mixed") console.log("overall: mixed");
+            console.log("overall: " + a.state);
         }
-        console.log("All scores: " + BEHAVIOURS.map(b => b + " " + Math.round(a.scores[b] * 100) + "%").join(", "));
+        console.log(BEHAVIOURS.map(b => b + " " + pct(a.lifetime.scores[b])).join(", "));
+
+        console.log("--- Recent profile ---");
+        if (a.recent.state !== "ok") {
+            console.log("insufficient_data (" + a.recent.reason + ")");
+        } else {
+            console.log(a.recent.events + " events over " + Math.round(a.recent.spanMs / 60000) + " min of play");
+            console.log(BEHAVIOURS.map(b => b + " " + pct(a.recent.scores[b])).join(", "));
+        }
+
+        console.log("--- Traits ---");
+        console.log("Primary: " + (a.primaryTraits.length ? a.primaryTraits.join(", ") : "none"));
+        console.log("Secondary: " + (a.secondaryTraits.length ? a.secondaryTraits.join(", ") : "none"));
+        if (a.tendencies.length) {
+            a.tendencies.forEach(t => console.log(traitLine(t.name, a)));
+        } else if (a.state !== "undetermined") {
+            console.log("mixed (no single dominant behaviour)");
+        }
+        if (a.state === "mixed" && a.tendencies.length) console.log("overall: mixed");
+        console.log("All scores: " + BEHAVIOURS.map(b => b + " " + pct(a.scores[b])).join(", "));
+
+        console.log("--- Behaviour combinations ---");
+        if (!a.combinations.length) {
+            console.log("none");
+        } else {
+            a.combinations.forEach(c => {
+                console.log(c.label + " [" + c.traits.join(" + ") + "] strength " + pct(c.strength) + ", evidence: " + c.level);
+            });
+        }
+
+        console.log("--- Behavioural trends ---");
+        if (a.trends.state !== "ok") {
+            console.log("insufficient_data (" + a.trends.reason + ")");
+        } else {
+            console.log(a.trends.list.join(", "));
+        }
 
         console.log("--- Summary ---");
         console.log(summary);
+        console.log("Overall evidence: " + a.confidence.level + " (" + a.confidence.note + ")");
 
         if (store.events.length) {
             console.log("--- Latest events ---");
@@ -1326,6 +1779,8 @@ function storyIntroCardsAbort() {
     window.StreetBoundHistory = {
         KEY: HISTORY_KEY,
         getProfile: getProfile,
+        getFullProfile: buildPlayerProfile,     // v2: lifetime + recent + traits + combinations + trends
+        ANALYZER_VERSION: ANALYZER_VERSION,
         analyse: analyse,
         generateSummary: generateSummary,
         getRecentEvents: () => store.events.slice(),
